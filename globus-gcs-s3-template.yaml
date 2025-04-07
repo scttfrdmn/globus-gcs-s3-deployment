@@ -1,0 +1,532 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "CloudFormation template for Globus Connect Server with S3 Connector"
+
+Conditions:
+  HasSubscription: !Not [!Equals [!Ref GlobusSubscriptionId, ""]]
+  IsProduction: !Equals [!Ref DeploymentType, "Production"]
+  UseElasticIP: !Or [!Equals [!Ref DeploymentType, "Production"], !Equals [!Ref ForceElasticIP, true]]
+  DeployS3Connector: !And [!Ref EnableS3Connector, HasSubscription]
+  DeployPosixConnector: !And [!Ref EnablePosixConnector, HasSubscription]
+  DeployGoogleDriveConnector: !And [!Ref EnableGoogleDriveConnector, HasSubscription]
+  UseGlobusAuth: !Equals [!Ref AuthenticationMethod, "Globus"]
+  HasDefaultAdmin: !Not [!Equals [!Ref DefaultAdminIdentity, ""]]
+
+Parameters:
+  DeploymentType:
+    Description: Type of deployment (affects resource configuration)
+    Type: String
+    Default: Integration
+    AllowedValues:
+      - Integration
+      - Production
+    ConstraintDescription: Must be either Integration or Production.
+    
+  ForceElasticIP:
+    Description: Force allocation of Elastic IP even for Integration deployment
+    Type: Boolean
+    Default: false
+    
+  AuthenticationMethod:
+    Description: Authentication method for the Globus Connect Server
+    Type: String
+    Default: Globus
+    AllowedValues:
+      - Globus
+      - MyProxy
+    ConstraintDescription: Must be either Globus (for identity federation) or MyProxy (for local accounts).
+    
+  DefaultAdminIdentity:
+    Description: Globus identity to be granted admin access (email@example.org)
+    Type: String
+    Default: ""
+
+  InstanceType:
+    Description: EC2 instance type for Globus Connect Server
+    Type: String
+    Default: m6i.xlarge
+    AllowedValues:
+      - m5.xlarge
+      - m5.2xlarge
+      - m5.4xlarge
+      - m5n.xlarge
+      - m5n.2xlarge
+      - m5n.4xlarge
+      - m6i.xlarge
+      - m6i.2xlarge
+      - m6i.4xlarge
+      - m6in.xlarge
+      - m6in.2xlarge
+      - m6in.4xlarge
+    ConstraintDescription: Must be a valid EC2 instance type.
+
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: Must be the name of an existing EC2 KeyPair.
+
+  AvailabilityZone:
+    Description: The Availability Zone to launch the instance in
+    Type: AWS::EC2::AvailabilityZone::Name
+
+  VpcId:
+    Description: VPC to deploy Globus Connect Server into
+    Type: AWS::EC2::VPC::Id
+
+  SubnetId:
+    Description: Subnet within the selected VPC and Availability Zone
+    Type: AWS::EC2::Subnet::Id
+
+  S3BucketName:
+    Description: Name of S3 bucket to connect to Globus
+    Type: String
+    AllowedPattern: "[a-zA-Z0-9\\-\\.]{3,63}"
+    ConstraintDescription: Bucket name must be between 3 and 63 characters, contain only letters, numbers, hyphens, and periods.
+
+  GlobusClientId:
+    Description: Globus Client ID for registration
+    Type: String
+    NoEcho: true
+
+  GlobusClientSecret:
+    Description: Globus Client Secret for registration
+    Type: String
+    NoEcho: true
+
+  GlobusSubscriptionId:
+    Description: (Optional) Globus Subscription ID to join this endpoint to your subscription
+    Type: String
+    Default: ""
+    
+  # Connector options
+  EnableS3Connector:
+    Description: Enable S3 Connector (requires subscription)
+    Type: Boolean
+    Default: true
+    
+  EnablePosixConnector:
+    Description: Enable POSIX Connector for local filesystem access (requires subscription)
+    Type: Boolean
+    Default: false
+    
+  EnableGoogleDriveConnector:
+    Description: Enable Google Drive Connector (requires subscription)
+    Type: Boolean
+    Default: false
+
+  # Connector specific parameters
+  S3BucketName:
+    Description: Name of S3 bucket to connect (if S3 Connector is enabled)
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|[a-zA-Z0-9\\-\\.]{3,63}"
+    ConstraintDescription: Bucket name must be between 3 and 63 characters, contain only letters, numbers, hyphens, and periods.
+    
+  PosixPath:
+    Description: Local filesystem path for POSIX Connector (if enabled)
+    Type: String
+    Default: "/data"
+
+  GlobusDisplayName:
+    Description: Display name for the Globus endpoint
+    Type: String
+    Default: "AWS-GCS-S3-Endpoint"
+
+Mappings:
+  RegionMap:
+    us-east-1:
+      AMI: ami-0f3c7d07486cad139 # Amazon Linux 2023 AMI in us-east-1
+    us-east-2:
+      AMI: ami-0cc87e5027adcdca8 # Amazon Linux 2023 AMI in us-east-2
+    us-west-1:
+      AMI: ami-0ce2cb35386e3b100 # Amazon Linux 2023 AMI in us-west-1
+    us-west-2:
+      AMI: ami-008fe2fc65df48dac # Amazon Linux 2023 AMI in us-west-2
+    eu-west-1:
+      AMI: ami-06d0bbd3c5e5d5055 # Amazon Linux 2023 AMI in eu-west-1
+    eu-central-1:
+      AMI: ami-0bc77b0b09ab632bf # Amazon Linux 2023 AMI in eu-central-1
+    ap-northeast-1:
+      AMI: ami-09a5c873bc79530d9 # Amazon Linux 2023 AMI in ap-northeast-1
+    ap-southeast-1:
+      AMI: ami-0fa377108253bf620 # Amazon Linux 2023 AMI in ap-southeast-1
+    ap-southeast-2:
+      AMI: ami-04f5097681773b989 # Amazon Linux 2023 AMI in ap-southeast-2
+
+Resources:
+  GlobusServerElasticIP:
+    Type: AWS::EC2::EIP
+    Condition: UseElasticIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: globus-server-eip
+          
+  GlobusServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH and Globus Connect Server ports
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: SSH access
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS for Globus Connect Server
+        - IpProtocol: tcp
+          FromPort: 2811
+          ToPort: 2811
+          CidrIp: 0.0.0.0/0
+          Description: GridFTP control channel
+        - IpProtocol: tcp
+          FromPort: 7512
+          ToPort: 7512
+          CidrIp: 0.0.0.0/0
+          Description: Globus Connect Server authentication
+        - IpProtocol: tcp
+          FromPort: 50000
+          ToPort: 51000
+          CidrIp: 0.0.0.0/0
+          Description: GridFTP data channels
+      Tags:
+        - Key: Name
+          Value: globus-server-sg
+
+  GlobusServerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Path: "/"
+
+  GlobusServerS3Policy:
+    Type: AWS::IAM::Policy
+    Condition: DeployS3Connector
+    Properties:
+      PolicyName: GlobusServerS3Access
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:ListBucket
+              - s3:GetBucketLocation
+            Resource: !Sub "arn:aws:s3:::${S3BucketName}"
+          - Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:GetObject
+              - s3:DeleteObject
+              - s3:ListMultipartUploadParts
+              - s3:AbortMultipartUpload
+            Resource: !Sub "arn:aws:s3:::${S3BucketName}/*"
+      Roles:
+        - !Ref GlobusServerRole
+
+  GlobusServerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+        - !Ref GlobusServerRole
+
+  GlobusServerInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      AvailabilityZone: !Ref AvailabilityZone
+      IamInstanceProfile: !Ref GlobusServerInstanceProfile
+      SecurityGroupIds:
+        - !GetAtt GlobusServerSecurityGroup.GroupId
+      SubnetId: !Ref SubnetId
+      ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", AMI]
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 100
+            VolumeType: gp3
+            DeleteOnTermination: true
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+
+          # Update the system
+          dnf update -y
+          dnf install -y python3-pip jq curl wget gnupg2 
+
+          # Set authentication configuration based on chosen method
+          if [ "${AuthenticationMethod}" = "Globus" ]; then
+            AuthenticationConfig="Authentication = Globus\nIdentityMethod = OAuth\nRequireEncryption = True"
+            AuthorizationEnabled="True"
+          else
+            AuthenticationConfig="FetchCredentialFromRelay = True\nIdentityMethod = MyProxy"
+            AuthorizationEnabled="False"
+          fi
+
+          # Install AWS CLI
+          pip3 install --upgrade awscli
+
+          # Install Globus Connect Server repository
+          curl -LOs https://downloads.globus.org/globus-connect-server/stable/installers/repo/rpm/globus-repo-latest.noarch.rpm
+          dnf install -y ./globus-repo-latest.noarch.rpm
+          dnf install -y globus-connect-server54
+
+          # Create Globus configuration directory
+          mkdir -p /etc/globus-connect-server
+
+          # Create Globus Connect Server configuration file
+          cat > /etc/globus-connect-server/globus-connect-server.conf << 'EOF'
+          [Globus]
+          ClientId = ${GlobusClientId}
+          ClientSecret = ${GlobusClientSecret}
+
+          [Endpoint]
+          Name = ${GlobusDisplayName}
+          Public = True
+          DefaultDirectory = /
+
+          [Security]
+          ${AuthenticationConfig}
+          Authorization = ${AuthorizationEnabled}
+          
+          [GridFTP]
+          Server = $(hostname -f)
+          IncomingPortRange = 50000,51000
+          OutgoingPortRange = 50000,51000
+          RestrictPaths = 
+          Sharing = True
+          SharingRestrictPaths = 
+          EOF
+
+          # Configure S3 connector
+          mkdir -p /opt/globus-connect-server-s3
+          cat > /opt/globus-connect-server-s3/s3_connector.json << 'EOF'
+          {
+              "canonical_name": "s3_storage",
+              "display_name": "S3 Connector",
+              "storage_type": "s3",
+              "connector_type": "s3",
+              "authentication_method": "aws_s3_path_style",
+              "configuration": {
+                  "credentials_type": "role",
+                  "bucket": "${S3BucketName}"
+              }
+          }
+          EOF
+
+          # Setup and start Globus Connect Server
+          globus-connect-server-setup
+
+          # Set up initial access policy for admin if specified
+          if [ "${AuthenticationMethod}" = "Globus" ] && [ "${DefaultAdminIdentity}" != "" ]; then
+            echo "Setting up initial access policy for admin: ${DefaultAdminIdentity}"
+            # Wait for endpoint to be fully registered
+            sleep 30
+            
+            # Create access policy for admin with full permissions
+            globus-connect-server acl create \
+              --permissions read,write \
+              --principal "${DefaultAdminIdentity}" \
+              --path "/"
+              
+            echo "Admin access policy created"
+          fi
+
+          # Configure connectors based on subscription status
+          if [ "${GlobusSubscriptionId}" != "" ]; then
+            echo "Configuring connectors with subscription ${GlobusSubscriptionId}..."
+            
+            # Configure S3 connector
+            if [ "${EnableS3Connector}" = "true" ] && [ "${S3BucketName}" != "" ]; then
+              echo "Setting up S3 connector for bucket ${S3BucketName}..."
+              globus-connect-server storage-gateway create \
+                --connector-id s3_storage \
+                --connector-display-name "S3 Connector" \
+                --connector-type s3 \
+                --authentication-method aws_s3_path_style \
+                --credentials-type role \
+                --s3-bucket ${S3BucketName}
+              echo "S3 connector configured"
+            else
+              echo "S3 connector not enabled or no bucket specified"
+            fi
+            
+            # Configure POSIX connector
+            if [ "${EnablePosixConnector}" = "true" ]; then
+              echo "Setting up POSIX connector for path ${PosixPath}..."
+              # Create directory if it doesn't exist
+              mkdir -p ${PosixPath}
+              chmod 755 ${PosixPath}
+              
+              globus-connect-server storage-gateway create \
+                --connector-id posix_storage \
+                --connector-display-name "POSIX Connector" \
+                --connector-type posix \
+                --root-directory ${PosixPath}
+              echo "POSIX connector configured"
+            else
+              echo "POSIX connector not enabled"
+            fi
+            
+            # Configure Google Drive connector
+            if [ "${EnableGoogleDriveConnector}" = "true" ]; then
+              echo "Setting up Google Drive connector..."
+              globus-connect-server storage-gateway create \
+                --connector-id googledrive_storage \
+                --connector-display-name "Google Drive Connector" \
+                --connector-type google_drive
+              echo "Google Drive connector configured"
+            else
+              echo "Google Drive connector not enabled"
+            fi
+          else
+            echo "No subscription ID provided, skipping connector setup"
+          fi
+
+          # Enable and start services
+          systemctl enable globus-gridftp-server
+          systemctl start globus-gridftp-server
+
+          # Add a tag indicating installation is complete
+          INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+          aws ec2 create-tags --resources $INSTANCE_ID --tags Key=GlobusInstalled,Value=true --region ${AWS::Region}
+          
+          # Signal CloudFormation that the instance is ready
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}
+          
+          # Join to Globus subscription if ID is provided
+          if [ "${GlobusSubscriptionId}" != "" ]; then
+            # Install Globus CLI
+            pip3 install globus-cli
+            
+            # Wait for endpoint to be fully registered
+            sleep 30
+            
+            # Get the endpoint ID
+            ENDPOINT_ID=$(globus-connect-server endpoint show | grep 'UUID' | awk '{print $2}')
+            
+            if [ ! -z "$ENDPOINT_ID" ]; then
+              echo "Found Endpoint ID: $ENDPOINT_ID"
+              
+              # Create config directory and credentials file for CLI
+              mkdir -p ~/.globus
+              cat > ~/.globus/globus.cfg << EOF
+          [cli]
+          default_client_id = ${GlobusClientId}
+          default_client_secret = ${GlobusClientSecret}
+          EOF
+              
+              # Attempt to join the subscription
+              echo "Joining subscription ${GlobusSubscriptionId}..."
+              globus-connect-server endpoint update --subscription-id ${GlobusSubscriptionId}
+              
+              # Verify subscription status
+              globus-connect-server endpoint show | grep subscription
+            else
+              echo "Could not determine endpoint ID, manual subscription joining will be required"
+            fi
+          else
+            echo "No subscription ID provided, skipping subscription joining"
+          fi
+      
+      Tags:
+        - Key: Name
+          Value: globus-connect-server
+          
+  GlobusServerIPAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Condition: UseElasticIP
+    Properties:
+      AllocationId: !GetAtt GlobusServerElasticIP.AllocationId
+      InstanceId: !Ref GlobusServerInstance
+
+Outputs:
+  InstanceId:
+    Description: Instance ID of the Globus Connect Server
+    Value: !Ref GlobusServerInstance
+
+  PrivateIP:
+    Description: Private IP address of the Globus Connect Server
+    Value: !GetAtt GlobusServerInstance.PrivateIp
+
+  ElasticIP:
+    Description: Elastic IP address assigned to the Globus Connect Server
+    Condition: UseElasticIP
+    Value: !Ref GlobusServerElasticIP
+    
+  PublicDNS:
+    Description: Public DNS name of the Globus Connect Server
+    Value: !GetAtt GlobusServerInstance.PublicDnsName
+
+  GlobusEndpointURL:
+    Description: URL to access the Globus Endpoint
+    Value: !Sub "https://app.globus.org/file-manager?origin_id=${GlobusDisplayName}"
+    
+  SubscriptionStatus:
+    Description: Globus Subscription Status
+    Value: !If [HasSubscription, "Endpoint joined to subscription", "No subscription ID provided"]
+    
+  PublicAddress:
+    Description: Public address to use for Globus redirect URI configuration
+    Value: !If 
+      - UseElasticIP
+      - !Sub "https://${GlobusServerElasticIP}"
+      - !Sub "https://${GlobusServerInstance.PublicIp}"
+
+  S3BucketConnected:
+    Description: S3 Bucket connected to Globus
+    Condition: DeployS3Connector
+    Value: !Ref S3BucketName
+    
+  ConnectorsEnabled:
+    Description: Connectors that were enabled for this deployment
+    Value: !Join 
+      - ", "
+      - !If 
+        - HasSubscription
+        - !Split
+          - "|"
+          - !Join
+            - "|"
+            - - !If [DeployS3Connector, "S3", ""]
+              - !If [DeployPosixConnector, "POSIX", ""]  
+              - !If [DeployGoogleDriveConnector, "Google Drive", ""]
+        - ["No connectors (subscription required)"]
+    
+  DeploymentConfiguration:
+    Description: Deployment configuration information
+    Value: !If 
+      - UseElasticIP
+      - !If [IsProduction, "Production deployment with Elastic IP", "Integration deployment with Elastic IP (forced)"]
+      - "Integration deployment with dynamic public IP"
+      
+  AuthenticationConfiguration:
+    Description: Authentication method configured for Globus
+    Value: !If 
+      - UseGlobusAuth
+      - "Globus Auth (identity federation)"
+      - "MyProxy (local accounts required)"
+      
+  InitialAccessInfo:
+    Description: Initial access configuration
+    Value: !If
+      - UseGlobusAuth
+      - !If 
+        - HasDefaultAdmin
+        - !Sub "Admin access granted to ${DefaultAdminIdentity}"
+        - "No default admin configured - access policies must be set manually"
+      - "Using MyProxy authentication - local accounts required"
