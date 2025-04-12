@@ -73,6 +73,9 @@ The CloudFormation template includes the following reliability features:
 - **Deployment Logs**: Detailed logging for troubleshooting
 - **Admin Setup Retries**: Automatic retry logic for key configuration steps
 - **Deployment Summary**: Generates a deployment summary file on the instance for quick reference
+- **Troubleshooting Mode**: Keeps instances running even when Globus setup fails for easier troubleshooting
+- **Diagnostic Scripts**: Creates diagnostic and manual setup scripts to help resolve issues
+- **Version Compatibility**: Handles different Globus Connect Server versions automatically
 
 ## Platform Configuration
 
@@ -99,7 +102,22 @@ ssh -i /path/to/your/key.pem ubuntu@<PUBLIC-IP-ADDRESS>
 Important logs and resources on the server:
 - Deployment summary: `/home/ubuntu/deployment-summary.txt`
 - Installation logs: `/var/log/user-data.log` and `/var/log/cloud-init-output.log`
-- Globus-specific logs: `/var/log/globus-setup.log`
+- Globus-specific logs: `/var/log/globus-setup.log` and `/home/ubuntu/globus-setup-complete.log`
+
+## Troubleshooting
+
+If Globus setup fails, the instance will still be created and kept running for troubleshooting. You'll find these resources on the instance:
+
+1. **Manual Setup Script**: `/home/ubuntu/run-globus-setup.sh` - Allows you to manually attempt the Globus setup
+2. **Status File**: `/home/ubuntu/globus-setup-failed.txt` - Contains failure information if setup failed
+3. **Complete Logs**: `/home/ubuntu/globus-setup-complete.log` - Contains the full setup log
+4. **Deployment Errors**: `/home/ubuntu/deployment-error.txt` - Contains any deployment error details
+
+Common troubleshooting steps:
+1. SSH to the instance: `ssh -i /path/to/your/key.pem ubuntu@<PUBLIC-IP-ADDRESS>`
+2. Check setup status: `cat /home/ubuntu/globus-setup-failed.txt`
+3. Run manual setup: `bash /home/ubuntu/run-globus-setup.sh`
+4. Check logs: `cat /home/ubuntu/globus-setup-complete.log`
 
 ## License
 

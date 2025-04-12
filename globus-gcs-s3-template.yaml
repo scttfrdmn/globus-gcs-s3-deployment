@@ -299,9 +299,26 @@ Resources:
             local ERR_CODE=$1
             local ERR_MSG=$2
             echo "ERROR: $ERR_MSG (Exit code: $ERR_CODE)"
-            /opt/aws/bin/cfn-signal -e $ERR_CODE --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}
-            exit $ERR_CODE
+            
+            # Create a detailed error report
+            echo "ERROR: $ERR_MSG (Exit code: $ERR_CODE)" > /home/ubuntu/deployment-error.txt
+            echo "Timestamp: $(date)" >> /home/ubuntu/deployment-error.txt
+            echo "Error occurred in script section: $3" >> /home/ubuntu/deployment-error.txt
+            
+            # Don't signal failure to allow troubleshooting
+            if [ "${FAIL_ON_ERROR}" = "yes" ]; then
+              # Only fail if explicit failure is requested
+              echo "Signaling CloudFormation failure"
+              /opt/aws/bin/cfn-signal -e $ERR_CODE --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}
+              exit $ERR_CODE
+            else
+              echo "Error occurred but continuing for troubleshooting purposes"
+              # Don't exit, allow script to continue
+            fi
           }
+          
+          # Set to 'no' by default to keep instance alive for troubleshooting
+          FAIL_ON_ERROR="no"
 
           # Install AWS CloudFormation helpers
           apt-get update
@@ -311,13 +328,14 @@ Resources:
           ln -s /usr/local/bin/cfn-* /opt/aws/bin/
 
           # Update the system
-          apt-get update && apt-get upgrade -y || handle_error $? "Failed to update system packages"
-          apt-get install -y python3-pip jq curl wget gnupg2 software-properties-common || handle_error $? "Failed to install required packages"
+          apt-get update && apt-get upgrade -y || handle_error $? "Failed to update system packages" "system-update"
+          apt-get install -y python3-pip jq curl wget gnupg2 software-properties-common dnsutils || handle_error $? "Failed to install required packages" "package-install"
 
           # Authentication will be configured when creating the configuration file
 
-          # Install AWS CLI
-          pip3 install --upgrade awscli || handle_error $? "Failed to install AWS CLI"
+          # Install AWS CLI - not critical for troubleshooting
+          echo "Installing AWS CLI..."
+          pip3 install --upgrade awscli || echo "Warning: AWS CLI installation failed, but continuing"
 
           # Install Globus Connect Server repository
           curl -LOs https://downloads.globus.org/globus-connect-server/stable/installers/repo/deb/globus-repo_latest_all.deb || handle_error $? "Failed to download Globus repository"
@@ -464,33 +482,142 @@ Resources:
           globus-connect-server endpoint --help >> $SETUP_LOG 2>&1
           
           # Run the actual setup command with proper parameters based on version
+          # First create a debug script that we can run manually for troubleshooting if needed
+          cat > /home/ubuntu/run-globus-setup.sh << EOF
+#!/bin/bash
+echo "Running manual troubleshooting script for Globus Connect Server setup"
+export GlobusClientId="${GlobusClientId}"
+export GlobusClientSecret="${GlobusClientSecret}"
+export GlobusDisplayName="${GlobusDisplayName}"
+
+# Check version
+GCS_VERSION=\$(globus-connect-server --version 2>&1 | head -1 | awk '{print \$NF}' || echo "unknown")
+echo "Detected Globus Connect Server version: \$GCS_VERSION"
+
+# Try with client credentials
+echo "Attempting setup with client credentials..."
+globus-connect-server endpoint setup \
+  --client-id "\${GlobusClientId}" \
+  --client-secret "\${GlobusClientSecret}" \
+  --display-name "\${GlobusDisplayName}" \
+  --organization "AWS Deployment"
+STATUS1=\$?
+echo "Setup with client credentials exit code: \$STATUS1"
+
+# Try with config file
+echo "Attempting setup with config file..."
+globus-connect-server endpoint setup \
+  --config-file /etc/globus-connect-server/globus-connect-server.conf
+STATUS2=\$?
+echo "Setup with config file exit code: \$STATUS2"
+
+# Status report
+echo "All done with status codes: \$STATUS1 / \$STATUS2"
+EOF
+          chmod +x /home/ubuntu/run-globus-setup.sh
+          
+          # Attempt setup with max verbosity
           if [ "$NEEDS_CLIENT_ID" = true ]; then
-            echo "Running endpoint setup with explicit client credentials (pre-5.4.61 mode)..." >> $SETUP_LOG
-            timeout 900 globus-connect-server endpoint setup \
+            echo "Running endpoint setup with explicit client credentials (pre-5.4.61 mode)..." | tee -a $SETUP_LOG
+            set -x  # Turn on command echo for debugging
+            globus-connect-server endpoint setup --verbose \
               --client-id "${GlobusClientId}" \
               --client-secret "${GlobusClientSecret}" \
               --display-name "${GlobusDisplayName}" \
-              --organization "AWS Deployment" >> $SETUP_LOG 2>&1
+              --organization "AWS Deployment" | tee -a $SETUP_LOG 2>&1
+            SETUP_STATUS=$?
+            set +x  # Turn off command echo
           else
-            echo "Running endpoint setup with config file (5.4.61+ mode)..." >> $SETUP_LOG
-            timeout 900 globus-connect-server endpoint setup \
-              --config-file /etc/globus-connect-server/globus-connect-server.conf >> $SETUP_LOG 2>&1
+            echo "Running endpoint setup with config file (5.4.61+ mode)..." | tee -a $SETUP_LOG
+            set -x  # Turn on command echo for debugging
+            globus-connect-server endpoint setup --verbose \
+              --config-file /etc/globus-connect-server/globus-connect-server.conf | tee -a $SETUP_LOG 2>&1
+            SETUP_STATUS=$?
+            set +x  # Turn off command echo
+          fi
+          
+          # Try the fallback approach if the primary approach failed
+          if [ $SETUP_STATUS -ne 0 ]; then
+            echo "First attempt failed with status $SETUP_STATUS, trying alternative approach..." | tee -a $SETUP_LOG
+            
+            if [ "$NEEDS_CLIENT_ID" = true ]; then
+              # If client ID approach failed, try config file
+              echo "Falling back to config file approach..." | tee -a $SETUP_LOG
+              set -x  # Turn on command echo for debugging
+              globus-connect-server endpoint setup --verbose \
+                --config-file /etc/globus-connect-server/globus-connect-server.conf | tee -a $SETUP_LOG 2>&1
+              SETUP_STATUS=$?
+              set +x  # Turn off command echo
+            else
+              # If config file approach failed, try client ID
+              echo "Falling back to explicit client credentials approach..." | tee -a $SETUP_LOG
+              set -x  # Turn on command echo for debugging
+              globus-connect-server endpoint setup --verbose \
+                --client-id "${GlobusClientId}" \
+                --client-secret "${GlobusClientSecret}" \
+                --display-name "${GlobusDisplayName}" \
+                --organization "AWS Deployment" | tee -a $SETUP_LOG 2>&1
+              SETUP_STATUS=$?
+              set +x  # Turn off command echo
+            fi
           fi
           SETUP_STATUS=$?
+          
+          # Capture detailed diagnostics about the system and state
+          echo "====== DETAILED DIAGNOSTICS ======" 
+          echo "System information:"
+          uname -a
+          
+          echo "Network configuration:"
+          ip addr
+          
+          echo "Hostname configuration:"
+          hostname -f
+          cat /etc/hosts
+          
+          echo "DNS resolution:"
+          nslookup google.com || echo "DNS resolution failed"
+          nslookup globus.org || echo "Globus DNS resolution failed"
+          
+          echo "Globus config file contents:"
+          cat /etc/globus-connect-server/globus-connect-server.conf
+          
+          echo "Globus package status:"
+          dpkg -l | grep globus
+          
+          # Create a failure report for troubleshooting regardless of outcome
+          cp $SETUP_LOG /home/ubuntu/globus-setup-complete.log
           
           # Check if the setup timed out
           if [ $SETUP_STATUS -eq 124 ]; then
             echo "ERROR: Globus Connect Server setup timed out after 15 minutes"
             echo "Last 50 lines of setup log:"
             tail -n 50 $SETUP_LOG
-            handle_error 124 "Globus Connect Server setup timed out"
+            
+            # Create debug info
+            echo "Created troubleshooting script at /home/ubuntu/run-globus-setup.sh"
+            echo "Manual intervention required for troubleshooting."
+            # Continue deployment for troubleshooting rather than failing
+            echo "SETUP_FAILED=true" > /home/ubuntu/globus-setup-failed.txt
+            echo "FAILURE_REASON=TIMEOUT" >> /home/ubuntu/globus-setup-failed.txt
+            echo "Keeping instance running for troubleshooting purposes."
+            
           elif [ $SETUP_STATUS -ne 0 ]; then
             echo "ERROR: Globus Connect Server setup failed with code $SETUP_STATUS"
             echo "Last 50 lines of setup log:"
             tail -n 50 $SETUP_LOG
-            handle_error $SETUP_STATUS "Failed to set up Globus Connect Server"
+            
+            # Create debug info
+            echo "Created troubleshooting script at /home/ubuntu/run-globus-setup.sh"
+            echo "Manual intervention required for troubleshooting."
+            # Continue deployment for troubleshooting rather than failing
+            echo "SETUP_FAILED=true" > /home/ubuntu/globus-setup-failed.txt
+            echo "FAILURE_REASON=ERROR_CODE_$SETUP_STATUS" >> /home/ubuntu/globus-setup-failed.txt
+            echo "Keeping instance running for troubleshooting purposes."
+            
           else
             echo "Globus Connect Server setup completed successfully"
+            echo "SETUP_FAILED=false" > /home/ubuntu/globus-setup-failed.txt
           fi
           
           # Check if essential services are running
@@ -638,8 +765,18 @@ Resources:
           echo "- /var/log/user-data.log" >> /home/ubuntu/deployment-summary.txt
           echo "- /var/log/cloud-init-output.log" >> /home/ubuntu/deployment-summary.txt
           
-          echo "====== Deployment completed successfully ======"
-          # Signal CloudFormation that the instance is ready
+          # Always signal success for troubleshooting purposes, even if Globus setup failed
+          if [ -f /home/ubuntu/globus-setup-failed.txt ] && [ "$(grep -c "SETUP_FAILED=true" /home/ubuntu/globus-setup-failed.txt)" -gt 0 ]; then
+            echo "====== Deployment completed with Globus setup issues ======"
+            echo "Instance is kept running for troubleshooting purposes."
+            echo "Check logs at /home/ubuntu/globus-setup-complete.log for details."
+            echo "Run /home/ubuntu/run-globus-setup.sh for manual setup attempts."
+          else
+            echo "====== Deployment completed successfully ======"
+          fi
+          
+          # Signal CloudFormation that the instance is ready regardless of Globus status
+          # This allows keeping the instance up for troubleshooting
           /opt/aws/bin/cfn-signal -e 0 --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}
           
           # Join to Globus subscription if ID is provided
