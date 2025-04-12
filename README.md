@@ -5,10 +5,9 @@ This repository contains a CloudFormation template for deploying Globus Connect 
 ## Features
 
 - **AWS CloudFormation Template**: Infrastructure-as-code deployment
-- **S3 Integration**: Connect S3 buckets to the Globus ecosystem
+- **S3 Integration**: Connect S3 buckets directly to the Globus ecosystem
 - **Security**: IAM roles and policies for secure access
 - **Flexible Authentication**: Support for Globus Auth federation
-- **Optional Connectors**: Support for POSIX and Google Drive connectors
 - **Production & Testing Modes**: Configurable deployment types
 - **Optimized Deployment**: Streamlined UserData script stays within AWS limits
 
@@ -85,7 +84,8 @@ The template deploys Globus Connect Server with the following configuration:
 
 1. **Operating System**: Ubuntu Server 22.04 LTS
 2. **Authentication**: Uses Globus Auth by default (configurable to MyProxy)
-3. **Networking**: The template ensures the Globus Connect Server is publicly accessible through one of two approaches:
+3. **Storage**: Connects to Amazon S3 buckets for scalable, managed cloud storage
+4. **Networking**: The template ensures the Globus Connect Server is publicly accessible through one of two approaches:
    - **For Production Deployments**: Uses an Elastic IP address for persistent, static public IP
    - **For Integration Deployments**: Either:
      - Uses an Elastic IP if `ForceElasticIP` is set to "true"

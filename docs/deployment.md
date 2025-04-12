@@ -32,11 +32,9 @@
 - **Globus**: Federation-based auth (recommended)
 - **MyProxy**: Local account-based auth (legacy)
 
-### Connectors (require subscription)
+### Connectors (requires subscription)
 
-- **S3 Connector**: Connect to S3 bucket
-- **POSIX Connector**: Access local filesystem
-- **Google Drive Connector**: Connect to Google Drive
+- **S3 Connector**: Connect to S3 bucket (the only connector type supported in this template)
 
 ### Network Options
 
@@ -106,14 +104,6 @@
   {
     "ParameterKey": "S3BucketName",
     "ParameterValue": "your-globus-bucket"
-  },
-  {
-    "ParameterKey": "EnablePosixConnector",
-    "ParameterValue": "false"
-  },
-  {
-    "ParameterKey": "EnableGoogleDriveConnector",
-    "ParameterValue": "false"
   }
 ]
 ```

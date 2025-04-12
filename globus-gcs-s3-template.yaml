@@ -7,8 +7,6 @@ Conditions:
   UseElasticIP: !Or [!Equals [!Ref DeploymentType, "Production"], !Equals [!Ref ForceElasticIP, "true"]]
   HasS3BucketName: !Not [!Equals [!Ref S3BucketName, ""]]
   DeployS3Connector: !And [!Equals [!Ref EnableS3Connector, "true"], !Condition HasSubscription, !Condition HasS3BucketName]
-  DeployPosixConnector: !And [!Equals [!Ref EnablePosixConnector, "true"], !Condition HasSubscription]
-  DeployGoogleDriveConnector: !And [!Equals [!Ref EnableGoogleDriveConnector, "true"], !Condition HasSubscription]
   UseGlobusAuth: !Equals [!Ref AuthenticationMethod, "Globus"]
   HasDefaultAdmin: !Not [!Equals [!Ref DefaultAdminIdentity, ""]]
 
@@ -106,22 +104,6 @@ Parameters:
       - "true"
       - "false"
     
-  EnablePosixConnector:
-    Description: Enable POSIX Connector for local filesystem access (requires subscription)
-    Type: String
-    Default: "false"
-    AllowedValues:
-      - "true"
-      - "false"
-    
-  EnableGoogleDriveConnector:
-    Description: Enable Google Drive Connector (requires subscription)
-    Type: String
-    Default: "false"
-    AllowedValues:
-      - "true"
-      - "false"
-
   # Connector specific parameters
   S3BucketName:
     Description: Name of S3 bucket to connect (if S3 Connector is enabled)
@@ -130,10 +112,6 @@ Parameters:
     AllowedPattern: "^$|[a-zA-Z0-9\\-\\.]{3,63}"
     ConstraintDescription: Bucket name must be between 3 and 63 characters, contain only letters, numbers, hyphens, and periods.
     
-  PosixPath:
-    Description: Local filesystem path for POSIX Connector (if enabled)
-    Type: String
-    Default: "/data"
 
   GlobusDisplayName:
     Description: Display name for the Globus endpoint
@@ -285,7 +263,7 @@ Resources:
           
           echo "=== Starting Globus Connect Server deployment $(date) ==="
           echo "Stack:${AWS::StackName} Region:${AWS::Region} Type:${DeploymentType} Auth:${AuthenticationMethod}"
-          echo "Connectors: S3:${EnableS3Connector} POSIX:${EnablePosixConnector} GDrive:${EnableGoogleDriveConnector}"
+          echo "S3 Connector: ${EnableS3Connector} Bucket: ${S3BucketName}"
 
           # Simplified error handling
           function handle_error {
@@ -424,24 +402,12 @@ Resources:
             done
           fi
 
-          # Configure connectors if subscription exists
+          # Configure S3 connector if subscription exists
           if [ -n "${GlobusSubscriptionId}" ]; then
             # S3 connector
             if [ "${EnableS3Connector}" = "true" ] && [ "${S3BucketName}" != "" ] && aws s3 ls "s3://${S3BucketName}" >/dev/null 2>&1; then
               globus-connect-server storage-gateway create --connector-id s3_storage --display-name "S3 Connector" \
                 --connector-type s3 --authentication-method aws_s3_path_style --credentials-type role --bucket ${S3BucketName}
-            fi
-            
-            # POSIX connector
-            if [ "${EnablePosixConnector}" = "true" ]; then
-              mkdir -p ${PosixPath} && chmod 755 ${PosixPath}
-              globus-connect-server storage-gateway create --connector-id posix_storage --display-name "POSIX Connector" \
-                --connector-type posix --root-directory ${PosixPath}
-            fi
-            
-            # Google Drive connector
-            if [ "${EnableGoogleDriveConnector}" = "true" ]; then
-              globus-connect-server storage-gateway create --connector-id googledrive_storage --display-name "Google Drive Connector" --connector-type google_drive
             fi
             
             # Join subscription
@@ -458,7 +424,7 @@ Resources:
           aws ec2 create-tags --resources $INSTANCE_ID --tags Key=GlobusInstalled,Value=true --region ${AWS::Region} || true
           
           # Create minimal deployment summary
-          echo "Deployment: $(date) Instance:$INSTANCE_ID Type:${DeploymentType} Auth:${AuthenticationMethod}" > /home/ubuntu/deployment-summary.txt
+          echo "Deployment: $(date) Instance:$INSTANCE_ID Type:${DeploymentType} Auth:${AuthenticationMethod} S3:${EnableS3Connector}" > /home/ubuntu/deployment-summary.txt
           
           # Signal CloudFormation success regardless of Globus status for troubleshooting
           /opt/aws/bin/cfn-signal -e 0 --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}
@@ -514,18 +480,10 @@ Outputs:
     
   ConnectorsEnabled:
     Description: Connectors that were enabled for this deployment
-    Value: !Join 
-      - ", "
-      - !If 
-        - HasSubscription
-        - !Split
-          - "|"
-          - !Join
-            - "|"
-            - - !If [DeployS3Connector, "S3", ""]
-              - !If [DeployPosixConnector, "POSIX", ""]  
-              - !If [DeployGoogleDriveConnector, "Google Drive", ""]
-        - ["No connectors (subscription required)"]
+    Value: !If 
+      - DeployS3Connector
+      - "S3 Connector"
+      - "No connectors enabled (subscription required or S3 not enabled)"
     
   DeploymentConfiguration:
     Description: Deployment configuration information
