@@ -238,6 +238,8 @@ Resources:
     CreationPolicy:
       ResourceSignal:
         Timeout: PT30M
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       InstanceType: !Ref InstanceType
       KeyName: !Ref KeyName

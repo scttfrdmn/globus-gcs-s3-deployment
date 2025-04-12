@@ -252,6 +252,36 @@ globus-connect-server mapped-collection create \
 
 This complete deployment process gives you a fully functional Globus Connect Server with S3 connector, properly configured authentication, and initial access controls.
 
+## Cleaning Up Resources
+
+When you delete the CloudFormation stack, the EC2 instance is retained by default (using `DeletionPolicy: Retain`). This allows you to manually clean up the Globus endpoint registration before terminating the instance:
+
+```bash
+# SSH into the instance
+ssh -i your-key-pair.pem ubuntu@$PUBLIC_DNS
+
+# Get the endpoint ID
+ENDPOINT_ID=$(globus-connect-server endpoint show | grep -E 'UUID|ID' | awk '{print $2}' | head -1)
+
+# Delete the endpoint from Globus
+globus-connect-server endpoint delete
+
+# Verify the endpoint was deleted
+globus-connect-server endpoint show
+```
+
+After manually deleting the Globus endpoint, you can terminate the EC2 instance through the AWS Console or using:
+
+```bash
+# Get instance ID
+INSTANCE_ID=$(aws ec2 describe-stacks --stack-name globus-gcs --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue" --output text)
+
+# Terminate the instance
+aws ec2 terminate-instances --instance-ids $INSTANCE_ID
+```
+
+This manual cleanup step ensures that the Globus endpoint is properly deleted from Globus's systems.
+
 ## Deployment with Command Line Parameters
 
 ```bash
