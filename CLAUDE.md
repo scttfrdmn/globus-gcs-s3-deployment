@@ -12,7 +12,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Code Style Guidelines
 
 - **YAML**: Use 2-space indentation, explicit mapping of types
-- **CloudFormation**: Follow AWS best practices for resource naming
+- **CloudFormation**: 
+  - Follow AWS best practices for resource naming
+  - Boolean parameters must use String type with "true"/"false" as AllowedValues
+  - Use !Condition for referencing conditions in !And or !Or functions
 - **Markdown**: Use ATX-style headers (# Header), proper heading hierarchy
 - **Naming Conventions**: Use PascalCase for CloudFormation resources and outputs, camelCase for parameters
 - **Error Handling**: Implement robust error handling in user-data scripts with error trapping

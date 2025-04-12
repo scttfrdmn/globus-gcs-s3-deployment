@@ -4,10 +4,10 @@ Description: "CloudFormation template for Globus Connect Server with S3 Connecto
 Conditions:
   HasSubscription: !Not [!Equals [!Ref GlobusSubscriptionId, ""]]
   IsProduction: !Equals [!Ref DeploymentType, "Production"]
-  UseElasticIP: !Or [!Equals [!Ref DeploymentType, "Production"], !Equals [!Ref ForceElasticIP, true]]
-  DeployS3Connector: !And [!Ref EnableS3Connector, HasSubscription]
-  DeployPosixConnector: !And [!Ref EnablePosixConnector, HasSubscription]
-  DeployGoogleDriveConnector: !And [!Ref EnableGoogleDriveConnector, HasSubscription]
+  UseElasticIP: !Or [!Equals [!Ref DeploymentType, "Production"], !Equals [!Ref ForceElasticIP, "true"]]
+  DeployS3Connector: !And [!Equals [!Ref EnableS3Connector, "true"], !Condition HasSubscription]
+  DeployPosixConnector: !And [!Equals [!Ref EnablePosixConnector, "true"], !Condition HasSubscription]
+  DeployGoogleDriveConnector: !And [!Equals [!Ref EnableGoogleDriveConnector, "true"], !Condition HasSubscription]
   UseGlobusAuth: !Equals [!Ref AuthenticationMethod, "Globus"]
   HasDefaultAdmin: !Not [!Equals [!Ref DefaultAdminIdentity, ""]]
 
@@ -23,8 +23,11 @@ Parameters:
     
   ForceElasticIP:
     Description: Force allocation of Elastic IP even for Integration deployment
-    Type: Boolean
-    Default: false
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
     
   AuthenticationMethod:
     Description: Authentication method for the Globus Connect Server
@@ -76,11 +79,7 @@ Parameters:
     Description: Subnet within the selected VPC and Availability Zone
     Type: AWS::EC2::Subnet::Id
 
-  S3BucketName:
-    Description: Name of S3 bucket to connect to Globus
-    Type: String
-    AllowedPattern: "[a-zA-Z0-9\\-\\.]{3,63}"
-    ConstraintDescription: Bucket name must be between 3 and 63 characters, contain only letters, numbers, hyphens, and periods.
+# S3BucketName parameter moved below with the other connector parameters
 
   GlobusClientId:
     Description: Globus Client ID for registration
@@ -100,18 +99,27 @@ Parameters:
   # Connector options
   EnableS3Connector:
     Description: Enable S3 Connector (requires subscription)
-    Type: Boolean
-    Default: true
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
     
   EnablePosixConnector:
     Description: Enable POSIX Connector for local filesystem access (requires subscription)
-    Type: Boolean
-    Default: false
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
     
   EnableGoogleDriveConnector:
     Description: Enable Google Drive Connector (requires subscription)
-    Type: Boolean
-    Default: false
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
 
   # Connector specific parameters
   S3BucketName:
@@ -268,14 +276,7 @@ Resources:
           dnf update -y
           dnf install -y python3-pip jq curl wget gnupg2 
 
-          # Set authentication configuration based on chosen method
-          if [ "${AuthenticationMethod}" = "Globus" ]; then
-            AuthenticationConfig="Authentication = Globus\nIdentityMethod = OAuth\nRequireEncryption = True"
-            AuthorizationEnabled="True"
-          else
-            AuthenticationConfig="FetchCredentialFromRelay = True\nIdentityMethod = MyProxy"
-            AuthorizationEnabled="False"
-          fi
+          # Authentication will be configured when creating the configuration file
 
           # Install AWS CLI
           pip3 install --upgrade awscli
@@ -289,7 +290,8 @@ Resources:
           mkdir -p /etc/globus-connect-server
 
           # Create Globus Connect Server configuration file
-          cat > /etc/globus-connect-server/globus-connect-server.conf << 'EOF'
+          if [ "${AuthenticationMethod}" = "Globus" ]; then
+            cat > /etc/globus-connect-server/globus-connect-server.conf << 'EOF'
           [Globus]
           ClientId = ${GlobusClientId}
           ClientSecret = ${GlobusClientSecret}
@@ -300,8 +302,10 @@ Resources:
           DefaultDirectory = /
 
           [Security]
-          ${AuthenticationConfig}
-          Authorization = ${AuthorizationEnabled}
+          Authentication = Globus
+          IdentityMethod = OAuth
+          RequireEncryption = True
+          Authorization = True
           
           [GridFTP]
           Server = $(hostname -f)
@@ -311,6 +315,31 @@ Resources:
           Sharing = True
           SharingRestrictPaths = 
           EOF
+          else
+            cat > /etc/globus-connect-server/globus-connect-server.conf << 'EOF'
+          [Globus]
+          ClientId = ${GlobusClientId}
+          ClientSecret = ${GlobusClientSecret}
+
+          [Endpoint]
+          Name = ${GlobusDisplayName}
+          Public = True
+          DefaultDirectory = /
+
+          [Security]
+          FetchCredentialFromRelay = True
+          IdentityMethod = MyProxy
+          Authorization = False
+          
+          [GridFTP]
+          Server = $(hostname -f)
+          IncomingPortRange = 50000,51000
+          OutgoingPortRange = 50000,51000
+          RestrictPaths = 
+          Sharing = True
+          SharingRestrictPaths = 
+          EOF
+          fi
 
           # Configure S3 connector
           mkdir -p /opt/globus-connect-server-s3

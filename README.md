@@ -54,6 +54,14 @@ The repository includes detailed documentation on deploying and using Globus Con
      --capabilities CAPABILITY_IAM
    ```
 
+   Note: Boolean parameters in the template (like EnableS3Connector) must be specified as strings:
+   ```json
+   {
+     "ParameterKey": "EnableS3Connector",
+     "ParameterValue": "true"
+   }
+   ```
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
