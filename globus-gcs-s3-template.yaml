@@ -289,29 +289,30 @@ Resources:
           mkdir -p /opt/aws/bin && ln -s /usr/local/bin/cfn-* /opt/aws/bin/
           pip3 install --upgrade awscli || echo "AWS CLI install warning (non-critical)"
 
-          # Install Globus Connect Server using the direct approach for Ubuntu
-          echo "Installing Globus Connect Server on Ubuntu without GPG key setup..."
+          # Install Globus Connect Server following official Ubuntu installation instructions
+          echo "Installing Globus Connect Server following official Ubuntu documentation..."
           
-          # Add the Globus repository directly
-          echo "deb https://downloads.globus.org/globus-connect-server/stable/deb ubuntu bionic contrib" > /etc/apt/sources.list.d/globus-connect-server-stable.list
+          # 1. Download Globus repository package
+          echo "Downloading Globus repository package..."
+          curl -LOs https://downloads.globus.org/globus-connect-server/stable/installers/repo/deb/globus-repo_latest_all.deb || handle_error $? "Failed to download Globus repository package" "repo-download"
           
-          # Update and install Globus Connect Server
-          apt-get update
+          # 2. Install repository package
+          echo "Installing Globus repository package..."
+          dpkg -i globus-repo_latest_all.deb || handle_error $? "Failed to install Globus repository package" "repo-install"
           
-          if ! apt-get install -y globus-connect-server; then
-            # If normal install fails, try to download the deb directly
-            echo "Repository install failed, trying direct download..."
-            curl -L -o globus-connect-server.deb https://downloads.globus.org/globus-connect-server/stable/installers/globus-connect-server_latest_amd64.deb
-            
-            # Install the package
-            dpkg -i globus-connect-server.deb || handle_error $? "Failed to install Globus Connect Server" "gcs-direct-install"
-            apt-get install -f -y  # Fix any dependency issues
-          fi
+          # 3. Update package lists
+          echo "Updating package lists..."
+          apt-get update || handle_error $? "Failed to update package lists" "apt-update"
           
-          # Check version and capabilities
+          # 4. Install Globus Connect Server package
+          echo "Installing Globus Connect Server package..."
+          apt-get install -y globus-connect-server54 || handle_error $? "Failed to install Globus Connect Server package" "gcs-install"
+          
+          # Check version and capabilities (using the version 5.4 command)
           GCS_VERSION=$(globus-connect-server --version 2>&1 | head -1 | awk '{print $NF}')
           echo "Globus version: $GCS_VERSION ($(which globus-connect-server || echo "command not found"))"
-          [[ -n "$GCS_VERSION" ]] && [[ $(echo "$GCS_VERSION" | awk -F. '{ printf("%03d%03d%03d\n", $1, $2, $3); }') -lt $(echo "5.4.61" | awk -F. '{ printf("%03d%03d%03d\n", $1, $2, $3); }') ]] && NEEDS_CLIENT_ID=true || NEEDS_CLIENT_ID=false
+          # Version 5.4 is the current version, so always use the new method
+          NEEDS_CLIENT_ID=false
           
           # Create configuration directories and files
           mkdir -p /etc/globus-connect-server

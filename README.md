@@ -125,18 +125,17 @@ If Globus setup fails, the instance will still be created and kept running for t
 
 ### Common Issues
 
-#### Repository Setup for Ubuntu
+#### Installation Process for Ubuntu
 
-The template uses a simplified approach for Globus Connect Server installation on Ubuntu that doesn't require GPG key setup:
+The template follows the official Globus Connect Server installation process for Ubuntu:
 
-1. **Direct Repository Configuration**: The template adds the Globus repository directly to APT sources without requiring a GPG key.
+1. **Repository Setup**: Downloads and installs the official Globus repository package, which handles all required configuration.
 
-2. **Automatic Fallback**: If repository-based installation fails:
-   - Automatically falls back to direct package download
-   - Configures dependencies properly with `apt-get install -f -y`
-   - Provides clear diagnostic information
+2. **Package Installation**: Installs the specific `globus-connect-server54` package as recommended in the official documentation.
 
-This approach simplifies the installation process for Ubuntu systems, where the GPG key requirement appears to be optional or less strict. If you see 404 errors related to GPG keys in the logs, these can be safely ignored as the installation will proceed without them.
+3. **Detailed Error Handling**: Includes comprehensive error handling at each step with clear error messages and diagnostic information.
+
+This approach follows best practices from the official Globus documentation to ensure compatibility and reliability when installing on Ubuntu systems. The installation process properly handles the repository setup, eliminating URL format issues or missing GPG keys.
 
 Common troubleshooting steps:
 1. SSH to the instance: `ssh -i /path/to/your/key.pem ubuntu@<PUBLIC-IP-ADDRESS>`
