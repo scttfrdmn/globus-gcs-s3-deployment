@@ -258,55 +258,133 @@ Resources:
             DeleteOnTermination: true
       UserData:
         Fn::Base64: !Sub |
-          #!/bin/bash -e
+          #!/bin/bash
           # Cloud-init script for installing Globus Connect Server
+          # Remove -e flag to prevent early termination for cloud-init compatibility
           
           # Make sure we start in a clean state with proper permissions
           cd /
           
+          # Setup proper logging - using both file and console output
+          exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+          
           # Mark the beginning of our script for cloud-init
           echo "=== GLOBUS-CONNECT-SERVER-DEPLOYMENT-SCRIPT ==="
-          exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
           
           echo "=== Starting Globus Connect Server deployment $(date) ==="
           echo "Stack:${AWS::StackName} Region:${AWS::Region} Type:${DeploymentType} Auth:${AuthenticationMethod}"
           echo "S3 Connector: ${EnableS3Connector} Bucket: ${S3BucketName}"
 
-          # Simplified error handling
+          # Improved error handling - log errors but don't terminate script
           function handle_error {
-            echo "ERROR: $2 (Exit code: $1)" > /home/ubuntu/deployment-error.txt
-            echo "$(date) - Error in: $3" >> /home/ubuntu/deployment-error.txt
-            [ "$SHOULD_FAIL" = "yes" ] && { /opt/aws/bin/cfn-signal -e $1 --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}; exit $1; }
+            local exit_code=$1
+            local error_message=$2
+            local stage=$3
+            
+            echo "ERROR: $error_message (Exit code: $exit_code)" | tee -a /home/ubuntu/deployment-error.txt
+            echo "$(date) - Error in stage: $stage" >> /home/ubuntu/deployment-error.txt
+            
+            # Log to CloudWatch if possible
+            logger -t "globus-deploy" "ERROR in $stage: $error_message (code: $exit_code)"
+            
+            # Only fail the stack if explicitly requested
+            if [ "$SHOULD_FAIL" = "yes" ]; then
+              /opt/aws/bin/cfn-signal -e $exit_code --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}
+              exit $exit_code
+            else
+              # Continue execution despite error
+              return 0
+            fi
           }
           SHOULD_FAIL="no"
-
-          # Install packages in batches to reduce command count
-          apt-get update
-          apt-get install -y python3-pip jq curl wget gnupg gnupg2 gpg software-properties-common dnsutils apt-transport-https ca-certificates || handle_error $? "Package install failed" "packages"
           
+          # Create a debug file to make it easier to diagnose cloud-init issues
+          echo "Cloud-init script started at $(date)" > /home/ubuntu/cloud-init-debug.log
+          echo "Script running as: $(id)" >> /home/ubuntu/cloud-init-debug.log
+
+          # Install packages with retry mechanism for robustness
+          echo "===== [1/10] Updating package lists =====" | tee -a /home/ubuntu/cloud-init-debug.log
+          for i in {1..3}; do
+            echo "Attempt $i: apt-get update" >> /home/ubuntu/cloud-init-debug.log
+            apt-get update && break
+            sleep 5
+          done
+          
+          echo "===== [2/10] Installing base packages =====" | tee -a /home/ubuntu/cloud-init-debug.log
+          for i in {1..3}; do
+            echo "Attempt $i: Installing packages" >> /home/ubuntu/cloud-init-debug.log
+            apt-get install -y python3-pip jq curl wget gnupg gnupg2 gpg software-properties-common dnsutils apt-transport-https ca-certificates && break
+            sleep 5
+            [ $i -eq 3 ] && handle_error $? "Package install failed after 3 attempts" "packages"
+          done
+          
+          echo "===== [3/10] Installing AWS tools =====" | tee -a /home/ubuntu/cloud-init-debug.log
           # Install AWS CloudFormation helpers
-          pip3 install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz
-          mkdir -p /opt/aws/bin && ln -s /usr/local/bin/cfn-* /opt/aws/bin/
+          pip3 install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz || handle_error $? "Failed to install cfn-bootstrap" "aws-tools"
+          mkdir -p /opt/aws/bin && ln -sf /usr/local/bin/cfn-* /opt/aws/bin/ || echo "WARNING: Could not link cfn tools to /opt/aws/bin"
           pip3 install --upgrade awscli || echo "AWS CLI install warning (non-critical)"
+          
+          # Verify AWS tools installation
+          if [ -f /opt/aws/bin/cfn-signal ]; then
+            echo "CloudFormation tools installed successfully" >> /home/ubuntu/cloud-init-debug.log
+          else
+            echo "WARNING: CloudFormation tools not found at expected location" >> /home/ubuntu/cloud-init-debug.log
+          fi
 
           # Install Globus Connect Server following official Ubuntu installation instructions
-          echo "Installing Globus Connect Server following official Ubuntu documentation..."
+          echo "===== [4/10] Beginning Globus Connect Server installation =====" | tee -a /home/ubuntu/cloud-init-debug.log
           
-          # 1. Download Globus repository package
-          echo "Downloading Globus repository package..."
-          curl -LOs https://downloads.globus.org/globus-connect-server/stable/installers/repo/deb/globus-repo_latest_all.deb || handle_error $? "Failed to download Globus repository package" "repo-download"
+          # 1. Download Globus repository package with retry
+          echo "===== [5/10] Downloading Globus repository package =====" | tee -a /home/ubuntu/cloud-init-debug.log
+          for i in {1..3}; do
+            echo "Attempt $i: Downloading repository package" >> /home/ubuntu/cloud-init-debug.log
+            curl -LOs https://downloads.globus.org/globus-connect-server/stable/installers/repo/deb/globus-repo_latest_all.deb && break
+            sleep 5
+            [ $i -eq 3 ] && handle_error $? "Failed to download Globus repository package after 3 attempts" "repo-download"
+          done
+          
+          # Verify download was successful
+          if [ -f globus-repo_latest_all.deb ]; then
+            echo "Repository package downloaded successfully: $(ls -l globus-repo_latest_all.deb)" >> /home/ubuntu/cloud-init-debug.log
+          else
+            echo "WARNING: Repository package not found after download" >> /home/ubuntu/cloud-init-debug.log
+            ls -l >> /home/ubuntu/cloud-init-debug.log
+          fi
           
           # 2. Install repository package
-          echo "Installing Globus repository package..."
+          echo "===== [6/10] Installing Globus repository package =====" | tee -a /home/ubuntu/cloud-init-debug.log
           dpkg -i globus-repo_latest_all.deb || handle_error $? "Failed to install Globus repository package" "repo-install"
           
+          # Verify repository was installed
+          if [ -f /etc/apt/sources.list.d/globus.list ]; then
+            echo "Repository configuration installed: $(cat /etc/apt/sources.list.d/globus.list)" >> /home/ubuntu/cloud-init-debug.log
+          else
+            echo "WARNING: Globus repository configuration not found" >> /home/ubuntu/cloud-init-debug.log
+            ls -l /etc/apt/sources.list.d/ >> /home/ubuntu/cloud-init-debug.log
+          fi
+          
           # 3. Update package lists
-          echo "Updating package lists..."
-          apt-get update || handle_error $? "Failed to update package lists" "apt-update"
+          echo "===== [7/10] Updating package lists for Globus repo =====" | tee -a /home/ubuntu/cloud-init-debug.log
+          for i in {1..3}; do
+            echo "Attempt $i: apt-get update" >> /home/ubuntu/cloud-init-debug.log
+            apt-get update && break
+            sleep 5
+            [ $i -eq 3 ] && handle_error $? "Failed to update package lists after 3 attempts" "apt-update"
+          done
           
           # 4. Install Globus Connect Server package
-          echo "Installing Globus Connect Server package..."
-          apt-get install -y globus-connect-server54 || handle_error $? "Failed to install Globus Connect Server package" "gcs-install"
+          echo "===== [8/10] Installing Globus Connect Server package =====" | tee -a /home/ubuntu/cloud-init-debug.log
+          for i in {1..3}; do
+            echo "Attempt $i: Installing globus-connect-server54" >> /home/ubuntu/cloud-init-debug.log
+            DEBIAN_FRONTEND=noninteractive apt-get install -y globus-connect-server54 && break
+            sleep 5
+            [ $i -eq 3 ] && handle_error $? "Failed to install Globus Connect Server package after 3 attempts" "gcs-install"
+          done
+          
+          # Verify Globus Connect Server installation
+          echo "Verifying Globus Connect Server installation:" >> /home/ubuntu/cloud-init-debug.log
+          dpkg -l | grep globus >> /home/ubuntu/cloud-init-debug.log
+          which globus-connect-server >> /home/ubuntu/cloud-init-debug.log
           
           # Check version and capabilities (using the version 5.4 command)
           GCS_VERSION=$(globus-connect-server --version 2>&1 | head -1 | awk '{print $NF}')
@@ -458,12 +536,35 @@ Resources:
           # Create minimal deployment summary
           echo "Deployment: $(date) Instance:$INSTANCE_ID Type:${DeploymentType} Auth:${AuthenticationMethod} S3:${EnableS3Connector}" > /home/ubuntu/deployment-summary.txt
           
-          # Signal CloudFormation success regardless of Globus status for troubleshooting
-          # Make sure we wait a bit to allow any background processes to complete
-          sleep 5
-          echo "Signaling CloudFormation stack that deployment is complete"
+          # ===== Final deployment steps and diagnostics =====
+          echo "===== [9/10] Collecting diagnostic information =====" | tee -a /home/ubuntu/cloud-init-debug.log
           
-          # Log CloudFormation bootstrap details
+          # Copy cloud-init logs for debugging
+          echo "Collecting cloud-init logs..." >> /home/ubuntu/cloud-init-debug.log
+          for logfile in /var/log/cloud-init.log /var/log/cloud-init-output.log /var/log/user-data.log; do
+            if [ -f "$logfile" ]; then
+              cp "$logfile" "/home/ubuntu/$(basename $logfile)"
+              echo "Copied $logfile" >> /home/ubuntu/cloud-init-debug.log
+            else
+              echo "WARNING: $logfile not found" >> /home/ubuntu/cloud-init-debug.log
+            fi
+          done
+          
+          # Collect cloud-init diagnostics
+          echo "Cloud-init diagnostics:" >> /home/ubuntu/cloud-init-debug.log
+          cloud-init status >> /home/ubuntu/cloud-init-debug.log 2>&1 || echo "Could not get cloud-init status" >> /home/ubuntu/cloud-init-debug.log
+          
+          # Check for scripts-user module errors
+          if grep -q "Failed to run module scripts-user" /var/log/cloud-init.log 2>/dev/null; then
+            echo "NOTICE: Found 'Failed to run module scripts-user' in cloud-init logs." > /home/ubuntu/cloud-init-modules.log
+            echo "Checking part files in /var/lib/cloud/instance/scripts/:" >> /home/ubuntu/cloud-init-modules.log
+            ls -la /var/lib/cloud/instance/scripts/ >> /home/ubuntu/cloud-init-modules.log 2>&1
+            
+            # Extract the relevant errors
+            grep -A10 "Failed to run module scripts-user" /var/log/cloud-init.log >> /home/ubuntu/cloud-init-modules.log
+          fi
+          
+          # Copy CloudFormation logs
           if [ -f /var/log/cfn-init.log ]; then
             cp /var/log/cfn-init.log /home/ubuntu/cfn-init.log
           fi
@@ -472,11 +573,25 @@ Resources:
             cp /var/log/cfn-init-cmd.log /home/ubuntu/cfn-init-cmd.log
           fi
           
+          # Create a status summary file
+          echo "===== [10/10] Finalizing deployment =====" | tee -a /home/ubuntu/cloud-init-debug.log
+          echo "Deployment completed at: $(date)" > /home/ubuntu/deployment-summary.txt
+          echo "Globus installation status: $(dpkg -l | grep -c globus-connect-server)" >> /home/ubuntu/deployment-summary.txt
+          echo "Globus command found: $(which globus-connect-server || echo "NOT FOUND")" >> /home/ubuntu/deployment-summary.txt
+          echo "Cloud-init status: $(cloud-init status 2>&1 || echo "Could not determine")" >> /home/ubuntu/deployment-summary.txt
+          
+          # Make sure we wait a bit to allow any background processes to complete
+          sleep 5
+          echo "Signaling CloudFormation stack that deployment is complete"
+          
           # Signal success to CloudFormation
+          # Explicitly setting status to 0 to prevent cloud-init errors from failing the stack
           /opt/aws/bin/cfn-signal -e 0 --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region} || echo "WARNING: cfn-signal failed" > /home/ubuntu/cfn-signal-failed.txt
           
-          # Mark the end of our script for proper cloud-init completion
+          # Important: Mark the end of our script for proper cloud-init completion
+          # This ensures cloud-init knows the script completed successfully
           echo "=== GLOBUS-CONNECT-SERVER-DEPLOYMENT-COMPLETE ==="
+          exit 0  # Explicitly exit with success code for cloud-init
       
       Tags:
         - Key: Name

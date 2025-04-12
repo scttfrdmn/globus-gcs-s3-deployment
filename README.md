@@ -73,6 +73,11 @@ The repository includes detailed documentation on deploying and using Globus Con
 
 The CloudFormation template includes the following reliability features:
 
+- **Cloud-Init Compatible**: Robust script design that works reliably with cloud-init
+- **Progressive Execution**: Continues deployment despite non-critical errors
+- **Detailed Progress Tracking**: Step-by-step progress markers for easier troubleshooting
+- **Installation Retries**: Automatic retry mechanisms for critical installation steps
+- **Comprehensive Diagnostics**: Detailed logs and validation files for troubleshooting
 - **Robust Error Handling**: Comprehensive error handling in all deployment steps
 - **Resource Signaling**: Proper CloudFormation resource signaling with timeouts
 - **S3 Bucket Validation**: Verifies S3 bucket existence before attempting connections
@@ -115,13 +120,17 @@ Important logs and resources on the server:
 
 ## Troubleshooting
 
-If Globus setup fails, the instance will still be created and kept running for troubleshooting. You'll find these resources on the instance:
+If Globus setup fails, the instance will still be created and kept running for troubleshooting. You'll find these diagnostic resources on the instance:
 
-1. **Manual Setup Script**: `/home/ubuntu/run-globus-setup.sh` - Allows you to manually attempt the Globus setup
-2. **Status File**: `/home/ubuntu/globus-setup-failed.txt` - Contains failure information if setup failed
-3. **Complete Logs**: `/home/ubuntu/globus-setup-complete.log` - Contains the full setup log
-4. **Deployment Errors**: `/home/ubuntu/deployment-error.txt` - Contains any deployment error details
-5. **User Data Log**: `/var/log/user-data.log` - Complete deployment script execution log
+1. **Deployment Debug Log**: `/home/ubuntu/cloud-init-debug.log` - Detailed step-by-step installation progress
+2. **Cloud-Init Module Issues**: `/home/ubuntu/cloud-init-modules.log` - Information about script-user module issues
+3. **Manual Setup Script**: `/home/ubuntu/run-globus-setup.sh` - Allows you to manually attempt the Globus setup
+4. **Status File**: `/home/ubuntu/globus-setup-failed.txt` - Contains failure information if setup failed
+5. **Deployment Summary**: `/home/ubuntu/deployment-summary.txt` - Shows the overall deployment status and configuration
+6. **Complete Logs**: `/home/ubuntu/globus-setup-complete.log` - Contains the full setup log
+7. **Deployment Errors**: `/home/ubuntu/deployment-error.txt` - Contains any deployment error details
+8. **User Data Log**: `/var/log/user-data.log` - Complete deployment script execution log
+9. **Cloud-Init Output**: `/var/log/cloud-init-output.log` - Standard cloud-init output
 
 ### Common Issues
 

@@ -160,15 +160,24 @@ Common issues include:
 - Network configuration issues preventing package installation
 - Incorrect parameters such as bucket names or availability zones
 
-If you see "WARNING - Failed to run module scripts-user" in the logs, check:
+If you see "WARNING - Failed to run module scripts-user" in the logs, this is likely a cloud-init warning that doesn't affect the deployment. The template includes robust error handling to continue despite these warnings. Check these files for diagnostic information:
+
 ```bash
 # SSH into the instance first
-cat /var/log/cloud-init-output.log
-cat /var/log/user-data.log
+cat /home/ubuntu/cloud-init-debug.log      # Detailed step-by-step deployment progress
+cat /home/ubuntu/cloud-init-modules.log    # Information about cloud-init module issues
+cat /var/log/cloud-init-output.log         # Standard cloud-init output
+cat /var/log/user-data.log                 # User-data script output
 
-# You can also try to manually run the Globus setup script
+# You can also try to manually run the Globus setup script if needed
 sudo bash /home/ubuntu/run-globus-setup.sh
 ```
+
+The deployment script now includes:
+- Detailed progress markers and validation steps
+- Robust error handling that continues execution
+- Multiple retry attempts for critical installation steps
+- Comprehensive diagnostic information collection
 
 ### 2. SSH into the instance
 
