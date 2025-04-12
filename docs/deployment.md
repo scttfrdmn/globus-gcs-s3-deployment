@@ -159,6 +159,7 @@ Common issues include:
 - Exceeding UserData script size limits (now fixed with optimized script)
 - Network configuration issues preventing package installation
 - Incorrect parameters such as bucket names or availability zones
+- Globus Connect Server command parameter incompatibility (older versions use `--secret` instead of `--client-secret`)
 
 If you see "WARNING - Failed to run module scripts-user" in the logs, this is likely a cloud-init warning that doesn't affect the deployment. The template includes robust error handling to continue despite these warnings. Check these files for diagnostic information:
 
@@ -178,6 +179,8 @@ The deployment script now includes:
 - Robust error handling that continues execution
 - Multiple retry attempts for critical installation steps
 - Comprehensive diagnostic information collection
+- Version compatibility checks for different versions of Globus Connect Server
+- Support for different command line parameter formats (both `--secret` and `--client-secret`)
 
 ### 2. SSH into the instance
 

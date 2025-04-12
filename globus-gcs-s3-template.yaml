@@ -447,22 +447,71 @@ Resources:
           fi
 
           # Setup helper script and credentials files
+          echo "Creating run-globus-setup.sh helper script..." | tee -a /home/ubuntu/cloud-init-debug.log
+          
+          # Ensure ubuntu home directory exists
+          mkdir -p /home/ubuntu
+          chown ubuntu:ubuntu /home/ubuntu
+          
+          # Create the helper script with error checking
           cat > /home/ubuntu/run-globus-setup.sh << 'EOF'
           #!/bin/bash
           # Get credentials from args or files
           [ -z "$1" ] && [ -f /home/ubuntu/globus-client-id.txt ] && GC_ID=$(cat /home/ubuntu/globus-client-id.txt) || GC_ID="$1"
           [ -z "$2" ] && [ -f /home/ubuntu/globus-client-secret.txt ] && GC_SECRET=$(cat /home/ubuntu/globus-client-secret.txt) || GC_SECRET="$2"
           [ -z "$3" ] && [ -f /home/ubuntu/globus-display-name.txt ] && GC_NAME=$(cat /home/ubuntu/globus-display-name.txt) || GC_NAME="$3"
-          globus-connect-server endpoint setup --client-id "$GC_ID" --client-secret "$GC_SECRET" --display-name "$GC_NAME" --organization "AWS" || \
-          globus-connect-server endpoint setup --config-file /etc/globus-connect-server/globus-connect-server.conf
+          
+          echo "Running Globus endpoint setup with:"
+          echo "- Client ID: $(echo $GC_ID | cut -c1-5)... (truncated)"
+          echo "- Display Name: $GC_NAME"
+          
+          # Try setup with correct parameter name for older versions
+          globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" --display-name "$GC_NAME" --organization "AWS"
+          
+          # Show result
+          echo "Setup complete! Endpoint details:"
+          globus-connect-server endpoint show
           EOF
-          chmod +x /home/ubuntu/run-globus-setup.sh
+          
+          # Verify file creation and set permissions
+          if [ -f /home/ubuntu/run-globus-setup.sh ]; then
+            chmod +x /home/ubuntu/run-globus-setup.sh
+            chown ubuntu:ubuntu /home/ubuntu/run-globus-setup.sh
+            echo "Helper script created successfully at /home/ubuntu/run-globus-setup.sh" | tee -a /home/ubuntu/cloud-init-debug.log
+          else
+            echo "ERROR: Failed to create helper script!" | tee -a /home/ubuntu/cloud-init-debug.log
+            # Try an alternative approach - create it using echo
+            echo '#!/bin/bash' > /home/ubuntu/run-globus-setup.sh
+            echo '# Manual setup script for Globus' >> /home/ubuntu/run-globus-setup.sh
+            echo 'GC_ID=${1:-$(cat /home/ubuntu/globus-client-id.txt 2>/dev/null)}' >> /home/ubuntu/run-globus-setup.sh
+            echo 'GC_SECRET=${2:-$(cat /home/ubuntu/globus-client-secret.txt 2>/dev/null)}' >> /home/ubuntu/run-globus-setup.sh
+            echo 'GC_NAME=${3:-$(cat /home/ubuntu/globus-display-name.txt 2>/dev/null)}' >> /home/ubuntu/run-globus-setup.sh
+            echo 'globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" --display-name "$GC_NAME" --organization "AWS"' >> /home/ubuntu/run-globus-setup.sh
+            chmod +x /home/ubuntu/run-globus-setup.sh
+            chown ubuntu:ubuntu /home/ubuntu/run-globus-setup.sh
+          fi
           
           # Store credentials and deployment details for troubleshooting
-          echo "${GlobusClientId}" > /home/ubuntu/globus-client-id.txt
-          echo "${GlobusClientSecret}" > /home/ubuntu/globus-client-secret.txt
-          echo "${GlobusDisplayName}" > /home/ubuntu/globus-display-name.txt
-          chmod 600 /home/ubuntu/globus-client-id.txt /home/ubuntu/globus-client-secret.txt /home/ubuntu/globus-display-name.txt
+          echo "Storing credentials for troubleshooting..." | tee -a /home/ubuntu/cloud-init-debug.log
+          
+          # Store each credential file separately with error checking
+          echo "${GlobusClientId}" > /home/ubuntu/globus-client-id.txt && \
+            chmod 600 /home/ubuntu/globus-client-id.txt && \
+            chown ubuntu:ubuntu /home/ubuntu/globus-client-id.txt && \
+            echo "- Created client ID file" >> /home/ubuntu/cloud-init-debug.log || \
+            echo "ERROR: Failed to create client ID file" | tee -a /home/ubuntu/cloud-init-debug.log
+            
+          echo "${GlobusClientSecret}" > /home/ubuntu/globus-client-secret.txt && \
+            chmod 600 /home/ubuntu/globus-client-secret.txt && \
+            chown ubuntu:ubuntu /home/ubuntu/globus-client-secret.txt && \
+            echo "- Created client secret file" >> /home/ubuntu/cloud-init-debug.log || \
+            echo "ERROR: Failed to create client secret file" | tee -a /home/ubuntu/cloud-init-debug.log
+            
+          echo "${GlobusDisplayName}" > /home/ubuntu/globus-display-name.txt && \
+            chmod 600 /home/ubuntu/globus-display-name.txt && \
+            chown ubuntu:ubuntu /home/ubuntu/globus-display-name.txt && \
+            echo "- Created display name file" >> /home/ubuntu/cloud-init-debug.log || \
+            echo "ERROR: Failed to create display name file" | tee -a /home/ubuntu/cloud-init-debug.log
           
           # Create a deployment log that can be checked for "scripts-user" errors
           echo "Checking for cloud-init script-user issues..."
@@ -480,19 +529,10 @@ Resources:
           SETUP_LOG="/var/log/globus-setup.log"
           echo "Starting Globus Connect Server setup $(date)" > $SETUP_LOG
           
-          if [ "$NEEDS_CLIENT_ID" = true ]; then
-            globus-connect-server endpoint setup --client-id "${GlobusClientId}" --client-secret "${GlobusClientSecret}" \
-              --display-name "${GlobusDisplayName}" --organization "AWS" > $SETUP_LOG 2>&1
-            SETUP_STATUS=$?
-            [ $SETUP_STATUS -ne 0 ] && globus-connect-server endpoint setup --config-file /etc/globus-connect-server/globus-connect-server.conf >> $SETUP_LOG 2>&1
-            SETUP_STATUS=$?
-          else
-            globus-connect-server endpoint setup --config-file /etc/globus-connect-server/globus-connect-server.conf > $SETUP_LOG 2>&1
-            SETUP_STATUS=$?
-            [ $SETUP_STATUS -ne 0 ] && globus-connect-server endpoint setup --client-id "${GlobusClientId}" --client-secret "${GlobusClientSecret}" \
-              --display-name "${GlobusDisplayName}" --organization "AWS" >> $SETUP_LOG 2>&1
-            SETUP_STATUS=$?
-          fi
+          # Use the correct parameter name for pre-5.4.61 versions
+          globus-connect-server endpoint setup --client-id "${GlobusClientId}" --secret "${GlobusClientSecret}" \
+            --display-name "${GlobusDisplayName}" --organization "AWS" > $SETUP_LOG 2>&1
+          SETUP_STATUS=$?
           
           # Diagnostics and reporting
           SYSTEM_INFO="System: $(uname -a) Host: $(hostname -f) Packages: $(dpkg -l | grep -c globus)"
@@ -514,15 +554,22 @@ Resources:
 
           # Configure S3 connector if subscription exists
           if [ -n "${GlobusSubscriptionId}" ]; then
-            # S3 connector
+            # S3 connector - check command availability first
             if [ "${EnableS3Connector}" = "true" ] && [ "${S3BucketName}" != "" ] && aws s3 ls "s3://${S3BucketName}" >/dev/null 2>&1; then
-              globus-connect-server storage-gateway create --connector-id s3_storage --display-name "S3 Connector" \
-                --connector-type s3 --authentication-method aws_s3_path_style --credentials-type role --bucket ${S3BucketName}
+              # Check if the command supports storage-gateway
+              if globus-connect-server help 2>&1 | grep -q "storage-gateway"; then
+                globus-connect-server storage-gateway create --connector-id s3_storage --display-name "S3 Connector" \
+                  --connector-type s3 --authentication-method aws_s3_path_style --credentials-type role --bucket ${S3BucketName}
+              else
+                echo "WARNING: This version of Globus does not support the storage-gateway command" | tee -a $SETUP_LOG
+              fi
             fi
             
             # Join subscription
             pip3 install -q globus-cli
-            mkdir -p ~/.globus && echo -e "[cli]\ndefault_client_id = ${GlobusClientId}\ndefault_client_secret = ${GlobusClientSecret}" > ~/.globus/globus.cfg
+            mkdir -p ~/.globus && echo -e "[cli]\ndefault_client_id = ${GlobusClientId}\n" > ~/.globus/globus.cfg
+            # Add secret instead of client_secret for compatibility
+            echo -e "default_client_secret = ${GlobusClientSecret}" >> ~/.globus/globus.cfg
             sleep 5
             ENDPOINT_ID=$(globus-connect-server endpoint show 2>/dev/null | grep -E 'UUID|ID' | awk '{print $2}' | head -1)
             [ -n "$ENDPOINT_ID" ] && globus-connect-server endpoint update --subscription-id "${GlobusSubscriptionId}" --display-name "${GlobusDisplayName}"
@@ -634,7 +681,7 @@ Outputs:
     Description: Public address to use for Globus redirect URI configuration
     Value: !If 
       - UseElasticIP
-      - !Sub "https://${GlobusServerElasticIP}"
+      - !Join ["", ["https://", !GetAtt GlobusServerElasticIP.PublicIp]]
       - !Sub "https://${GlobusServerInstance.PublicDnsName}"
 
   S3BucketConnected:
@@ -669,6 +716,6 @@ Outputs:
       - UseGlobusAuth
       - !If 
         - HasDefaultAdmin
-        - !Sub "Admin access granted to ${DefaultAdminIdentity}"
+        - !Join ["", ["Admin access granted to ", !Ref DefaultAdminIdentity]]
         - "No default admin configured - access policies must be set manually"
       - "Using MyProxy authentication - local accounts required"
