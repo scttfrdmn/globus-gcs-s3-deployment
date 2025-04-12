@@ -116,7 +116,17 @@ If Globus setup fails, the instance will still be created and kept running for t
 Common troubleshooting steps:
 1. SSH to the instance: `ssh -i /path/to/your/key.pem ubuntu@<PUBLIC-IP-ADDRESS>`
 2. Check setup status: `cat /home/ubuntu/globus-setup-failed.txt`
-3. Run manual setup: `bash /home/ubuntu/run-globus-setup.sh`
+3. Run manual setup: 
+   ```bash
+   # Using credential files:
+   CLIENT_ID=$(cat /home/ubuntu/globus-client-id.txt)
+   CLIENT_SECRET=$(cat /home/ubuntu/globus-client-secret.txt)
+   DISPLAY_NAME=$(cat /home/ubuntu/globus-display-name.txt)
+   bash /home/ubuntu/run-globus-setup.sh "$CLIENT_ID" "$CLIENT_SECRET" "$DISPLAY_NAME"
+   
+   # Or if you have credentials directly:
+   bash /home/ubuntu/run-globus-setup.sh "your-client-id" "your-client-secret" "display-name"
+   ```
 4. Check logs: `cat /home/ubuntu/globus-setup-complete.log`
 
 ## License

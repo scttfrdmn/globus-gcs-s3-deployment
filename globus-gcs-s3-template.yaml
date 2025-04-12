@@ -306,7 +306,7 @@ Resources:
             echo "Error occurred in script section: $3" >> /home/ubuntu/deployment-error.txt
             
             # Don't signal failure to allow troubleshooting
-            if [ "${FAIL_ON_ERROR}" = "yes" ]; then
+            if [ "$SHOULD_FAIL" = "yes" ]; then
               # Only fail if explicit failure is requested
               echo "Signaling CloudFormation failure"
               /opt/aws/bin/cfn-signal -e $ERR_CODE --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}
@@ -318,7 +318,7 @@ Resources:
           }
           
           # Set to 'no' by default to keep instance alive for troubleshooting
-          FAIL_ON_ERROR="no"
+          SHOULD_FAIL="no"
 
           # Install AWS CloudFormation helpers
           apt-get update
@@ -483,38 +483,59 @@ Resources:
           
           # Run the actual setup command with proper parameters based on version
           # First create a debug script that we can run manually for troubleshooting if needed
-          cat > /home/ubuntu/run-globus-setup.sh << EOF
-#!/bin/bash
-echo "Running manual troubleshooting script for Globus Connect Server setup"
-export GlobusClientId="${GlobusClientId}"
-export GlobusClientSecret="${GlobusClientSecret}"
-export GlobusDisplayName="${GlobusDisplayName}"
-
-# Check version
-GCS_VERSION=\$(globus-connect-server --version 2>&1 | head -1 | awk '{print \$NF}' || echo "unknown")
-echo "Detected Globus Connect Server version: \$GCS_VERSION"
-
-# Try with client credentials
-echo "Attempting setup with client credentials..."
-globus-connect-server endpoint setup \
-  --client-id "\${GlobusClientId}" \
-  --client-secret "\${GlobusClientSecret}" \
-  --display-name "\${GlobusDisplayName}" \
-  --organization "AWS Deployment"
-STATUS1=\$?
-echo "Setup with client credentials exit code: \$STATUS1"
-
-# Try with config file
-echo "Attempting setup with config file..."
-globus-connect-server endpoint setup \
-  --config-file /etc/globus-connect-server/globus-connect-server.conf
-STATUS2=\$?
-echo "Setup with config file exit code: \$STATUS2"
-
-# Status report
-echo "All done with status codes: \$STATUS1 / \$STATUS2"
-EOF
+          # Create a basic troubleshooting script
+          # Create the troubleshooting script by writing each part separately
+          echo '#!/bin/bash' > /home/ubuntu/run-globus-setup.sh
+          echo '# Get client credentials from environment or provide them as arguments' >> /home/ubuntu/run-globus-setup.sh
+          echo 'if [ -z "$1" ] || [ -z "$2" ]; then' >> /home/ubuntu/run-globus-setup.sh
+          echo '  echo "Using environment variables for credentials (if set)"' >> /home/ubuntu/run-globus-setup.sh
+          echo 'else' >> /home/ubuntu/run-globus-setup.sh
+          echo '  echo "Using provided credentials from arguments"' >> /home/ubuntu/run-globus-setup.sh
+          echo '  GlobusClientId="$1"' >> /home/ubuntu/run-globus-setup.sh
+          echo '  GlobusClientSecret="$2"' >> /home/ubuntu/run-globus-setup.sh
+          echo '  GlobusDisplayName="$3"' >> /home/ubuntu/run-globus-setup.sh
+          echo 'fi' >> /home/ubuntu/run-globus-setup.sh
+          echo '' >> /home/ubuntu/run-globus-setup.sh
+          echo '# Print credentials length for debugging' >> /home/ubuntu/run-globus-setup.sh
+          echo 'CID_LEN=$(echo -n "$GlobusClientId" | wc -c)' >> /home/ubuntu/run-globus-setup.sh
+          echo 'CS_LEN=$(echo -n "$GlobusClientSecret" | wc -c)' >> /home/ubuntu/run-globus-setup.sh
+          echo 'echo "Client ID length: $CID_LEN"' >> /home/ubuntu/run-globus-setup.sh
+          echo 'echo "Client Secret length: $CS_LEN"' >> /home/ubuntu/run-globus-setup.sh
+          echo 'echo "Display Name: $GlobusDisplayName"' >> /home/ubuntu/run-globus-setup.sh
+          echo '' >> /home/ubuntu/run-globus-setup.sh
+          echo '# Check version' >> /home/ubuntu/run-globus-setup.sh
+          echo 'GCS_VERSION=$(globus-connect-server --version 2>&1 | head -1 | awk '"'"'{print $NF}'"'"' || echo "unknown")' >> /home/ubuntu/run-globus-setup.sh
+          echo 'echo "Detected Globus Connect Server version: $GCS_VERSION"' >> /home/ubuntu/run-globus-setup.sh
+          echo '' >> /home/ubuntu/run-globus-setup.sh
+          echo '# Try with client credentials' >> /home/ubuntu/run-globus-setup.sh
+          echo 'echo "Attempting setup with client credentials..."' >> /home/ubuntu/run-globus-setup.sh
+          echo 'globus-connect-server endpoint setup \\' >> /home/ubuntu/run-globus-setup.sh
+          echo '  --client-id "$GlobusClientId" \\' >> /home/ubuntu/run-globus-setup.sh
+          echo '  --client-secret "$GlobusClientSecret" \\' >> /home/ubuntu/run-globus-setup.sh
+          echo '  --display-name "$GlobusDisplayName" \\' >> /home/ubuntu/run-globus-setup.sh
+          echo '  --organization "AWS Deployment"' >> /home/ubuntu/run-globus-setup.sh
+          echo 'STATUS1=$?' >> /home/ubuntu/run-globus-setup.sh
+          echo 'echo "Setup with client credentials exit code: $STATUS1"' >> /home/ubuntu/run-globus-setup.sh
+          echo '' >> /home/ubuntu/run-globus-setup.sh
+          echo '# Try with config file' >> /home/ubuntu/run-globus-setup.sh
+          echo 'echo "Attempting setup with config file..."' >> /home/ubuntu/run-globus-setup.sh
+          echo 'globus-connect-server endpoint setup \\' >> /home/ubuntu/run-globus-setup.sh
+          echo '  --config-file /etc/globus-connect-server/globus-connect-server.conf' >> /home/ubuntu/run-globus-setup.sh
+          echo 'STATUS2=$?' >> /home/ubuntu/run-globus-setup.sh
+          echo 'echo "Setup with config file exit code: $STATUS2"' >> /home/ubuntu/run-globus-setup.sh
+          echo '' >> /home/ubuntu/run-globus-setup.sh
+          echo '# Status report' >> /home/ubuntu/run-globus-setup.sh
+          echo 'echo "All done with status codes: $STATUS1 / $STATUS2"' >> /home/ubuntu/run-globus-setup.sh
           chmod +x /home/ubuntu/run-globus-setup.sh
+          
+          # Save credentials to a separate file for the script to use
+          # Write each credential to a separate file to avoid heredoc variable substitution issues
+          echo "${GlobusClientId}" > /home/ubuntu/globus-client-id.txt
+          echo "${GlobusClientSecret}" > /home/ubuntu/globus-client-secret.txt
+          echo "${GlobusDisplayName}" > /home/ubuntu/globus-display-name.txt
+          chmod 600 /home/ubuntu/globus-client-id.txt
+          chmod 600 /home/ubuntu/globus-client-secret.txt
+          chmod 600 /home/ubuntu/globus-display-name.txt
           
           # Attempt setup with max verbosity
           if [ "$NEEDS_CLIENT_ID" = true ]; then
