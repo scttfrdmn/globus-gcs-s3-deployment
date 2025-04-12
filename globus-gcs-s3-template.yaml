@@ -282,6 +282,17 @@ Resources:
         Fn::Base64: !Sub |
           #!/bin/bash -xe
           exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+          
+          echo "====== Starting Globus Connect Server deployment $(date) ======"
+          echo "Stack name: ${AWS::StackName}"
+          echo "Region: ${AWS::Region}"
+          echo "Deployment type: ${DeploymentType}"
+          echo "Authentication method: ${AuthenticationMethod}"
+          echo "Connectors enabled:"
+          echo "- S3: ${EnableS3Connector}"
+          echo "- POSIX: ${EnablePosixConnector}"
+          echo "- Google Drive: ${EnableGoogleDriveConnector}"
+          echo "========================================================"
 
           # Error handling function
           function handle_error {
@@ -317,7 +328,13 @@ Resources:
 
           # Create Globus Connect Server configuration file
           if [ "${AuthenticationMethod}" = "Globus" ]; then
-            cat > /etc/globus-connect-server/globus-connect-server.conf << 'EOF'
+            # Log variables to help with debugging
+            echo "DEBUG: Using ClientId for authentication"
+            echo "DEBUG: Using ClientSecret for authentication" 
+            echo "DEBUG: Endpoint Name: ${GlobusDisplayName}"
+            echo "DEBUG: Hostname: $(hostname -f)"
+            
+            cat > /etc/globus-connect-server/globus-connect-server.conf << EOF
           [Globus]
           ClientId = ${GlobusClientId}
           ClientSecret = ${GlobusClientSecret}
@@ -342,7 +359,13 @@ Resources:
           SharingRestrictPaths = 
           EOF
           else
-            cat > /etc/globus-connect-server/globus-connect-server.conf << 'EOF'
+            # Log variables to help with debugging
+            echo "DEBUG: Using ClientId for authentication"
+            echo "DEBUG: Using ClientSecret for authentication" 
+            echo "DEBUG: Endpoint Name: ${GlobusDisplayName}"
+            echo "DEBUG: Hostname: $(hostname -f)"
+            
+            cat > /etc/globus-connect-server/globus-connect-server.conf << EOF
           [Globus]
           ClientId = ${GlobusClientId}
           ClientSecret = ${GlobusClientSecret}
@@ -369,7 +392,8 @@ Resources:
 
           # Configure S3 connector
           mkdir -p /opt/globus-connect-server-s3
-          cat > /opt/globus-connect-server-s3/s3_connector.json << 'EOF'
+          echo "DEBUG: S3BucketName: ${S3BucketName}"
+          cat > /opt/globus-connect-server-s3/s3_connector.json << EOF
           {
               "canonical_name": "s3_storage",
               "display_name": "S3 Connector",
@@ -384,7 +408,35 @@ Resources:
           EOF
 
           # Setup and start Globus Connect Server
-          globus-connect-server-setup || handle_error $? "Failed to set up Globus Connect Server"
+          echo "====== Starting Globus Connect Server setup $(date) ======"
+          echo "This may take several minutes..."
+          
+          # Create a detailed log file
+          SETUP_LOG="/var/log/globus-setup.log"
+          
+          # Run setup with a timeout of 15 minutes and capture detailed logs
+          timeout 900 globus-connect-server-setup > $SETUP_LOG 2>&1
+          SETUP_STATUS=$?
+          
+          # Check if the setup timed out
+          if [ $SETUP_STATUS -eq 124 ]; then
+            echo "ERROR: Globus Connect Server setup timed out after 15 minutes"
+            echo "Last 50 lines of setup log:"
+            tail -n 50 $SETUP_LOG
+            handle_error 124 "Globus Connect Server setup timed out"
+          elif [ $SETUP_STATUS -ne 0 ]; then
+            echo "ERROR: Globus Connect Server setup failed with code $SETUP_STATUS"
+            echo "Last 50 lines of setup log:"
+            tail -n 50 $SETUP_LOG
+            handle_error $SETUP_STATUS "Failed to set up Globus Connect Server"
+          else
+            echo "Globus Connect Server setup completed successfully"
+          fi
+          
+          # Check if essential services are running
+          if ! systemctl is-active --quiet globus-gridftp-server; then
+            echo "WARNING: Globus GridFTP server is not running after setup"
+          fi
 
           # Set up initial access policy for admin if specified
           if [ "${AuthenticationMethod}" = "Globus" ] && [ "${DefaultAdminIdentity}" != "" ]; then
@@ -534,11 +586,20 @@ Resources:
               
               # Create config directory and credentials file for CLI
               mkdir -p ~/.globus
+              echo "DEBUG: Creating CLI config file with client credentials"
               cat > ~/.globus/globus.cfg << EOF
           [cli]
           default_client_id = ${GlobusClientId}
           default_client_secret = ${GlobusClientSecret}
           EOF
+              # Verify the config file was created successfully
+              if [ ! -f ~/.globus/globus.cfg ]; then
+                echo "ERROR: Failed to create Globus CLI config file"
+                # Create a warning file but continue as this is post-setup
+                echo "WARNING: Failed to configure Globus CLI" > /home/ec2-user/globus-cli-config-failed.txt
+              else
+                echo "DEBUG: Globus CLI config file created successfully"
+              fi
               
               # Attempt to join the subscription
               echo "Joining subscription ${GlobusSubscriptionId}..."

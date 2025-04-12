@@ -20,7 +20,11 @@ When troubleshooting CloudFormation deployment failures:
 4. Ensure proper resource signaling with CreationPolicy and cfn-signal
 5. Check for S3 bucket accessibility before attempting connector setup
 6. Verify that the subscription ID is valid when deploying connectors
-7. Review deployment logs on the instance at `/var/log/user-data.log` and `/var/log/cloud-init-output.log`
+7. Review deployment logs on the instance:
+   - Main deployment logs: `/var/log/user-data.log` and `/var/log/cloud-init-output.log`
+   - Globus setup log (most detailed): `/var/log/globus-setup.log`
+   - Deployment summary: `/home/ec2-user/deployment-summary.txt`
+   - Auth configuration issues: Look for ClientId/ClientSecret issues in config files
 8. For ROLLBACK_COMPLETE status, focus on the resource that initiated the rollback
 9. **Verify network connectivity:**
    - Ensure the instance has a public IP address assigned (check Public DNS or IP in the EC2 console)
