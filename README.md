@@ -47,11 +47,18 @@ The repository includes detailed documentation on deploying and using Globus Con
 
 3. Deploy using CloudFormation:
    ```bash
+   # Create the stack
    aws cloudformation create-stack \
      --stack-name globus-gcs \
      --template-body file://globus-gcs-s3-template.yaml \
      --parameters file://parameters.json \
      --capabilities CAPABILITY_IAM
+   
+   # Monitor deployment status (shows current status without quotes)
+   aws cloudformation describe-stacks --stack-name globus-gcs --query "Stacks[0].StackStatus" --output text
+   
+   # Or wait for completion
+   aws cloudformation wait stack-create-complete --stack-name globus-gcs
    ```
 
    Note: Boolean parameters in the template (like EnableS3Connector) must be specified as strings:

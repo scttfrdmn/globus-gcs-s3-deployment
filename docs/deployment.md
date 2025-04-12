@@ -121,8 +121,8 @@ aws cloudformation create-stack \
 ### 3. Monitor deployment
 
 ```bash
-# Check stack creation status
-aws cloudformation describe-stacks --stack-name globus-gcs --query "Stacks[0].StackStatus"
+# Check stack creation status - outputs just the status without quotes
+aws cloudformation describe-stacks --stack-name globus-gcs --query "Stacks[0].StackStatus" --output text
 
 # Wait for complete status
 aws cloudformation wait stack-create-complete --stack-name globus-gcs
@@ -133,7 +133,11 @@ aws cloudformation wait stack-create-complete --stack-name globus-gcs
 ### 1. Retrieve stack outputs
 
 ```bash
-aws cloudformation describe-stacks --stack-name globus-gcs --query "Stacks[0].Outputs"
+# Get all outputs with details
+aws cloudformation describe-stacks --stack-name globus-gcs --query "Stacks[0].Outputs" --output table
+
+# Get just the output values (for scripting)
+aws cloudformation describe-stacks --stack-name globus-gcs --query "Stacks[0].Outputs[].{Key:OutputKey,Value:OutputValue}" --output table
 ```
 
 Key outputs include:
@@ -147,7 +151,8 @@ Key outputs include:
 If deployment fails, first check the CloudFormation events for error information:
 
 ```bash
-aws cloudformation describe-stack-events --stack-name globus-gcs --query "StackEvents[?ResourceStatus=='CREATE_FAILED']"
+# Show any failed resources in a readable table format
+aws cloudformation describe-stack-events --stack-name globus-gcs --query "StackEvents[?ResourceStatus=='CREATE_FAILED'].{Resource:LogicalResourceId,Type:ResourceType,Reason:ResourceStatusReason}" --output table
 ```
 
 Common issues include:
@@ -158,12 +163,19 @@ Common issues include:
 ### 2. SSH into the instance
 
 ```bash
-# Get the public address
+# Get the public address (cleaner approach with --output text)
 PUBLIC_DNS=$(aws cloudformation describe-stacks --stack-name globus-gcs \
   --query "Stacks[0].Outputs[?OutputKey=='PublicDNS'].OutputValue" --output text)
 
-# Connect via SSH
+# Alternative way to get public IP if you prefer that
+PUBLIC_IP=$(aws cloudformation describe-stacks --stack-name globus-gcs \
+  --query "Stacks[0].Outputs[?OutputKey=='ElasticIP' || OutputKey=='PublicIP'].OutputValue" --output text)
+
+# Connect via SSH using DNS name
 ssh -i your-key-pair.pem ubuntu@$PUBLIC_DNS
+
+# Or connect using IP if you prefer
+# ssh -i your-key-pair.pem ubuntu@$PUBLIC_IP
 ```
 
 ### 3. Check Globus installation
