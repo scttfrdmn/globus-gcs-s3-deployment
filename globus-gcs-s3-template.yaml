@@ -323,7 +323,35 @@ Resources:
           curl -LOs https://downloads.globus.org/globus-connect-server/stable/installers/repo/deb/globus-repo_latest_all.deb || handle_error $? "Failed to download Globus repository"
           dpkg -i ./globus-repo_latest_all.deb || handle_error $? "Failed to install Globus repository"
           apt-get update
-          apt-get install -y globus-connect-server54 || handle_error $? "Failed to install Globus Connect Server"
+          
+          # Install necessary prerequisites
+          apt-get install -y gnupg2 apt-transport-https ca-certificates || handle_error $? "Failed to install prerequisites"
+          
+          # Add Globus repository signing key
+          curl -s https://downloads.globus.org/globus-connect-server/stable/installers/repo/deb/GPG-KEY-Globus | apt-key add - || handle_error $? "Failed to add Globus GPG key"
+          
+          # Make sure the repository is properly added
+          echo "deb https://downloads.globus.org/globus-connect-server/stable/deb ubuntu bionic contrib" > /etc/apt/sources.list.d/globus-connect-server-stable.list
+          apt-get update || handle_error $? "Failed to update repositories after adding Globus"
+          
+          # Install Globus Connect Server
+          apt-get install -y globus-connect-server || handle_error $? "Failed to install Globus Connect Server"
+          
+          # Check installed package and print version info
+          echo "Installed Globus packages:"
+          dpkg -l | grep globus
+          
+          # Check command paths
+          echo "Globus command path:"
+          which globus-connect-server || echo "Could not find globus-connect-server command"
+          
+          # Check command version and capabilities
+          echo "Globus Connect Server version:"
+          globus-connect-server --version || echo "Could not determine version"
+          
+          # List available Globus commands from PATH
+          echo "Available globus commands:"
+          find /usr/bin -name "*globus*" || echo "No Globus commands found in /usr/bin"
 
           # Create Globus configuration directory
           mkdir -p /etc/globus-connect-server
@@ -417,7 +445,18 @@ Resources:
           SETUP_LOG="/var/log/globus-setup.log"
           
           # Run setup with a timeout of 15 minutes and capture detailed logs
-          timeout 900 globus-connect-server-setup > $SETUP_LOG 2>&1
+          echo "Running globus-connect-server endpoint setup command..."
+          
+          # First try to get help to see the available options
+          echo "Available commands:" >> $SETUP_LOG
+          globus-connect-server --help >> $SETUP_LOG 2>&1
+          echo "Endpoint command options:" >> $SETUP_LOG
+          globus-connect-server endpoint --help >> $SETUP_LOG 2>&1
+          
+          # Run the actual setup command with proper parameters
+          echo "Running endpoint setup with config file..." >> $SETUP_LOG
+          timeout 900 globus-connect-server endpoint setup \
+            --config-file /etc/globus-connect-server/globus-connect-server.conf >> $SETUP_LOG 2>&1
           SETUP_STATUS=$?
           
           # Check if the setup timed out
@@ -436,9 +475,12 @@ Resources:
           fi
           
           # Check if essential services are running
-          if ! systemctl is-active --quiet globus-gridftp-server; then
-            echo "WARNING: Globus GridFTP server is not running after setup"
-          fi
+          echo "Checking GridFTP service status..."
+          systemctl status globus-gridftp-server || echo "WARNING: Globus GridFTP server might not be running after setup"
+          
+          # List all Globus-related services
+          echo "Listing all Globus-related services:"
+          systemctl list-units | grep -i globus
 
           # Set up initial access policy for admin if specified
           if [ "${AuthenticationMethod}" = "Globus" ] && [ "${DefaultAdminIdentity}" != "" ]; then
@@ -450,7 +492,7 @@ Resources:
             # Try to create admin access policy, retrying if it fails
             for i in {1..3}; do
               echo "Attempt $i to create admin access policy..."
-              globus-connect-server acl create \
+              globus-connect-server endpoint permission create \
                 --permissions read,write \
                 --principal "${DefaultAdminIdentity}" \
                 --path "/"
@@ -484,11 +526,11 @@ Resources:
                 echo "S3 bucket ${S3BucketName} exists and is accessible"
                 globus-connect-server storage-gateway create \
                   --connector-id s3_storage \
-                  --connector-display-name "S3 Connector" \
+                  --display-name "S3 Connector" \
                   --connector-type s3 \
                   --authentication-method aws_s3_path_style \
                   --credentials-type role \
-                  --s3-bucket ${S3BucketName}
+                  --bucket ${S3BucketName}
                 if [ $? -eq 0 ]; then
                   echo "S3 connector configured successfully"
                 else
@@ -517,7 +559,7 @@ Resources:
               
               globus-connect-server storage-gateway create \
                 --connector-id posix_storage \
-                --connector-display-name "POSIX Connector" \
+                --display-name "POSIX Connector" \
                 --connector-type posix \
                 --root-directory ${PosixPath}
               echo "POSIX connector configured"
@@ -530,7 +572,7 @@ Resources:
               echo "Setting up Google Drive connector..."
               globus-connect-server storage-gateway create \
                 --connector-id googledrive_storage \
-                --connector-display-name "Google Drive Connector" \
+                --display-name "Google Drive Connector" \
                 --connector-type google_drive
               echo "Google Drive connector configured"
             else
@@ -540,9 +582,18 @@ Resources:
             echo "No subscription ID provided, skipping connector setup"
           fi
 
-          # Enable and start services
-          systemctl enable globus-gridftp-server || handle_error $? "Failed to enable Globus GridFTP server"
-          systemctl start globus-gridftp-server || handle_error $? "Failed to start Globus GridFTP server"
+          # List available services first
+          echo "Available Globus services:"
+          ls -la /lib/systemd/system/globus* || echo "No Globus systemd services found in expected location"
+          
+          # Try to enable and start the GridFTP server if available
+          if [ -f /lib/systemd/system/globus-gridftp-server.service ]; then
+            systemctl enable globus-gridftp-server || echo "Warning: Failed to enable Globus GridFTP server"
+            systemctl start globus-gridftp-server || echo "Warning: Failed to start Globus GridFTP server"
+          else
+            echo "Note: The globus-gridftp-server.service file was not found, this may be normal for this version"
+            echo "If needed, manually identify the correct service name using: systemctl list-units | grep -i globus"
+          fi
 
           # Add a tag indicating installation is complete
           INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
@@ -581,7 +632,10 @@ Resources:
             sleep 30
             
             # Get the endpoint ID
-            ENDPOINT_ID=$(globus-connect-server endpoint show | grep 'UUID' | awk '{print $2}')
+            echo "Getting endpoint information..."
+            globus-connect-server endpoint show > /tmp/endpoint_info.txt 2>&1
+            cat /tmp/endpoint_info.txt
+            ENDPOINT_ID=$(grep -E 'UUID|ID' /tmp/endpoint_info.txt | awk '{print $2}')
             
             if [ ! -z "$ENDPOINT_ID" ]; then
               echo "Found Endpoint ID: $ENDPOINT_ID"
@@ -605,10 +659,13 @@ Resources:
               
               # Attempt to join the subscription
               echo "Joining subscription ${GlobusSubscriptionId}..."
-              globus-connect-server endpoint update --subscription-id ${GlobusSubscriptionId}
+              globus-connect-server endpoint update \
+                --subscription-id ${GlobusSubscriptionId} \
+                --display-name "${GlobusDisplayName}"
               
               # Verify subscription status
-              globus-connect-server endpoint show | grep subscription
+              echo "Checking endpoint status after subscription update:"
+              globus-connect-server endpoint show | grep -i "subscription\|display"
             else
               echo "Could not determine endpoint ID, manual subscription joining will be required"
             fi

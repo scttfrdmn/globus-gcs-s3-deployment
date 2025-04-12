@@ -10,6 +10,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Markdown linting: `markdownlint README.md docs/*.md`
 - CloudFormation deployment check: `aws cloudformation describe-stack-events --stack-name globus-gcs | grep -A 2 "FAILED"`
 
+## Ubuntu Package Information
+
+The deployment uses Ubuntu 22.04 LTS and installs Globus packages using the Debian/Ubuntu package manager. Key details:
+
+- The official Globus Connect Server repository is added to APT sources
+- Package install path: `/usr/share/globus-connect-server/`
+- Configuration path: `/etc/globus-connect-server/`
+- Service names vary by installation and may include:
+  - `globus-gridftp-server.service`
+  - Other related services
+- Command structure:
+  - Main command: `globus-connect-server`
+  - Endpoint setup: `globus-connect-server endpoint setup --config-file <file>`
+  - Create permissions: `globus-connect-server endpoint permission create`
+  - Create storage gateway: `globus-connect-server storage-gateway create`
+  - Show endpoint: `globus-connect-server endpoint show`
+- For command path issues:
+  - Verify installation: `dpkg -l | grep globus`
+  - Check command path: `which globus-connect-server`
+  - List available commands: `find /usr/bin -name "*globus*"`
+
 ## Troubleshooting Deployment Issues
 
 When troubleshooting CloudFormation deployment failures:
@@ -25,6 +46,8 @@ When troubleshooting CloudFormation deployment failures:
    - Globus setup log (most detailed): `/var/log/globus-setup.log`
    - Deployment summary: `/home/ubuntu/deployment-summary.txt`
    - Auth configuration issues: Look for ClientId/ClientSecret issues in config files
+   - Package installation issues: Check if Globus packages are correctly installed with `dpkg -l | grep globus`
+   - Verify the Globus setup command path with `which globus-connect-server-setup`
 8. For ROLLBACK_COMPLETE status, focus on the resource that initiated the rollback
 9. **Verify network connectivity:**
    - Ensure the instance has a public IP address assigned (check Public DNS or IP in the EC2 console)
