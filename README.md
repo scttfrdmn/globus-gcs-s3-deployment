@@ -114,6 +114,19 @@ If Globus setup fails, the instance will still be created and kept running for t
 2. **Status File**: `/home/ubuntu/globus-setup-failed.txt` - Contains failure information if setup failed
 3. **Complete Logs**: `/home/ubuntu/globus-setup-complete.log` - Contains the full setup log
 4. **Deployment Errors**: `/home/ubuntu/deployment-error.txt` - Contains any deployment error details
+5. **User Data Log**: `/var/log/user-data.log` - Complete deployment script execution log
+
+### Common Issues
+
+#### GPG Key Issues
+
+If you encounter GPG key related errors during deployment (e.g., "Failed to add Globus GPG key"), the template includes multiple fallback methods:
+
+1. The primary method uses a modern GPG keyring approach compatible with Ubuntu 22.04
+2. A legacy fallback method using `apt-key add` 
+3. Direct package download and installation as a last resort
+
+These approaches should resolve GPG key issues across different Ubuntu environments, especially when dealing with updated key handling methods in newer Ubuntu releases.
 
 Common troubleshooting steps:
 1. SSH to the instance: `ssh -i /path/to/your/key.pem ubuntu@<PUBLIC-IP-ADDRESS>`

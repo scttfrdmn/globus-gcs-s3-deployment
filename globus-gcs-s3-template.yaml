@@ -275,19 +275,66 @@ Resources:
 
           # Install packages in batches to reduce command count
           apt-get update
-          apt-get install -y python3-pip jq curl wget gnupg2 software-properties-common dnsutils apt-transport-https ca-certificates || handle_error $? "Package install failed" "packages"
+          apt-get install -y python3-pip jq curl wget gnupg gnupg2 gpg software-properties-common dnsutils apt-transport-https ca-certificates || handle_error $? "Package install failed" "packages"
           
           # Install AWS CloudFormation helpers
           pip3 install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz
           mkdir -p /opt/aws/bin && ln -s /usr/local/bin/cfn-* /opt/aws/bin/
           pip3 install --upgrade awscli || echo "AWS CLI install warning (non-critical)"
 
-          # Install Globus repository and packages
+          # Install Globus repository and packages with improved GPG key handling
           curl -LOs https://downloads.globus.org/globus-connect-server/stable/installers/repo/deb/globus-repo_latest_all.deb || handle_error $? "Failed to download Globus repository" "repo-download"
           dpkg -i ./globus-repo_latest_all.deb || handle_error $? "Failed to install Globus repository" "repo-install"
-          curl -s https://downloads.globus.org/globus-connect-server/stable/installers/repo/deb/GPG-KEY-Globus | apt-key add - || handle_error $? "Failed to add Globus GPG key" "gpg-key"
-          echo "deb https://downloads.globus.org/globus-connect-server/stable/deb ubuntu bionic contrib" > /etc/apt/sources.list.d/globus-connect-server-stable.list
-          apt-get update && apt-get install -y globus-connect-server || handle_error $? "Failed to install Globus Connect Server" "gcs-install"
+          
+          # Download and add the GPG key with better error handling
+          mkdir -p /etc/apt/keyrings
+          echo "Downloading Globus GPG key..."
+          curl -fsSL https://downloads.globus.org/globus-connect-server/stable/installers/repo/deb/GPG-KEY-Globus -o /tmp/GPG-KEY-Globus
+          
+          # Try modern method first
+          if gpg --dearmor < /tmp/GPG-KEY-Globus > /etc/apt/keyrings/globus-archive-keyring.gpg; then
+            echo "GPG key added successfully using modern method"
+            echo "deb [signed-by=/etc/apt/keyrings/globus-archive-keyring.gpg] https://downloads.globus.org/globus-connect-server/stable/deb ubuntu bionic contrib" > /etc/apt/sources.list.d/globus-connect-server-stable.list
+          else
+            # Fallback to legacy method
+            echo "Falling back to legacy GPG key method..."
+            apt-key add /tmp/GPG-KEY-Globus
+            echo "deb https://downloads.globus.org/globus-connect-server/stable/deb ubuntu bionic contrib" > /etc/apt/sources.list.d/globus-connect-server-stable.list
+          fi
+          
+          # Update and attempt to install Globus Connect Server
+          apt-get update
+          
+          # First try with the configured repository
+          if apt-get install -y globus-connect-server; then
+            echo "Successfully installed Globus Connect Server from repository"
+          else
+            echo "Repository installation failed, trying direct download method..."
+            # Direct download from Globus website as last resort
+            # Get system architecture
+            ARCH=$(dpkg --print-architecture)
+            echo "System architecture: $ARCH"
+            # Download the package directly - use hardcoded architecture options
+            if [ "$ARCH" = "amd64" ]; then
+              echo "Downloading amd64 package"
+              curl -LOs https://downloads.globus.org/globus-connect-server/stable/installers/globus-connect-server_latest_amd64.deb
+            elif [ "$ARCH" = "arm64" ]; then 
+              echo "Downloading arm64 package"
+              curl -LOs https://downloads.globus.org/globus-connect-server/stable/installers/globus-connect-server_latest_arm64.deb
+            else
+              echo "Architecture $ARCH not directly supported, trying amd64 package"
+              curl -LOs https://downloads.globus.org/globus-connect-server/stable/installers/globus-connect-server_latest_amd64.deb
+            fi
+            # Install the package (use the right filename based on architecture)
+            if [ "$ARCH" = "amd64" ]; then
+              dpkg -i ./globus-connect-server_latest_amd64.deb || handle_error $? "Failed to install Globus Connect Server via direct download" "gcs-direct-install"
+            elif [ "$ARCH" = "arm64" ]; then
+              dpkg -i ./globus-connect-server_latest_arm64.deb || handle_error $? "Failed to install Globus Connect Server via direct download" "gcs-direct-install" 
+            else
+              dpkg -i ./globus-connect-server_latest_amd64.deb || handle_error $? "Failed to install Globus Connect Server via direct download" "gcs-direct-install"
+            fi
+            apt-get install -f  # Install any missing dependencies
+          fi
           
           # Check version and capabilities
           GCS_VERSION=$(globus-connect-server --version 2>&1 | head -1 | awk '{print $NF}')
