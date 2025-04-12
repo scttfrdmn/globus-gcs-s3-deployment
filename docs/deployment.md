@@ -160,6 +160,7 @@ Common issues include:
 - Network configuration issues preventing package installation
 - Incorrect parameters such as bucket names or availability zones
 - Globus Connect Server command parameter incompatibility (older versions use `--secret` instead of `--client-secret`)
+- Duplicate endpoint names (now handled with check and reuse functionality)
 
 If you see "WARNING - Failed to run module scripts-user" in the logs, this is likely a cloud-init warning that doesn't affect the deployment. The template includes robust error handling to continue despite these warnings. Check these files for diagnostic information:
 
@@ -181,6 +182,8 @@ The deployment script now includes:
 - Comprehensive diagnostic information collection
 - Version compatibility checks for different versions of Globus Connect Server
 - Support for different command line parameter formats (both `--secret` and `--client-secret`)
+- Checks for existing endpoints with the same name before deployment
+- Ability to reuse existing endpoints rather than failing
 
 ### 2. SSH into the instance
 
@@ -260,11 +263,15 @@ When you delete the CloudFormation stack, the EC2 instance is retained by defaul
 # SSH into the instance
 ssh -i your-key-pair.pem ubuntu@$PUBLIC_DNS
 
-# Get the endpoint ID
-ENDPOINT_ID=$(globus-connect-server endpoint show | grep -E 'UUID|ID' | awk '{print $2}' | head -1)
+# Get the endpoint ID (either from show command or from the saved file if using existing endpoint)
+if [ -f /home/ubuntu/existing-endpoint-id.txt ]; then
+  ENDPOINT_ID=$(cat /home/ubuntu/existing-endpoint-id.txt)
+else
+  ENDPOINT_ID=$(globus-connect-server endpoint show | grep -E 'UUID|ID' | awk '{print $2}' | head -1)
+fi
 
 # Delete the endpoint from Globus
-globus-connect-server endpoint delete
+[ -n "$ENDPOINT_ID" ] && globus-connect-server endpoint delete
 
 # Verify the endpoint was deleted
 globus-connect-server endpoint show

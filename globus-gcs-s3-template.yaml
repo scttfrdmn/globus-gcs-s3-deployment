@@ -467,7 +467,27 @@ Resources:
           echo "- Client ID: $(echo $GC_ID | cut -c1-5)... (truncated)"
           echo "- Display Name: $GC_NAME"
           
+          # Check for existing endpoint with same name
+          echo "Checking for existing endpoint with the same name..."
+          EXISTING_ENDPOINT=$(globus-connect-server endpoint list 2>/dev/null | grep -F "$GC_NAME" || echo "")
+          
+          if [ -n "$EXISTING_ENDPOINT" ]; then
+            echo "WARNING: An endpoint with name '$GC_NAME' already exists!"
+            echo "Existing endpoint details:"
+            echo "$EXISTING_ENDPOINT"
+            
+            # Extract endpoint ID if possible
+            ENDPOINT_ID=$(echo "$EXISTING_ENDPOINT" | awk '{print $1}')
+            if [ -n "$ENDPOINT_ID" ]; then
+              echo "Using existing endpoint ID: $ENDPOINT_ID"
+              echo "$ENDPOINT_ID" > /home/ubuntu/existing-endpoint-id.txt
+            else
+              echo "Could not extract endpoint ID, proceeding with setup anyway"
+            fi
+          fi
+          
           # Try setup with correct parameter name for older versions
+          echo "Setting up Globus endpoint..."
           globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" --display-name "$GC_NAME" --organization "AWS"
           
           # Show result
@@ -531,10 +551,33 @@ Resources:
           SETUP_LOG="/var/log/globus-setup.log"
           echo "Starting Globus Connect Server setup $(date)" > $SETUP_LOG
           
-          # Use the correct parameter name for pre-5.4.61 versions
-          globus-connect-server endpoint setup --client-id "${GlobusClientId}" --secret "${GlobusClientSecret}" \
-            --display-name "${GlobusDisplayName}" --organization "AWS" > $SETUP_LOG 2>&1
-          SETUP_STATUS=$?
+          # Check if endpoint already exists
+          echo "Checking for existing endpoint with the same name..." > $SETUP_LOG
+          EXISTING_ENDPOINT=$(globus-connect-server endpoint list 2>/dev/null | grep -F "${GlobusDisplayName}" || echo "")
+          
+          if [ -n "$EXISTING_ENDPOINT" ]; then
+            echo "WARNING: An endpoint with name '${GlobusDisplayName}' already exists!" | tee -a $SETUP_LOG
+            echo "Existing endpoint details:" | tee -a $SETUP_LOG
+            echo "$EXISTING_ENDPOINT" | tee -a $SETUP_LOG
+            
+            # Extract endpoint ID if possible to use existing endpoint
+            ENDPOINT_ID=$(echo "$EXISTING_ENDPOINT" | awk '{print $1}')
+            if [ -n "$ENDPOINT_ID" ]; then
+              echo "Using existing endpoint ID: $ENDPOINT_ID" | tee -a $SETUP_LOG
+              echo "$ENDPOINT_ID" > /home/ubuntu/existing-endpoint-id.txt
+              SETUP_STATUS=0  # Not an error, we'll use existing endpoint
+            else
+              echo "ERROR: Could not extract endpoint ID from existing endpoint." | tee -a $SETUP_LOG
+              SETUP_STATUS=1
+            fi
+          else
+            # No existing endpoint, create a new one
+            echo "No existing endpoint found. Creating new endpoint..." | tee -a $SETUP_LOG
+            # Use the correct parameter name for pre-5.4.61 versions
+            globus-connect-server endpoint setup --client-id "${GlobusClientId}" --secret "${GlobusClientSecret}" \
+              --display-name "${GlobusDisplayName}" --organization "AWS" >> $SETUP_LOG 2>&1
+            SETUP_STATUS=$?
+          fi
           
           # Diagnostics and reporting
           SYSTEM_INFO="System: $(uname -a) Host: $(hostname -f) Packages: $(dpkg -l | grep -c globus)"
