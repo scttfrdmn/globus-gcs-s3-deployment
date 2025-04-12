@@ -5,7 +5,8 @@ Conditions:
   HasSubscription: !Not [!Equals [!Ref GlobusSubscriptionId, ""]]
   IsProduction: !Equals [!Ref DeploymentType, "Production"]
   UseElasticIP: !Or [!Equals [!Ref DeploymentType, "Production"], !Equals [!Ref ForceElasticIP, "true"]]
-  DeployS3Connector: !And [!Equals [!Ref EnableS3Connector, "true"], !Condition HasSubscription]
+  HasS3BucketName: !Not [!Equals [!Ref S3BucketName, ""]]
+  DeployS3Connector: !And [!Equals [!Ref EnableS3Connector, "true"], !Condition HasSubscription, !Condition HasS3BucketName]
   DeployPosixConnector: !And [!Equals [!Ref EnablePosixConnector, "true"], !Condition HasSubscription]
   DeployGoogleDriveConnector: !And [!Equals [!Ref EnableGoogleDriveConnector, "true"], !Condition HasSubscription]
   UseGlobusAuth: !Equals [!Ref AuthenticationMethod, "Globus"]
@@ -240,6 +241,10 @@ Resources:
               - s3:ListMultipartUploadParts
               - s3:AbortMultipartUpload
             Resource: !Sub "arn:aws:s3:::${S3BucketName}/*"
+          - Effect: Allow
+            Action:
+              - ec2:CreateTags
+            Resource: !Sub "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/*"
       Roles:
         - !Ref GlobusServerRole
 
@@ -252,6 +257,9 @@ Resources:
 
   GlobusServerInstance:
     Type: AWS::EC2::Instance
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT30M
     Properties:
       InstanceType: !Ref InstanceType
       KeyName: !Ref KeyName
@@ -272,19 +280,34 @@ Resources:
           #!/bin/bash -xe
           exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
 
+          # Error handling function
+          function handle_error {
+            local ERR_CODE=$1
+            local ERR_MSG=$2
+            echo "ERROR: $ERR_MSG (Exit code: $ERR_CODE)"
+            /opt/aws/bin/cfn-signal -e $ERR_CODE --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}
+            exit $ERR_CODE
+          }
+
+          # Install AWS CloudFormation helpers
+          dnf install -y python3-pip
+          pip3 install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz
+          mkdir -p /opt/aws/bin
+          ln -s /usr/local/bin/cfn-* /opt/aws/bin/
+
           # Update the system
-          dnf update -y
-          dnf install -y python3-pip jq curl wget gnupg2 
+          dnf update -y || handle_error $? "Failed to update system packages"
+          dnf install -y python3-pip jq curl wget gnupg2 || handle_error $? "Failed to install required packages"
 
           # Authentication will be configured when creating the configuration file
 
           # Install AWS CLI
-          pip3 install --upgrade awscli
+          pip3 install --upgrade awscli || handle_error $? "Failed to install AWS CLI"
 
           # Install Globus Connect Server repository
-          curl -LOs https://downloads.globus.org/globus-connect-server/stable/installers/repo/rpm/globus-repo-latest.noarch.rpm
-          dnf install -y ./globus-repo-latest.noarch.rpm
-          dnf install -y globus-connect-server54
+          curl -LOs https://downloads.globus.org/globus-connect-server/stable/installers/repo/rpm/globus-repo-latest.noarch.rpm || handle_error $? "Failed to download Globus repository"
+          dnf install -y ./globus-repo-latest.noarch.rpm || handle_error $? "Failed to install Globus repository"
+          dnf install -y globus-connect-server54 || handle_error $? "Failed to install Globus Connect Server"
 
           # Create Globus configuration directory
           mkdir -p /etc/globus-connect-server
@@ -358,7 +381,7 @@ Resources:
           EOF
 
           # Setup and start Globus Connect Server
-          globus-connect-server-setup
+          globus-connect-server-setup || handle_error $? "Failed to set up Globus Connect Server"
 
           # Set up initial access policy for admin if specified
           if [ "${AuthenticationMethod}" = "Globus" ] && [ "${DefaultAdminIdentity}" != "" ]; then
@@ -367,10 +390,27 @@ Resources:
             sleep 30
             
             # Create access policy for admin with full permissions
-            globus-connect-server acl create \
-              --permissions read,write \
-              --principal "${DefaultAdminIdentity}" \
-              --path "/"
+            # Try to create admin access policy, retrying if it fails
+            for i in {1..3}; do
+              echo "Attempt $i to create admin access policy..."
+              globus-connect-server acl create \
+                --permissions read,write \
+                --principal "${DefaultAdminIdentity}" \
+                --path "/"
+              
+              if [ $? -eq 0 ]; then
+                echo "Admin access policy created successfully"
+                break
+              else
+                echo "Failed to create admin access policy, attempt $i"
+                if [ $i -eq 3 ]; then
+                  echo "WARNING: Could not create admin access policy after 3 attempts"
+                  echo "You will need to set up access policies manually"
+                else
+                  sleep 30  # Wait before retrying
+                fi
+              fi
+            done
               
             echo "Admin access policy created"
           fi
@@ -382,14 +422,31 @@ Resources:
             # Configure S3 connector
             if [ "${EnableS3Connector}" = "true" ] && [ "${S3BucketName}" != "" ]; then
               echo "Setting up S3 connector for bucket ${S3BucketName}..."
-              globus-connect-server storage-gateway create \
-                --connector-id s3_storage \
-                --connector-display-name "S3 Connector" \
-                --connector-type s3 \
-                --authentication-method aws_s3_path_style \
-                --credentials-type role \
-                --s3-bucket ${S3BucketName}
-              echo "S3 connector configured"
+              # Verify S3 bucket exists and is accessible
+              if aws s3 ls "s3://${S3BucketName}" >/dev/null 2>&1; then
+                echo "S3 bucket ${S3BucketName} exists and is accessible"
+                globus-connect-server storage-gateway create \
+                  --connector-id s3_storage \
+                  --connector-display-name "S3 Connector" \
+                  --connector-type s3 \
+                  --authentication-method aws_s3_path_style \
+                  --credentials-type role \
+                  --s3-bucket ${S3BucketName}
+                if [ $? -eq 0 ]; then
+                  echo "S3 connector configured successfully"
+                else
+                  echo "ERROR: Failed to configure S3 connector"
+                  # Signal failure if this was the primary purpose of the deployment
+                  if [ "${EnablePosixConnector}" != "true" ] && [ "${EnableGoogleDriveConnector}" != "true" ]; then
+                    /opt/aws/bin/cfn-signal -e 1 --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}
+                    exit 1
+                  fi
+                fi
+              else
+                echo "ERROR: S3 bucket ${S3BucketName} does not exist or is not accessible"
+                # Continue with deployment but log error
+                echo "Skipping S3 connector setup due to bucket access issues"
+              fi
             else
               echo "S3 connector not enabled or no bucket specified"
             fi
@@ -427,15 +484,36 @@ Resources:
           fi
 
           # Enable and start services
-          systemctl enable globus-gridftp-server
-          systemctl start globus-gridftp-server
+          systemctl enable globus-gridftp-server || handle_error $? "Failed to enable Globus GridFTP server"
+          systemctl start globus-gridftp-server || handle_error $? "Failed to start Globus GridFTP server"
 
           # Add a tag indicating installation is complete
           INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
-          aws ec2 create-tags --resources $INSTANCE_ID --tags Key=GlobusInstalled,Value=true --region ${AWS::Region}
+          aws ec2 create-tags --resources $INSTANCE_ID --tags Key=GlobusInstalled,Value=true --region ${AWS::Region} || echo "Warning: Failed to tag instance but continuing deployment"
           
+          # Create a deployment summary file for troubleshooting
+          echo "Deployment Summary" > /home/ec2-user/deployment-summary.txt
+          echo "=================" >> /home/ec2-user/deployment-summary.txt
+          echo "Time: $(date)" >> /home/ec2-user/deployment-summary.txt
+          echo "Instance ID: $INSTANCE_ID" >> /home/ec2-user/deployment-summary.txt
+          echo "Deployment Type: $DeploymentType" >> /home/ec2-user/deployment-summary.txt
+          echo "Authentication Method: $AuthenticationMethod" >> /home/ec2-user/deployment-summary.txt
+          echo "" >> /home/ec2-user/deployment-summary.txt
+          echo "Connectors Enabled:" >> /home/ec2-user/deployment-summary.txt
+          echo "- S3 Connector: $EnableS3Connector" >> /home/ec2-user/deployment-summary.txt
+          echo "- POSIX Connector: $EnablePosixConnector" >> /home/ec2-user/deployment-summary.txt
+          echo "- Google Drive Connector: $EnableGoogleDriveConnector" >> /home/ec2-user/deployment-summary.txt
+          echo "" >> /home/ec2-user/deployment-summary.txt
+          echo "Subscription: $GlobusSubscriptionId" >> /home/ec2-user/deployment-summary.txt
+          echo "Default Admin: $DefaultAdminIdentity" >> /home/ec2-user/deployment-summary.txt
+          echo "" >> /home/ec2-user/deployment-summary.txt
+          echo "For detailed logs:" >> /home/ec2-user/deployment-summary.txt
+          echo "- /var/log/user-data.log" >> /home/ec2-user/deployment-summary.txt
+          echo "- /var/log/cloud-init-output.log" >> /home/ec2-user/deployment-summary.txt
+          
+          echo "====== Deployment completed successfully ======"
           # Signal CloudFormation that the instance is ready
-          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}
+          /opt/aws/bin/cfn-signal -e 0 --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}
           
           # Join to Globus subscription if ID is provided
           if [ "${GlobusSubscriptionId}" != "" ]; then
@@ -503,7 +581,7 @@ Outputs:
 
   GlobusEndpointURL:
     Description: URL to access the Globus Endpoint
-    Value: !Sub "https://app.globus.org/file-manager?origin_id=${GlobusDisplayName}"
+    Value: "https://app.globus.org/file-manager (Search for endpoint by name or UUID after registration)"
     
   SubscriptionStatus:
     Description: Globus Subscription Status
@@ -514,7 +592,7 @@ Outputs:
     Value: !If 
       - UseElasticIP
       - !Sub "https://${GlobusServerElasticIP}"
-      - !Sub "https://${GlobusServerInstance.PublicIp}"
+      - !Sub "https://${GlobusServerInstance.PublicDnsName}"
 
   S3BucketConnected:
     Description: S3 Bucket connected to Globus

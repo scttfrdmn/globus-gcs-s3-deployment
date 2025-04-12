@@ -62,6 +62,18 @@ The repository includes detailed documentation on deploying and using Globus Con
    }
    ```
 
+## Deployment Features
+
+The CloudFormation template includes the following reliability features:
+
+- **Robust Error Handling**: Comprehensive error handling in all deployment steps
+- **Resource Signaling**: Proper CloudFormation resource signaling with timeouts
+- **S3 Bucket Validation**: Verifies S3 bucket existence before attempting connections
+- **IAM Permission Controls**: Appropriate IAM permissions for all operations
+- **Deployment Logs**: Detailed logging for troubleshooting
+- **Admin Setup Retries**: Automatic retry logic for key configuration steps
+- **Deployment Summary**: Generates a deployment summary file on the instance for quick reference
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

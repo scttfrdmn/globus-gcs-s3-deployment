@@ -8,6 +8,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - CloudFormation linting: `cfn-lint globus-gcs-s3-template.yaml`
 - YAML linting: `yamllint globus-gcs-s3-template.yaml`
 - Markdown linting: `markdownlint README.md docs/*.md`
+- CloudFormation deployment check: `aws cloudformation describe-stack-events --stack-name globus-gcs | grep -A 2 "FAILED"`
+
+## Troubleshooting Deployment Issues
+
+When troubleshooting CloudFormation deployment failures:
+
+1. Check CloudFormation event logs for specific error messages
+2. Ensure all referenced resource attributes exist (e.g., PublicDnsName vs. PublicIp)
+3. Verify IAM permissions for all actions performed in UserData scripts
+4. Ensure proper resource signaling with CreationPolicy and cfn-signal
+5. Check for S3 bucket accessibility before attempting connector setup
+6. Verify that the subscription ID is valid when deploying connectors
+7. Review deployment logs on the instance at `/var/log/user-data.log` and `/var/log/cloud-init-output.log`
+8. For ROLLBACK_COMPLETE status, focus on the resource that initiated the rollback
 
 ## Code Style Guidelines
 
@@ -16,8 +30,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - Follow AWS best practices for resource naming
   - Boolean parameters must use String type with "true"/"false" as AllowedValues
   - Use !Condition for referencing conditions in !And or !Or functions
+  - Always include CreationPolicy with appropriate ResourceSignal timeout for EC2 instances
+  - For EC2 instances, ensure UserData scripts always signal completion status to CloudFormation
+  - Verify resource attributes exist before referencing them (e.g., use PublicDnsName instead of PublicIp)
 - **Markdown**: Use ATX-style headers (# Header), proper heading hierarchy
 - **Naming Conventions**: Use PascalCase for CloudFormation resources and outputs, camelCase for parameters
-- **Error Handling**: Implement robust error handling in user-data scripts with error trapping
+- **Error Handling**: 
+  - Implement robust error handling in user-data scripts with error trapping
+  - Use handle_error function to consistently report and exit on critical failures
+  - Include validation for external resources before attempting to use them
+  - Implement retry logic for operations that may fail intermittently
 - **Documentation**: Maintain comprehensive documentation in the docs/ directory
 - **Resource Tags**: Consistently tag all resources with "Name" at minimum
+- **IAM Permissions**: Ensure EC2 instances have all necessary permissions for their operations (e.g., ec2:CreateTags)
