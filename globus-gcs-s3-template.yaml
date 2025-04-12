@@ -347,7 +347,17 @@ Resources:
           
           # Check command version and capabilities
           echo "Globus Connect Server version:"
-          globus-connect-server --version || echo "Could not determine version"
+          GCS_VERSION=$(globus-connect-server --version 2>&1 | head -1 | awk '{print $NF}')
+          echo "Detected Globus Connect Server version: $GCS_VERSION"
+          
+          # Check if version is below 5.4.61 (requires explicit client ID)
+          if [[ -n "$GCS_VERSION" ]] && [[ $(echo "$GCS_VERSION" | awk -F. '{ printf("%03d%03d%03d\n", $1, $2, $3); }') -lt $(echo "5.4.61" | awk -F. '{ printf("%03d%03d%03d\n", $1, $2, $3); }') ]]; then
+            echo "Using a version prior to 5.4.61, will explicitly provide client credentials"
+            NEEDS_CLIENT_ID=true
+          else
+            echo "Using version 5.4.61 or later, no need for explicit client ID with config file"
+            NEEDS_CLIENT_ID=false
+          fi
           
           # List available Globus commands from PATH
           echo "Available globus commands:"
@@ -453,10 +463,19 @@ Resources:
           echo "Endpoint command options:" >> $SETUP_LOG
           globus-connect-server endpoint --help >> $SETUP_LOG 2>&1
           
-          # Run the actual setup command with proper parameters
-          echo "Running endpoint setup with config file..." >> $SETUP_LOG
-          timeout 900 globus-connect-server endpoint setup \
-            --config-file /etc/globus-connect-server/globus-connect-server.conf >> $SETUP_LOG 2>&1
+          # Run the actual setup command with proper parameters based on version
+          if [ "$NEEDS_CLIENT_ID" = true ]; then
+            echo "Running endpoint setup with explicit client credentials (pre-5.4.61 mode)..." >> $SETUP_LOG
+            timeout 900 globus-connect-server endpoint setup \
+              --client-id "${GlobusClientId}" \
+              --client-secret "${GlobusClientSecret}" \
+              --display-name "${GlobusDisplayName}" \
+              --organization "AWS Deployment" >> $SETUP_LOG 2>&1
+          else
+            echo "Running endpoint setup with config file (5.4.61+ mode)..." >> $SETUP_LOG
+            timeout 900 globus-connect-server endpoint setup \
+              --config-file /etc/globus-connect-server/globus-connect-server.conf >> $SETUP_LOG 2>&1
+          fi
           SETUP_STATUS=$?
           
           # Check if the setup timed out

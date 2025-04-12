@@ -22,10 +22,12 @@ The deployment uses Ubuntu 22.04 LTS and installs Globus packages using the Debi
   - Other related services
 - Command structure:
   - Main command: `globus-connect-server`
-  - Endpoint setup: `globus-connect-server endpoint setup --config-file <file>`
+  - Endpoint setup (v5.4.61+): `globus-connect-server endpoint setup --config-file <file>`
+  - Endpoint setup (pre-v5.4.61): `globus-connect-server endpoint setup --client-id <id> --client-secret <secret> ...`
   - Create permissions: `globus-connect-server endpoint permission create`
   - Create storage gateway: `globus-connect-server storage-gateway create`
   - Show endpoint: `globus-connect-server endpoint show`
+  - **VERSION COMPATIBILITY**: For Globus Connect Server versions prior to 5.4.61, explicit client credentials must be passed with `--client-id` and `--client-secret` options
 - For command path issues:
   - Verify installation: `dpkg -l | grep globus`
   - Check command path: `which globus-connect-server`
