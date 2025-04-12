@@ -160,6 +160,16 @@ Common issues include:
 - Network configuration issues preventing package installation
 - Incorrect parameters such as bucket names or availability zones
 
+If you see "WARNING - Failed to run module scripts-user" in the logs, check:
+```bash
+# SSH into the instance first
+cat /var/log/cloud-init-output.log
+cat /var/log/user-data.log
+
+# You can also try to manually run the Globus setup script
+sudo bash /home/ubuntu/run-globus-setup.sh
+```
+
 ### 2. SSH into the instance
 
 ```bash

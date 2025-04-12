@@ -258,7 +258,14 @@ Resources:
             DeleteOnTermination: true
       UserData:
         Fn::Base64: !Sub |
-          #!/bin/bash -xe
+          #!/bin/bash -e
+          # Cloud-init script for installing Globus Connect Server
+          
+          # Make sure we start in a clean state with proper permissions
+          cd /
+          
+          # Mark the beginning of our script for cloud-init
+          echo "=== GLOBUS-CONNECT-SERVER-DEPLOYMENT-SCRIPT ==="
           exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
           
           echo "=== Starting Globus Connect Server deployment $(date) ==="
@@ -418,11 +425,23 @@ Resources:
           EOF
           chmod +x /home/ubuntu/run-globus-setup.sh
           
-          # Store credentials for troubleshooting
+          # Store credentials and deployment details for troubleshooting
           echo "${GlobusClientId}" > /home/ubuntu/globus-client-id.txt
           echo "${GlobusClientSecret}" > /home/ubuntu/globus-client-secret.txt
           echo "${GlobusDisplayName}" > /home/ubuntu/globus-display-name.txt
           chmod 600 /home/ubuntu/globus-client-id.txt /home/ubuntu/globus-client-secret.txt /home/ubuntu/globus-display-name.txt
+          
+          # Create a deployment log that can be checked for "scripts-user" errors
+          echo "Checking for cloud-init script-user issues..."
+          if grep -q "Failed to run module scripts-user" /var/log/cloud-init.log 2>/dev/null; then
+            echo "WARNING: Found 'Failed to run module scripts-user' in cloud-init logs." > /home/ubuntu/cloud-init-warning.txt
+            echo "This warning can sometimes be ignored if the deployment completes successfully." >> /home/ubuntu/cloud-init-warning.txt
+            echo "Checking if we're still running..." >> /home/ubuntu/cloud-init-warning.txt
+            echo "Current script PID: $$" >> /home/ubuntu/cloud-init-warning.txt
+            ps -ef | grep cloud-init >> /home/ubuntu/cloud-init-warning.txt
+          else
+            echo "No cloud-init script-user issues detected." > /home/ubuntu/cloud-init-warning.txt
+          fi
           
           # Attempt setup with appropriate method
           SETUP_LOG="/var/log/globus-setup.log"
@@ -485,7 +504,24 @@ Resources:
           echo "Deployment: $(date) Instance:$INSTANCE_ID Type:${DeploymentType} Auth:${AuthenticationMethod} S3:${EnableS3Connector}" > /home/ubuntu/deployment-summary.txt
           
           # Signal CloudFormation success regardless of Globus status for troubleshooting
-          /opt/aws/bin/cfn-signal -e 0 --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}
+          # Make sure we wait a bit to allow any background processes to complete
+          sleep 5
+          echo "Signaling CloudFormation stack that deployment is complete"
+          
+          # Log CloudFormation bootstrap details
+          if [ -f /var/log/cfn-init.log ]; then
+            cp /var/log/cfn-init.log /home/ubuntu/cfn-init.log
+          fi
+          
+          if [ -f /var/log/cfn-init-cmd.log ]; then 
+            cp /var/log/cfn-init-cmd.log /home/ubuntu/cfn-init-cmd.log
+          fi
+          
+          # Signal success to CloudFormation
+          /opt/aws/bin/cfn-signal -e 0 --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region} || echo "WARNING: cfn-signal failed" > /home/ubuntu/cfn-signal-failed.txt
+          
+          # Mark the end of our script for proper cloud-init completion
+          echo "=== GLOBUS-CONNECT-SERVER-DEPLOYMENT-COMPLETE ==="
       
       Tags:
         - Key: Name
