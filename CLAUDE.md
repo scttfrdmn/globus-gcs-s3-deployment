@@ -22,6 +22,10 @@ When troubleshooting CloudFormation deployment failures:
 6. Verify that the subscription ID is valid when deploying connectors
 7. Review deployment logs on the instance at `/var/log/user-data.log` and `/var/log/cloud-init-output.log`
 8. For ROLLBACK_COMPLETE status, focus on the resource that initiated the rollback
+9. **Verify network connectivity:**
+   - Ensure the instance has a public IP address assigned (check Public DNS or IP in the EC2 console)
+   - Confirm security groups allow Globus ports (443, 2811, 7512, 50000-51000)
+   - Test connectivity from the internet to the public endpoint
 
 ## Code Style Guidelines
 
@@ -33,6 +37,9 @@ When troubleshooting CloudFormation deployment failures:
   - Always include CreationPolicy with appropriate ResourceSignal timeout for EC2 instances
   - For EC2 instances, ensure UserData scripts always signal completion status to CloudFormation
   - Verify resource attributes exist before referencing them (e.g., use PublicDnsName instead of PublicIp)
+  - **CRITICAL**: Ensure EC2 instances have public network access either through:
+    - NetworkInterfaces with AssociatePublicIpAddress: true, or
+    - Elastic IP with proper association to the instance
 - **Markdown**: Use ATX-style headers (# Header), proper heading hierarchy
 - **Naming Conventions**: Use PascalCase for CloudFormation resources and outputs, camelCase for parameters
 - **Error Handling**: 

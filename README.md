@@ -74,6 +74,17 @@ The CloudFormation template includes the following reliability features:
 - **Admin Setup Retries**: Automatic retry logic for key configuration steps
 - **Deployment Summary**: Generates a deployment summary file on the instance for quick reference
 
+## Network Configuration
+
+The template ensures the Globus Connect Server is publicly accessible through one of two approaches:
+
+1. **For Production Deployments**: Uses an Elastic IP address for persistent, static public IP
+2. **For Integration Deployments**: Either:
+   - Uses an Elastic IP if `ForceElasticIP` is set to "true"
+   - Automatically assigns a public IP address to the instance
+
+This ensures that Globus can communicate with the server regardless of deployment type, which is essential for Globus Connect Server functionality.
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

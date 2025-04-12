@@ -265,10 +265,13 @@ Resources:
       KeyName: !Ref KeyName
       AvailabilityZone: !Ref AvailabilityZone
       IamInstanceProfile: !Ref GlobusServerInstanceProfile
-      SecurityGroupIds:
-        - !GetAtt GlobusServerSecurityGroup.GroupId
-      SubnetId: !Ref SubnetId
       ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", AMI]
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: !If [UseElasticIP, false, true]
+          DeviceIndex: "0"
+          GroupSet: 
+            - !GetAtt GlobusServerSecurityGroup.GroupId
+          SubnetId: !Ref SubnetId
       BlockDeviceMappings:
         - DeviceName: /dev/xvda
           Ebs:
