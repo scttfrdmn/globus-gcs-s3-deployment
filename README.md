@@ -10,6 +10,7 @@ This repository contains a CloudFormation template for deploying Globus Connect 
 - **Flexible Authentication**: Support for Globus Auth federation
 - **Optional Connectors**: Support for POSIX and Google Drive connectors
 - **Production & Testing Modes**: Configurable deployment types
+- **Optimized Deployment**: Streamlined UserData script stays within AWS limits
 
 ## Prerequisites
 
@@ -76,6 +77,7 @@ The CloudFormation template includes the following reliability features:
 - **Troubleshooting Mode**: Keeps instances running even when Globus setup fails for easier troubleshooting
 - **Diagnostic Scripts**: Creates diagnostic and manual setup scripts to help resolve issues
 - **Version Compatibility**: Handles different Globus Connect Server versions automatically
+- **Optimized UserData**: Streamlined script that stays well below CloudFormation's 16KB encoded limit
 
 ## Platform Configuration
 

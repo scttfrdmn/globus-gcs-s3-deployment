@@ -154,6 +154,17 @@ Key outputs include:
 - AuthenticationConfiguration
 - ConnectorsEnabled
 
+If deployment fails, first check the CloudFormation events for error information:
+
+```bash
+aws cloudformation describe-stack-events --stack-name globus-gcs --query "StackEvents[?ResourceStatus=='CREATE_FAILED']"
+```
+
+Common issues include:
+- Exceeding UserData script size limits (now fixed with optimized script)
+- Network configuration issues preventing package installation
+- Incorrect parameters such as bucket names or availability zones
+
 ### 2. SSH into the instance
 
 ```bash
@@ -162,7 +173,7 @@ PUBLIC_DNS=$(aws cloudformation describe-stacks --stack-name globus-gcs \
   --query "Stacks[0].Outputs[?OutputKey=='PublicDNS'].OutputValue" --output text)
 
 # Connect via SSH
-ssh -i your-key-pair.pem ec2-user@$PUBLIC_DNS
+ssh -i your-key-pair.pem ubuntu@$PUBLIC_DNS
 ```
 
 ### 3. Check Globus installation
