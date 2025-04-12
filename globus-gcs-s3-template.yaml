@@ -282,58 +282,69 @@ Resources:
           mkdir -p /opt/aws/bin && ln -s /usr/local/bin/cfn-* /opt/aws/bin/
           pip3 install --upgrade awscli || echo "AWS CLI install warning (non-critical)"
 
-          # Install Globus repository and packages with improved GPG key handling
-          curl -LOs https://downloads.globus.org/globus-connect-server/stable/installers/repo/deb/globus-repo_latest_all.deb || handle_error $? "Failed to download Globus repository" "repo-download"
-          dpkg -i ./globus-repo_latest_all.deb || handle_error $? "Failed to install Globus repository" "repo-install"
+          # Install Globus Connect Server using the simplified and reliable method
+          echo "Installing Globus Connect Server using embedded GPG key method..."
           
-          # Download and add the GPG key with better error handling
+          # Create necessary directories
           mkdir -p /etc/apt/keyrings
-          echo "Downloading Globus GPG key..."
-          curl -fsSL https://downloads.globus.org/globus-connect-server/stable/installers/repo/deb/GPG-KEY-Globus -o /tmp/GPG-KEY-Globus
           
-          # Try modern method first
-          if gpg --dearmor < /tmp/GPG-KEY-Globus > /etc/apt/keyrings/globus-archive-keyring.gpg; then
-            echo "GPG key added successfully using modern method"
-            echo "deb [signed-by=/etc/apt/keyrings/globus-archive-keyring.gpg] https://downloads.globus.org/globus-connect-server/stable/deb ubuntu bionic contrib" > /etc/apt/sources.list.d/globus-connect-server-stable.list
-          else
-            # Fallback to legacy method
-            echo "Falling back to legacy GPG key method..."
-            apt-key add /tmp/GPG-KEY-Globus
-            echo "deb https://downloads.globus.org/globus-connect-server/stable/deb ubuntu bionic contrib" > /etc/apt/sources.list.d/globus-connect-server-stable.list
-          fi
+          # Embed the Globus GPG key directly (avoiding download issues)
+          cat > /tmp/GPG-KEY-Globus << 'EOF'
+          -----BEGIN PGP PUBLIC KEY BLOCK-----
+          Version: GnuPG v1.4.5 (GNU/Linux)
           
-          # Update and attempt to install Globus Connect Server
+          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
+          /5gSYsCs5/DvDtLlCQ==
+          =MqA7
+          -----END PGP PUBLIC KEY BLOCK-----
+          EOF
+          
+          # Convert the key to the right format and configure apt
+          echo "Setting up GPG key for apt..."
+          cat /tmp/GPG-KEY-Globus | gpg --dearmor > /etc/apt/keyrings/globus-archive-keyring.gpg
+          
+          # Add Globus repository
+          echo "deb [signed-by=/etc/apt/keyrings/globus-archive-keyring.gpg] https://downloads.globus.org/globus-connect-server/stable/deb ubuntu bionic contrib" > /etc/apt/sources.list.d/globus-connect-server-stable.list
+          
+          # Update and install Globus Connect Server
           apt-get update
           
-          # First try with the configured repository
-          if apt-get install -y globus-connect-server; then
-            echo "Successfully installed Globus Connect Server from repository"
-          else
-            echo "Repository installation failed, trying direct download method..."
-            # Direct download from Globus website as last resort
-            # Get system architecture
-            ARCH=$(dpkg --print-architecture)
-            echo "System architecture: $ARCH"
-            # Download the package directly - use hardcoded architecture options
-            if [ "$ARCH" = "amd64" ]; then
-              echo "Downloading amd64 package"
-              curl -LOs https://downloads.globus.org/globus-connect-server/stable/installers/globus-connect-server_latest_amd64.deb
-            elif [ "$ARCH" = "arm64" ]; then 
-              echo "Downloading arm64 package"
-              curl -LOs https://downloads.globus.org/globus-connect-server/stable/installers/globus-connect-server_latest_arm64.deb
-            else
-              echo "Architecture $ARCH not directly supported, trying amd64 package"
-              curl -LOs https://downloads.globus.org/globus-connect-server/stable/installers/globus-connect-server_latest_amd64.deb
-            fi
-            # Install the package (use the right filename based on architecture)
-            if [ "$ARCH" = "amd64" ]; then
-              dpkg -i ./globus-connect-server_latest_amd64.deb || handle_error $? "Failed to install Globus Connect Server via direct download" "gcs-direct-install"
-            elif [ "$ARCH" = "arm64" ]; then
-              dpkg -i ./globus-connect-server_latest_arm64.deb || handle_error $? "Failed to install Globus Connect Server via direct download" "gcs-direct-install" 
-            else
-              dpkg -i ./globus-connect-server_latest_amd64.deb || handle_error $? "Failed to install Globus Connect Server via direct download" "gcs-direct-install"
-            fi
-            apt-get install -f  # Install any missing dependencies
+          if ! apt-get install -y globus-connect-server; then
+            # If normal install fails, try to download the deb directly
+            echo "Repository install failed, trying direct download..."
+            curl -L -o globus-connect-server.deb https://downloads.globus.org/globus-connect-server/stable/installers/globus-connect-server_latest_amd64.deb
+            
+            # Install the package
+            dpkg -i globus-connect-server.deb || handle_error $? "Failed to install Globus Connect Server" "gcs-direct-install"
+            apt-get install -f -y  # Fix any dependency issues
           fi
           
           # Check version and capabilities

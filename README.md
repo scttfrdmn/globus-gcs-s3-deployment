@@ -125,15 +125,20 @@ If Globus setup fails, the instance will still be created and kept running for t
 
 ### Common Issues
 
-#### GPG Key Issues
+#### GPG Key and Repository Issues
 
-If you encounter GPG key related errors during deployment (e.g., "Failed to add Globus GPG key"), the template includes multiple fallback methods:
+If you encounter GPG key related errors during deployment (e.g., "Failed to add Globus GPG key" or "404 not found"), the template now uses a simplified and reliable approach:
 
-1. The primary method uses a modern GPG keyring approach compatible with Ubuntu 22.04
-2. A legacy fallback method using `apt-key add` 
-3. Direct package download and installation as a last resort
+1. **Embedded GPG Key**: The template includes the Globus GPG key directly in the script, eliminating the need to download it from an external source that might change or be unavailable.
 
-These approaches should resolve GPG key issues across different Ubuntu environments, especially when dealing with updated key handling methods in newer Ubuntu releases.
+2. **Modern GPG Handling**: Uses the modern Ubuntu 22.04 approach for GPG key management with `/etc/apt/keyrings/` directory and signed-by attribute.
+
+3. **Direct Package Fallback**: If the repository-based installation fails:
+   - Automatically falls back to direct package download
+   - Configures dependencies properly with `apt-get install -f -y`
+   - Provides clear diagnostic information
+
+This approach ensures reliable installation even if the Globus repositories change their structure or if network issues prevent accessing certain URLs. By embedding the key directly in the template, we eliminate one of the most common failure points in the installation process.
 
 Common troubleshooting steps:
 1. SSH to the instance: `ssh -i /path/to/your/key.pem ubuntu@<PUBLIC-IP-ADDRESS>`
