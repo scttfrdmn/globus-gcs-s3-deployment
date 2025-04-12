@@ -143,23 +143,23 @@ Parameters:
 Mappings:
   RegionMap:
     us-east-1:
-      AMI: ami-0f3c7d07486cad139 # Amazon Linux 2023 AMI in us-east-1
+      AMI: ami-01896de842c443b1b # Ubuntu 22.04 LTS AMI in us-east-1
     us-east-2:
-      AMI: ami-0cc87e5027adcdca8 # Amazon Linux 2023 AMI in us-east-2
+      AMI: ami-0e83be366243f524a # Ubuntu 22.04 LTS AMI in us-east-2
     us-west-1:
-      AMI: ami-0ce2cb35386e3b100 # Amazon Linux 2023 AMI in us-west-1
+      AMI: ami-0487b1fe60c1fd1a2 # Ubuntu 22.04 LTS AMI in us-west-1
     us-west-2:
-      AMI: ami-008fe2fc65df48dac # Amazon Linux 2023 AMI in us-west-2
+      AMI: ami-03f65b8614a860c29 # Ubuntu 22.04 LTS AMI in us-west-2
     eu-west-1:
-      AMI: ami-06d0bbd3c5e5d5055 # Amazon Linux 2023 AMI in eu-west-1
+      AMI: ami-0ec7f9846a9d38ac7 # Ubuntu 22.04 LTS AMI in eu-west-1
     eu-central-1:
-      AMI: ami-0bc77b0b09ab632bf # Amazon Linux 2023 AMI in eu-central-1
+      AMI: ami-0caef02b518350c8f # Ubuntu 22.04 LTS AMI in eu-central-1
     ap-northeast-1:
-      AMI: ami-09a5c873bc79530d9 # Amazon Linux 2023 AMI in ap-northeast-1
+      AMI: ami-03a2bb16327aeaa38 # Ubuntu 22.04 LTS AMI in ap-northeast-1
     ap-southeast-1:
-      AMI: ami-0fa377108253bf620 # Amazon Linux 2023 AMI in ap-southeast-1
+      AMI: ami-078c2ea6f5c9de06a # Ubuntu 22.04 LTS AMI in ap-southeast-1
     ap-southeast-2:
-      AMI: ami-04f5097681773b989 # Amazon Linux 2023 AMI in ap-southeast-2
+      AMI: ami-0d0af5dfe4b9ecf54 # Ubuntu 22.04 LTS AMI in ap-southeast-2
 
 Resources:
   GlobusServerElasticIP:
@@ -304,14 +304,15 @@ Resources:
           }
 
           # Install AWS CloudFormation helpers
-          dnf install -y python3-pip
+          apt-get update
+          apt-get install -y python3-pip
           pip3 install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz
           mkdir -p /opt/aws/bin
           ln -s /usr/local/bin/cfn-* /opt/aws/bin/
 
           # Update the system
-          dnf update -y || handle_error $? "Failed to update system packages"
-          dnf install -y python3-pip jq curl wget gnupg2 || handle_error $? "Failed to install required packages"
+          apt-get update && apt-get upgrade -y || handle_error $? "Failed to update system packages"
+          apt-get install -y python3-pip jq curl wget gnupg2 software-properties-common || handle_error $? "Failed to install required packages"
 
           # Authentication will be configured when creating the configuration file
 
@@ -319,9 +320,10 @@ Resources:
           pip3 install --upgrade awscli || handle_error $? "Failed to install AWS CLI"
 
           # Install Globus Connect Server repository
-          curl -LOs https://downloads.globus.org/globus-connect-server/stable/installers/repo/rpm/globus-repo-latest.noarch.rpm || handle_error $? "Failed to download Globus repository"
-          dnf install -y ./globus-repo-latest.noarch.rpm || handle_error $? "Failed to install Globus repository"
-          dnf install -y globus-connect-server54 || handle_error $? "Failed to install Globus Connect Server"
+          curl -LOs https://downloads.globus.org/globus-connect-server/stable/installers/repo/deb/globus-repo_latest_all.deb || handle_error $? "Failed to download Globus repository"
+          dpkg -i ./globus-repo_latest_all.deb || handle_error $? "Failed to install Globus repository"
+          apt-get update
+          apt-get install -y globus-connect-server54 || handle_error $? "Failed to install Globus Connect Server"
 
           # Create Globus configuration directory
           mkdir -p /etc/globus-connect-server
@@ -547,24 +549,24 @@ Resources:
           aws ec2 create-tags --resources $INSTANCE_ID --tags Key=GlobusInstalled,Value=true --region ${AWS::Region} || echo "Warning: Failed to tag instance but continuing deployment"
           
           # Create a deployment summary file for troubleshooting
-          echo "Deployment Summary" > /home/ec2-user/deployment-summary.txt
-          echo "=================" >> /home/ec2-user/deployment-summary.txt
-          echo "Time: $(date)" >> /home/ec2-user/deployment-summary.txt
-          echo "Instance ID: $INSTANCE_ID" >> /home/ec2-user/deployment-summary.txt
-          echo "Deployment Type: $DeploymentType" >> /home/ec2-user/deployment-summary.txt
-          echo "Authentication Method: $AuthenticationMethod" >> /home/ec2-user/deployment-summary.txt
-          echo "" >> /home/ec2-user/deployment-summary.txt
-          echo "Connectors Enabled:" >> /home/ec2-user/deployment-summary.txt
-          echo "- S3 Connector: $EnableS3Connector" >> /home/ec2-user/deployment-summary.txt
-          echo "- POSIX Connector: $EnablePosixConnector" >> /home/ec2-user/deployment-summary.txt
-          echo "- Google Drive Connector: $EnableGoogleDriveConnector" >> /home/ec2-user/deployment-summary.txt
-          echo "" >> /home/ec2-user/deployment-summary.txt
-          echo "Subscription: $GlobusSubscriptionId" >> /home/ec2-user/deployment-summary.txt
-          echo "Default Admin: $DefaultAdminIdentity" >> /home/ec2-user/deployment-summary.txt
-          echo "" >> /home/ec2-user/deployment-summary.txt
-          echo "For detailed logs:" >> /home/ec2-user/deployment-summary.txt
-          echo "- /var/log/user-data.log" >> /home/ec2-user/deployment-summary.txt
-          echo "- /var/log/cloud-init-output.log" >> /home/ec2-user/deployment-summary.txt
+          echo "Deployment Summary" > /home/ubuntu/deployment-summary.txt
+          echo "=================" >> /home/ubuntu/deployment-summary.txt
+          echo "Time: $(date)" >> /home/ubuntu/deployment-summary.txt
+          echo "Instance ID: $INSTANCE_ID" >> /home/ubuntu/deployment-summary.txt
+          echo "Deployment Type: $DeploymentType" >> /home/ubuntu/deployment-summary.txt
+          echo "Authentication Method: $AuthenticationMethod" >> /home/ubuntu/deployment-summary.txt
+          echo "" >> /home/ubuntu/deployment-summary.txt
+          echo "Connectors Enabled:" >> /home/ubuntu/deployment-summary.txt
+          echo "- S3 Connector: $EnableS3Connector" >> /home/ubuntu/deployment-summary.txt
+          echo "- POSIX Connector: $EnablePosixConnector" >> /home/ubuntu/deployment-summary.txt
+          echo "- Google Drive Connector: $EnableGoogleDriveConnector" >> /home/ubuntu/deployment-summary.txt
+          echo "" >> /home/ubuntu/deployment-summary.txt
+          echo "Subscription: $GlobusSubscriptionId" >> /home/ubuntu/deployment-summary.txt
+          echo "Default Admin: $DefaultAdminIdentity" >> /home/ubuntu/deployment-summary.txt
+          echo "" >> /home/ubuntu/deployment-summary.txt
+          echo "For detailed logs:" >> /home/ubuntu/deployment-summary.txt
+          echo "- /var/log/user-data.log" >> /home/ubuntu/deployment-summary.txt
+          echo "- /var/log/cloud-init-output.log" >> /home/ubuntu/deployment-summary.txt
           
           echo "====== Deployment completed successfully ======"
           # Signal CloudFormation that the instance is ready
@@ -596,7 +598,7 @@ Resources:
               if [ ! -f ~/.globus/globus.cfg ]; then
                 echo "ERROR: Failed to create Globus CLI config file"
                 # Create a warning file but continue as this is post-setup
-                echo "WARNING: Failed to configure Globus CLI" > /home/ec2-user/globus-cli-config-failed.txt
+                echo "WARNING: Failed to configure Globus CLI" > /home/ubuntu/globus-cli-config-failed.txt
               else
                 echo "DEBUG: Globus CLI config file created successfully"
               fi

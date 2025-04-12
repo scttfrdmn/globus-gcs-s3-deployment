@@ -74,16 +74,32 @@ The CloudFormation template includes the following reliability features:
 - **Admin Setup Retries**: Automatic retry logic for key configuration steps
 - **Deployment Summary**: Generates a deployment summary file on the instance for quick reference
 
-## Network Configuration
+## Platform Configuration
 
-The template ensures the Globus Connect Server is publicly accessible through one of two approaches:
+The template deploys Globus Connect Server with the following configuration:
 
-1. **For Production Deployments**: Uses an Elastic IP address for persistent, static public IP
-2. **For Integration Deployments**: Either:
-   - Uses an Elastic IP if `ForceElasticIP` is set to "true"
-   - Automatically assigns a public IP address to the instance
+1. **Operating System**: Ubuntu Server 22.04 LTS
+2. **Authentication**: Uses Globus Auth by default (configurable to MyProxy)
+3. **Networking**: The template ensures the Globus Connect Server is publicly accessible through one of two approaches:
+   - **For Production Deployments**: Uses an Elastic IP address for persistent, static public IP
+   - **For Integration Deployments**: Either:
+     - Uses an Elastic IP if `ForceElasticIP` is set to "true"
+     - Automatically assigns a public IP address to the instance
 
 This ensures that Globus can communicate with the server regardless of deployment type, which is essential for Globus Connect Server functionality.
+
+## SSH Access
+
+To connect to the deployed server:
+
+```bash
+ssh -i /path/to/your/key.pem ubuntu@<PUBLIC-IP-ADDRESS>
+```
+
+Important logs and resources on the server:
+- Deployment summary: `/home/ubuntu/deployment-summary.txt`
+- Installation logs: `/var/log/user-data.log` and `/var/log/cloud-init-output.log`
+- Globus-specific logs: `/var/log/globus-setup.log`
 
 ## License
 

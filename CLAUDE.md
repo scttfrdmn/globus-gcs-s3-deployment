@@ -23,7 +23,7 @@ When troubleshooting CloudFormation deployment failures:
 7. Review deployment logs on the instance:
    - Main deployment logs: `/var/log/user-data.log` and `/var/log/cloud-init-output.log`
    - Globus setup log (most detailed): `/var/log/globus-setup.log`
-   - Deployment summary: `/home/ec2-user/deployment-summary.txt`
+   - Deployment summary: `/home/ubuntu/deployment-summary.txt`
    - Auth configuration issues: Look for ClientId/ClientSecret issues in config files
 8. For ROLLBACK_COMPLETE status, focus on the resource that initiated the rollback
 9. **Verify network connectivity:**
@@ -44,6 +44,10 @@ When troubleshooting CloudFormation deployment failures:
   - **CRITICAL**: Ensure EC2 instances have public network access either through:
     - NetworkInterfaces with AssociatePublicIpAddress: true, or
     - Elastic IP with proper association to the instance
+  - **Operating System**: Template is designed for Ubuntu 22.04 LTS
+    - Use apt package manager commands (apt-get)
+    - Use /home/ubuntu as the home directory path
+    - Use Ubuntu deb repositories for software installation
 - **Markdown**: Use ATX-style headers (# Header), proper heading hierarchy
 - **Naming Conventions**: Use PascalCase for CloudFormation resources and outputs, camelCase for parameters
 - **Error Handling**: 
