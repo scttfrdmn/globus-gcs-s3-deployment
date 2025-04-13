@@ -1,7 +1,8 @@
 #!/bin/bash
 # Full Globus Connect Server installation script
-# This script is designed to be downloaded and executed from S3
+# This script is designed to be downloaded and executed from GitHub
 # Will use environment variables passed from the CloudFormation bootstrap script
+# REQUIRES: Globus Connect Server 5.4.61 or higher
 
 # Setup proper logging - using both file and console output
 exec > >(tee /var/log/globus-setup.log|logger -t globus-setup -s 2>/dev/console) 2>&1
@@ -12,6 +13,49 @@ echo "=== GLOBUS-CONNECT-SERVER-INSTALLATION-SCRIPT ==="
 echo "=== Starting Globus Connect Server installation $(date) ==="
 echo "Stack:$AWS_STACK_NAME Region:$AWS_REGION Type:$DEPLOYMENT_TYPE Auth:$AUTH_METHOD"
 echo "S3 Connector: $ENABLE_S3_CONNECTOR Bucket: $S3_BUCKET_NAME"
+
+# Check GCS version to ensure compatibility
+function check_gcs_version() {
+  echo "Checking Globus Connect Server version"
+  
+  # Wait for GCS to be installed before checking version
+  for i in {1..10}; do
+    if which globus-connect-server &>/dev/null; then
+      break
+    fi
+    echo "Waiting for globus-connect-server to be installed (attempt $i/10)..."
+    sleep 5
+    
+    if [ $i -eq 10 ]; then
+      echo "ERROR: Globus Connect Server not found after 10 attempts"
+      return 1
+    fi
+  done
+  
+  # Get version and parse it
+  GCS_VERSION=$(globus-connect-server --version 2>&1 | head -1 | awk '{print $NF}')
+  echo "Detected Globus Connect Server version: $GCS_VERSION"
+  
+  # For simple version comparison
+  REQUIRED_VERSION="5.4.61"
+  
+  # Convert versions to comparable integers (e.g., 5.4.61 -> 5004061)
+  function version_to_int() {
+    echo "$@" | awk -F. '{ printf("%d%03d%03d\n", $1, $2, $3); }'
+  }
+  
+  CURRENT_VER_INT=$(version_to_int "$GCS_VERSION")
+  REQUIRED_VER_INT=$(version_to_int "$REQUIRED_VERSION")
+  
+  if [ "$CURRENT_VER_INT" -lt "$REQUIRED_VER_INT" ]; then
+    echo "ERROR: This script requires Globus Connect Server $REQUIRED_VERSION or higher"
+    echo "Current version is $GCS_VERSION"
+    return 1
+  else
+    echo "Globus Connect Server version $GCS_VERSION meets requirement ($REQUIRED_VERSION+)"
+    return 0
+  fi
+}
 
 # Improved error handling - log errors but don't terminate script
 function handle_error {
@@ -176,9 +220,10 @@ echo "Creating run-globus-setup.sh helper script..." | tee -a /home/ubuntu/insta
 mkdir -p /home/ubuntu
 chown ubuntu:ubuntu /home/ubuntu
 
-# Create the helper script with error checking
+# Create the helper script for GCS 5.4.61+ with version check
 cat > /home/ubuntu/run-globus-setup.sh << 'EOF'
 #!/bin/bash
+# Helper script for Globus Connect Server 5.4.61+ setup
 # Get credentials from args or files
 [ -z "$1" ] && [ -f /home/ubuntu/globus-client-id.txt ] && GC_ID=$(cat /home/ubuntu/globus-client-id.txt) || GC_ID="$1"
 [ -z "$2" ] && [ -f /home/ubuntu/globus-client-secret.txt ] && GC_SECRET=$(cat /home/ubuntu/globus-client-secret.txt) || GC_SECRET="$2"
@@ -190,83 +235,56 @@ echo "- Client ID: $(echo $GC_ID | cut -c1-5)... (truncated)"
 echo "- Display Name: $GC_NAME"
 echo "- Organization: $GC_ORG"
 
-echo "Setting up Globus endpoint..."
-# Try all versions in sequence, starting with the modern format
+# Check GCS version
+GCS_VERSION=$(globus-connect-server --version 2>&1 | head -1 | awk '{print $NF}')
+REQUIRED_VERSION="5.4.61"
 
-# Try modern format first (with positional DISPLAY_NAME argument)
-echo "Trying modern Globus Connect Server format (positional display name)..."
-globus-connect-server endpoint setup \
-  --organization "$GC_ORG" \
-  --contact-email "admin@example.com" \
-  --owner "admin@example.com" \
-  --yes \
-  "$GC_NAME"
+# Function to convert version strings to comparable integers
+function version_to_int() {
+  echo "$@" | awk -F. '{ printf("%d%03d%03d\n", $1, $2, $3); }'
+}
 
-# If the modern format fails, try older formats
-if [ $? -ne 0 ]; then
-  echo "Modern setup failed, trying alternative methods..."
+CURRENT_VER_INT=$(version_to_int "$GCS_VERSION")
+REQUIRED_VER_INT=$(version_to_int "$REQUIRED_VERSION")
+
+if [ "$CURRENT_VER_INT" -lt "$REQUIRED_VER_INT" ]; then
+  echo "ERROR: This script requires Globus Connect Server $REQUIRED_VERSION or higher"
+  echo "Current version is $GCS_VERSION"
+  exit 1
+fi
+
+echo "Setting up Globus endpoint for GCS version $GCS_VERSION..."
+
+# First, convert client credentials to a deployment key
+echo "Converting client credentials to deployment key..."
+KEY_FILE="/tmp/globus-key.json"
+
+# Convert client ID/secret to key file
+globus-connect-server endpoint key convert \
+  --client-id "$GC_ID" \
+  --secret "$GC_SECRET" > "$KEY_FILE"
+
+if [ $? -eq 0 ] && [ -f "$KEY_FILE" ]; then
+  echo "Successfully converted credentials to key. Setting up endpoint..."
   
-  # Check if we need to convert client credentials to a key
-  if globus-connect-server endpoint key convert --help &>/dev/null; then
-    echo "Trying to convert client credentials to a deployment key..."
-    KEY_FILE="/tmp/globus-key.json"
-    
-    # Convert client ID/secret to a key file
-    if globus-connect-server endpoint key convert --help 2>/dev/null | grep -q -- "--output"; then
-      # Use --output if supported
-      globus-connect-server endpoint key convert \
-        --client-id "$GC_ID" \
-        --secret "$GC_SECRET" \
-        --output "$KEY_FILE"
-    else
-      # Otherwise, redirect output to the key file
-      globus-connect-server endpoint key convert \
-        --client-id "$GC_ID" \
-        --secret "$GC_SECRET" > "$KEY_FILE"
-    fi
-    
-    if [ $? -eq 0 ] && [ -f "$KEY_FILE" ]; then
-      echo "Successfully converted credentials to key. Trying setup with deployment key..."
-      globus-connect-server endpoint setup \
-        --organization "$GC_ORG" \
-        --contact-email "admin@example.com" \
-        --owner "admin@example.com" \
-        --yes \
-        --deployment-key "$KEY_FILE" \
-        "$GC_NAME"
-    else
-      echo "Failed to convert credentials to key file"
-    fi
+  # Setup endpoint with GCS 5.4.61+ parameters
+  globus-connect-server endpoint setup \
+    --organization "$GC_ORG" \
+    --contact-email "admin@example.com" \
+    --owner "admin@example.com" \
+    --agree-to-letsencrypt-tos \
+    --deployment-key "$KEY_FILE" \
+    "$GC_NAME"
+  
+  if [ $? -eq 0 ]; then
+    echo "Endpoint setup succeeded!"
   else
-    # Fall back to older formats if key convert is not available
-    echo "Key conversion not available, trying older command formats..."
-    
-    # Try with --secret parameter
-    echo "Trying with --secret parameter..."
-    globus-connect-server endpoint setup \
-      --client-id "$GC_ID" \
-      --secret "$GC_SECRET" \
-      --name "$GC_NAME" \
-      --organization "$GC_ORG"
-    
-    # If that fails too, try with --client-secret parameter
-    if [ $? -ne 0 ]; then
-      echo "Trying with --client-secret parameter..."
-      globus-connect-server endpoint setup \
-        --client-id "$GC_ID" \
-        --client-secret "$GC_SECRET" \
-        --name "$GC_NAME" \
-        --organization "$GC_ORG"
-      
-      # Last attempt with minimal parameters
-      if [ $? -ne 0 ]; then
-        echo "Trying with minimal parameters..."
-        globus-connect-server endpoint setup \
-          --client-id "$GC_ID" \
-          --secret "$GC_SECRET"
-      fi
-    fi
+    echo "Endpoint setup failed. See logs for details."
+    exit 1
   fi
+else
+  echo "Failed to convert credentials to key file"
+  exit 1
 fi
 
 # Show result
@@ -282,32 +300,47 @@ else
   echo "ERROR: Failed to create helper script!" | tee -a /home/ubuntu/install-debug.log
   # Try an alternative approach - create it using echo
   echo '#!/bin/bash' > /home/ubuntu/run-globus-setup.sh
-  echo '# Manual setup script for Globus' >> /home/ubuntu/run-globus-setup.sh
+  echo '# Helper script for Globus Connect Server 5.4.61+ setup' >> /home/ubuntu/run-globus-setup.sh
   echo 'GC_ID=${1:-$(cat /home/ubuntu/globus-client-id.txt 2>/dev/null)}' >> /home/ubuntu/run-globus-setup.sh
   echo 'GC_SECRET=${2:-$(cat /home/ubuntu/globus-client-secret.txt 2>/dev/null)}' >> /home/ubuntu/run-globus-setup.sh
   echo 'GC_NAME=${3:-$(cat /home/ubuntu/globus-display-name.txt 2>/dev/null)}' >> /home/ubuntu/run-globus-setup.sh
   echo 'GC_ORG=${4:-$(cat /home/ubuntu/globus-organization.txt 2>/dev/null || echo "AWS")}' >> /home/ubuntu/run-globus-setup.sh
-  echo 'echo "Trying modern format first..."' >> /home/ubuntu/run-globus-setup.sh
-  echo 'globus-connect-server endpoint setup --organization "$GC_ORG" --contact-email "admin@example.com" --owner "admin@example.com" --yes "$GC_NAME" || \\' >> /home/ubuntu/run-globus-setup.sh
-  echo 'if globus-connect-server endpoint key convert --help &>/dev/null; then \\' >> /home/ubuntu/run-globus-setup.sh
-  echo '  echo "Converting client credentials to deployment key..." && \\' >> /home/ubuntu/run-globus-setup.sh
-  echo '  KEY_FILE="/tmp/globus-key.json" && \\' >> /home/ubuntu/run-globus-setup.sh
-  echo '  if globus-connect-server endpoint key convert --help 2>/dev/null | grep -q -- "--output"; then \\' >> /home/ubuntu/run-globus-setup.sh
-  echo '    globus-connect-server endpoint key convert --client-id "$GC_ID" --secret "$GC_SECRET" --output "$KEY_FILE"; \\' >> /home/ubuntu/run-globus-setup.sh
-  echo '  else \\' >> /home/ubuntu/run-globus-setup.sh
-  echo '    globus-connect-server endpoint key convert --client-id "$GC_ID" --secret "$GC_SECRET" > "$KEY_FILE"; \\' >> /home/ubuntu/run-globus-setup.sh
-  echo '  fi && \\' >> /home/ubuntu/run-globus-setup.sh
-  echo '  [ -f "$KEY_FILE" ] && \\' >> /home/ubuntu/run-globus-setup.sh
-  echo '  globus-connect-server endpoint setup --organization "$GC_ORG" --contact-email "admin@example.com" --owner "admin@example.com" --yes --deployment-key "$KEY_FILE" "$GC_NAME" \\' >> /home/ubuntu/run-globus-setup.sh
-  echo 'else \\' >> /home/ubuntu/run-globus-setup.sh
-  echo '  echo "Trying legacy format with --secret parameter..." && \\' >> /home/ubuntu/run-globus-setup.sh
-  echo '  globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" --name "$GC_NAME" --organization "$GC_ORG" || \\' >> /home/ubuntu/run-globus-setup.sh
-  echo '  echo "Trying legacy format with --client-secret parameter..." && \\' >> /home/ubuntu/run-globus-setup.sh
-  echo '  globus-connect-server endpoint setup --client-id "$GC_ID" --client-secret "$GC_SECRET" --name "$GC_NAME" --organization "$GC_ORG" || \\' >> /home/ubuntu/run-globus-setup.sh
-  echo '  echo "Trying minimal parameters..." && \\' >> /home/ubuntu/run-globus-setup.sh
-  echo '  globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" \\' >> /home/ubuntu/run-globus-setup.sh
+  
+  # Add version check
+  echo 'GCS_VERSION=$(globus-connect-server --version 2>&1 | head -1 | awk '\''{print $NF}'\'')' >> /home/ubuntu/run-globus-setup.sh
+  echo 'REQUIRED_VERSION="5.4.61"' >> /home/ubuntu/run-globus-setup.sh
+  echo 'function version_to_int() { echo "$@" | awk -F. '\''{printf("%d%03d%03d\n", $1, $2, $3)}'\''; }' >> /home/ubuntu/run-globus-setup.sh
+  echo 'if [ "$(version_to_int $GCS_VERSION)" -lt "$(version_to_int $REQUIRED_VERSION)" ]; then' >> /home/ubuntu/run-globus-setup.sh
+  echo '  echo "ERROR: This script requires Globus Connect Server $REQUIRED_VERSION or higher"' >> /home/ubuntu/run-globus-setup.sh
+  echo '  echo "Current version is $GCS_VERSION"' >> /home/ubuntu/run-globus-setup.sh
+  echo '  exit 1' >> /home/ubuntu/run-globus-setup.sh
   echo 'fi' >> /home/ubuntu/run-globus-setup.sh
-  echo 'echo "Setup complete (or failed). Endpoint details:"' >> /home/ubuntu/run-globus-setup.sh
+  
+  # Add the actual setup process for GCS 5.4.61+
+  echo 'echo "Converting client credentials to deployment key..."' >> /home/ubuntu/run-globus-setup.sh
+  echo 'KEY_FILE="/tmp/globus-key.json"' >> /home/ubuntu/run-globus-setup.sh
+  echo 'globus-connect-server endpoint key convert --client-id "$GC_ID" --secret "$GC_SECRET" > "$KEY_FILE"' >> /home/ubuntu/run-globus-setup.sh
+  echo 'if [ $? -eq 0 ] && [ -f "$KEY_FILE" ]; then' >> /home/ubuntu/run-globus-setup.sh
+  echo '  echo "Successfully converted credentials to key. Setting up endpoint..."' >> /home/ubuntu/run-globus-setup.sh
+  echo '  globus-connect-server endpoint setup \\' >> /home/ubuntu/run-globus-setup.sh
+  echo '    --organization "$GC_ORG" \\' >> /home/ubuntu/run-globus-setup.sh
+  echo '    --contact-email "admin@example.com" \\' >> /home/ubuntu/run-globus-setup.sh
+  echo '    --owner "admin@example.com" \\' >> /home/ubuntu/run-globus-setup.sh
+  echo '    --agree-to-letsencrypt-tos \\' >> /home/ubuntu/run-globus-setup.sh
+  echo '    --deployment-key "$KEY_FILE" \\' >> /home/ubuntu/run-globus-setup.sh
+  echo '    "$GC_NAME"' >> /home/ubuntu/run-globus-setup.sh
+  echo '  if [ $? -eq 0 ]; then' >> /home/ubuntu/run-globus-setup.sh
+  echo '    echo "Endpoint setup succeeded!"' >> /home/ubuntu/run-globus-setup.sh
+  echo '  else' >> /home/ubuntu/run-globus-setup.sh
+  echo '    echo "Endpoint setup failed. See logs for details."' >> /home/ubuntu/run-globus-setup.sh
+  echo '    exit 1' >> /home/ubuntu/run-globus-setup.sh
+  echo '  fi' >> /home/ubuntu/run-globus-setup.sh
+  echo 'else' >> /home/ubuntu/run-globus-setup.sh
+  echo '  echo "Failed to convert credentials to key file"' >> /home/ubuntu/run-globus-setup.sh
+  echo '  exit 1' >> /home/ubuntu/run-globus-setup.sh
+  echo 'fi' >> /home/ubuntu/run-globus-setup.sh
+  
+  echo 'echo "Setup complete! Endpoint details:"' >> /home/ubuntu/run-globus-setup.sh
   echo 'globus-connect-server endpoint show || echo "No endpoint found"' >> /home/ubuntu/run-globus-setup.sh
   chmod +x /home/ubuntu/run-globus-setup.sh
   chown ubuntu:ubuntu /home/ubuntu/run-globus-setup.sh
@@ -352,7 +385,14 @@ else
   echo "No cloud-init script-user issues detected." > /home/ubuntu/cloud-init-warning.txt
 fi
 
-# Attempt setup with appropriate method
+# Check GCS version before proceeding
+check_gcs_version || {
+  echo "ERROR: Incompatible Globus Connect Server version. This template requires version 5.4.61 or higher."
+  echo "FAILURE_REASON=INCOMPATIBLE_VERSION" > /home/ubuntu/globus-setup-failed.txt
+  exit 1
+}
+
+# Attempt setup with parameters for GCS 5.4.61+
 SETUP_LOG="/var/log/globus-setup.log"
 echo "Starting Globus Connect Server setup $(date)" > $SETUP_LOG
 
@@ -376,120 +416,44 @@ if [ -n "$EXISTING_ENDPOINT" ]; then
     SETUP_STATUS=1
   fi
 else
-  # No existing endpoint, create a new one
+  # No existing endpoint, create a new one using correct parameters for GCS 5.4.61+
   echo "No existing endpoint found. Creating new endpoint..." | tee -a $SETUP_LOG
-  SETUP_STATUS=1  # Default to error until one command succeeds
+  SETUP_STATUS=1  # Default to error until setup succeeds
   
-  # Try modern format first (with positional DISPLAY_NAME argument and different parameters)
-  # Add --yes to accept the Let's Encrypt Terms of Service automatically
-  echo "Trying setup with modern Globus Connect Server format (positional display name)..." | tee -a $SETUP_LOG
-  globus-connect-server endpoint setup \
-    --organization "$GLOBUS_ORGANIZATION" \
-    --contact-email "admin@example.com" \
-    --owner "admin@example.com" \
-    --yes \
-    "$GLOBUS_DISPLAY_NAME" >> $SETUP_LOG 2>&1
+  # First, convert client credentials to deployment key
+  echo "Converting client credentials to deployment key..." | tee -a $SETUP_LOG
+  # Create temporary key file
+  KEY_FILE="/tmp/globus-key.json"
   
-  if [ $? -eq 0 ]; then
-    echo "Modern setup command succeeded!" | tee -a $SETUP_LOG
-    SETUP_STATUS=0
-  else
-    # If modern format fails, fall back to older versions
-    echo "Modern setup failed, trying older command formats..." | tee -a $SETUP_LOG
+  # Convert client ID/secret to a key file (redirect output for GCS 5.4.61+)
+  globus-connect-server endpoint key convert \
+    --client-id "$GLOBUS_CLIENT_ID" \
+    --secret "$GLOBUS_CLIENT_SECRET" > "$KEY_FILE" 2>> $SETUP_LOG
+  
+  if [ $? -eq 0 ] && [ -f "$KEY_FILE" ]; then
+    echo "Successfully converted credentials to key file. Setting up endpoint..." | tee -a $SETUP_LOG
     
-    # Check if we need to convert the client ID/secret to a key first
-    echo "Checking if we need to convert client credentials to a key..." | tee -a $SETUP_LOG
-    if globus-connect-server endpoint key convert --help &>/dev/null; then
-      echo "Found endpoint key convert command, trying to convert credentials..." | tee -a $SETUP_LOG
-      
-      # Create temporary key file
-      KEY_FILE="/tmp/globus-key.json"
-      # Check if --output is supported
-      if globus-connect-server endpoint key convert --help 2>/dev/null | grep -q -- "--output"; then
-        # Use --output if supported
-        globus-connect-server endpoint key convert \
-          --client-id "$GLOBUS_CLIENT_ID" \
-          --secret "$GLOBUS_CLIENT_SECRET" \
-          --output "$KEY_FILE" >> $SETUP_LOG 2>&1
-      else
-        # Otherwise, redirect output to the key file
-        globus-connect-server endpoint key convert \
-          --client-id "$GLOBUS_CLIENT_ID" \
-          --secret "$GLOBUS_CLIENT_SECRET" > "$KEY_FILE" 2>> $SETUP_LOG
-      fi
-      
-      if [ $? -eq 0 ] && [ -f "$KEY_FILE" ]; then
-        echo "Successfully converted credentials to key file. Trying setup with key..." | tee -a $SETUP_LOG
-        globus-connect-server endpoint setup \
-          --organization "$GLOBUS_ORGANIZATION" \
-          --contact-email "admin@example.com" \
-          --owner "admin@example.com" \
-          --yes \
-          --deployment-key "$KEY_FILE" \
-          "$GLOBUS_DISPLAY_NAME" >> $SETUP_LOG 2>&1
-        
-        if [ $? -eq 0 ]; then
-          echo "Setup with deployment key succeeded!" | tee -a $SETUP_LOG
-          SETUP_STATUS=0
-        else
-          echo "Setup with deployment key failed!" | tee -a $SETUP_LOG
-        fi
-      else
-        echo "Failed to convert credentials to key file" | tee -a $SETUP_LOG
-      fi
+    # Setup endpoint with the correct parameters for GCS 5.4.61+ (based on the help output)
+    globus-connect-server endpoint setup \
+      --organization "$GLOBUS_ORGANIZATION" \
+      --contact-email "admin@example.com" \
+      --owner "admin@example.com" \
+      --agree-to-letsencrypt-tos \
+      --deployment-key "$KEY_FILE" \
+      "$GLOBUS_DISPLAY_NAME" >> $SETUP_LOG 2>&1
+    
+    if [ $? -eq 0 ]; then
+      echo "Endpoint setup succeeded!" | tee -a $SETUP_LOG
+      SETUP_STATUS=0
     else
-      # Fall back to older methods if key convert is not available
-      # Try older format with minimal parameters
-      echo "Trying older format with minimal parameters..." | tee -a $SETUP_LOG
-      globus-connect-server endpoint setup \
-        --client-id "$GLOBUS_CLIENT_ID" \
-        --secret "$GLOBUS_CLIENT_SECRET" >> $SETUP_LOG 2>&1
-      
-      if [ $? -eq 0 ]; then
-        echo "Setup with minimal parameters succeeded!" | tee -a $SETUP_LOG
-        SETUP_STATUS=0
-      else
-        # Try with --name parameter
-        echo "Trying setup with --name parameter..." | tee -a $SETUP_LOG
-        globus-connect-server endpoint setup \
-          --client-id "$GLOBUS_CLIENT_ID" \
-          --secret "$GLOBUS_CLIENT_SECRET" \
-          --name "$GLOBUS_DISPLAY_NAME" >> $SETUP_LOG 2>&1
-        
-        if [ $? -eq 0 ]; then
-          echo "Setup with --name parameter succeeded!" | tee -a $SETUP_LOG
-          SETUP_STATUS=0
-        else
-          # Try with --name and --organization parameters
-          echo "Trying setup with --name and --organization parameters..." | tee -a $SETUP_LOG
-          globus-connect-server endpoint setup \
-            --client-id "$GLOBUS_CLIENT_ID" \
-            --secret "$GLOBUS_CLIENT_SECRET" \
-            --name "$GLOBUS_DISPLAY_NAME" \
-            --organization "$GLOBUS_ORGANIZATION" >> $SETUP_LOG 2>&1
-          
-          if [ $? -eq 0 ]; then
-            echo "Setup with --name and --organization parameters succeeded!" | tee -a $SETUP_LOG
-            SETUP_STATUS=0
-          else
-            # Last attempt with client_secret instead of secret
-            echo "Trying setup with --client-secret parameter..." | tee -a $SETUP_LOG
-            globus-connect-server endpoint setup \
-              --client-id "$GLOBUS_CLIENT_ID" \
-              --client-secret "$GLOBUS_CLIENT_SECRET" \
-              --name "$GLOBUS_DISPLAY_NAME" \
-              --organization "$GLOBUS_ORGANIZATION" >> $SETUP_LOG 2>&1
-            
-            if [ $? -eq 0 ]; then
-              echo "Setup with --client-secret parameter succeeded!" | tee -a $SETUP_LOG
-              SETUP_STATUS=0
-            else
-              echo "All setup attempts failed!" | tee -a $SETUP_LOG
-            fi
-          fi
-        fi
-      fi
+      echo "Endpoint setup failed!" | tee -a $SETUP_LOG
+      echo "See $SETUP_LOG for details."
     fi
+  else
+    echo "Failed to convert credentials to key file" | tee -a $SETUP_LOG
+    echo "This is a critical error for GCS 5.4.61+ which requires key conversion."
+    SETUP_STATUS=1
+    
   fi
 fi
 
@@ -511,16 +475,24 @@ if [ "$AUTH_METHOD" = "Globus" ] && [ "$DEFAULT_ADMIN" != "" ]; then
   done
 fi
 
-# Configure S3 connector if subscription exists
+# Configure S3 connector if subscription exists (for GCS 5.4.61+)
 if [ -n "$GLOBUS_SUBSCRIPTION_ID" ]; then
   # S3 connector - check command availability first
   if [ "$ENABLE_S3_CONNECTOR" = "true" ] && [ "$S3_BUCKET_NAME" != "" ] && aws s3 ls "s3://$S3_BUCKET_NAME" >/dev/null 2>&1; then
-    # Check if the command supports storage-gateway
-    if globus-connect-server help 2>&1 | grep -q "storage-gateway"; then
-      globus-connect-server storage-gateway create --connector-id s3_storage --display-name "S3 Connector" \
-        --connector-type s3 --authentication-method aws_s3_path_style --credentials-type role --bucket $S3_BUCKET_NAME
+    echo "Setting up S3 connector for bucket $S3_BUCKET_NAME..." | tee -a $SETUP_LOG
+    
+    # S3 connector setup with correct parameters for GCS 5.4.61+
+    globus-connect-server storage-gateway create s3 \
+      --connector-id s3_storage \
+      --display-name "S3 Connector" \
+      --authentication-method aws_s3_path_style \
+      --credentials-type role \
+      --bucket "$S3_BUCKET_NAME" >> $SETUP_LOG 2>&1
+      
+    if [ $? -eq 0 ]; then
+      echo "S3 connector setup successful" | tee -a $SETUP_LOG
     else
-      echo "WARNING: This version of Globus does not support the storage-gateway command" | tee -a $SETUP_LOG
+      echo "WARNING: Failed to set up S3 connector" | tee -a $SETUP_LOG
     fi
   fi
   
