@@ -98,6 +98,10 @@
     "ParameterValue": "Your-Globus-Endpoint"
   },
   {
+    "ParameterKey": "GlobusOrganization",
+    "ParameterValue": "Your-Organization"
+  },
+  {
     "ParameterKey": "GlobusSubscriptionId",
     "ParameterValue": "xxxxxxxxxxxx"
   },

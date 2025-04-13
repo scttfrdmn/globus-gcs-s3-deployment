@@ -183,6 +183,7 @@ cat > /home/ubuntu/run-globus-setup.sh << 'EOF'
 [ -z "$1" ] && [ -f /home/ubuntu/globus-client-id.txt ] && GC_ID=$(cat /home/ubuntu/globus-client-id.txt) || GC_ID="$1"
 [ -z "$2" ] && [ -f /home/ubuntu/globus-client-secret.txt ] && GC_SECRET=$(cat /home/ubuntu/globus-client-secret.txt) || GC_SECRET="$2"
 [ -z "$3" ] && [ -f /home/ubuntu/globus-display-name.txt ] && GC_NAME=$(cat /home/ubuntu/globus-display-name.txt) || GC_NAME="$3"
+[ -z "$4" ] && [ -f /home/ubuntu/globus-organization.txt ] && GC_ORG=$(cat /home/ubuntu/globus-organization.txt) || GC_ORG="${4:-AWS}"
 
 echo "Running Globus endpoint setup with:"
 echo "- Client ID: $(echo $GC_ID | cut -c1-5)... (truncated)"
@@ -209,12 +210,15 @@ fi
 
 # Try setup with versions that support different options
 echo "Setting up Globus endpoint..."
+# Get organization from parameter or use default
+GC_ORG=${4:-"AWS"}
+
 # First try with minimal options (very old versions)
 globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" || \
 # Next try with display name but no organization (mid versions)
 globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" --name "$GC_NAME" || \
 # Try with newer parameter names
-globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" --name "$GC_NAME" --organization "AWS"
+globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" --name "$GC_NAME" --organization "$GC_ORG"
 
 # Show result
 echo "Setup complete! Endpoint details:"
@@ -233,7 +237,8 @@ else
   echo 'GC_ID=${1:-$(cat /home/ubuntu/globus-client-id.txt 2>/dev/null)}' >> /home/ubuntu/run-globus-setup.sh
   echo 'GC_SECRET=${2:-$(cat /home/ubuntu/globus-client-secret.txt 2>/dev/null)}' >> /home/ubuntu/run-globus-setup.sh
   echo 'GC_NAME=${3:-$(cat /home/ubuntu/globus-display-name.txt 2>/dev/null)}' >> /home/ubuntu/run-globus-setup.sh
-  echo 'globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" || globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" --name "$GC_NAME"' >> /home/ubuntu/run-globus-setup.sh
+  echo 'GC_ORG=${4:-$(cat /home/ubuntu/globus-organization.txt 2>/dev/null || echo "AWS")}' >> /home/ubuntu/run-globus-setup.sh
+  echo 'globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" || globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" --name "$GC_NAME" || globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" --name "$GC_NAME" --organization "$GC_ORG"' >> /home/ubuntu/run-globus-setup.sh
   chmod +x /home/ubuntu/run-globus-setup.sh
   chown ubuntu:ubuntu /home/ubuntu/run-globus-setup.sh
 fi
@@ -258,6 +263,12 @@ echo "$GLOBUS_DISPLAY_NAME" > /home/ubuntu/globus-display-name.txt && \
   chown ubuntu:ubuntu /home/ubuntu/globus-display-name.txt && \
   echo "- Created display name file" >> /home/ubuntu/install-debug.log || \
   echo "ERROR: Failed to create display name file" | tee -a /home/ubuntu/install-debug.log
+
+echo "$GLOBUS_ORGANIZATION" > /home/ubuntu/globus-organization.txt && \
+  chmod 600 /home/ubuntu/globus-organization.txt && \
+  chown ubuntu:ubuntu /home/ubuntu/globus-organization.txt && \
+  echo "- Created organization file" >> /home/ubuntu/install-debug.log || \
+  echo "ERROR: Failed to create organization file" | tee -a /home/ubuntu/install-debug.log
 
 # Create a deployment log that can be checked for "scripts-user" errors
 echo "Checking for cloud-init script-user issues..."
@@ -306,7 +317,7 @@ else
   (globus-connect-server endpoint setup --client-id "$GLOBUS_CLIENT_ID" --secret "$GLOBUS_CLIENT_SECRET" --name "$GLOBUS_DISPLAY_NAME" >> $SETUP_LOG 2>&1) && SETUP_STATUS=$? || \
   
   echo "Trying setup with --name and --organization parameters..." | tee -a $SETUP_LOG
-  (globus-connect-server endpoint setup --client-id "$GLOBUS_CLIENT_ID" --secret "$GLOBUS_CLIENT_SECRET" --name "$GLOBUS_DISPLAY_NAME" --organization "AWS" >> $SETUP_LOG 2>&1) && SETUP_STATUS=$?
+  (globus-connect-server endpoint setup --client-id "$GLOBUS_CLIENT_ID" --secret "$GLOBUS_CLIENT_SECRET" --name "$GLOBUS_DISPLAY_NAME" --organization "$GLOBUS_ORGANIZATION" >> $SETUP_LOG 2>&1) && SETUP_STATUS=$?
 fi
 
 # Diagnostics and reporting

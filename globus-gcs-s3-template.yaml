@@ -119,6 +119,11 @@ Parameters:
     Description: Display name for the Globus endpoint
     Type: String
     Default: "AWS-GCS-S3-Endpoint"
+    
+  GlobusOrganization:
+    Description: Organization name for the Globus endpoint
+    Type: String
+    Default: "AWS"
 
 Mappings:
   RegionMap:
@@ -284,6 +289,7 @@ Resources:
           export GLOBUS_CLIENT_ID=${GlobusClientId}
           export GLOBUS_CLIENT_SECRET=${GlobusClientSecret}
           export GLOBUS_DISPLAY_NAME=${GlobusDisplayName}
+          export GLOBUS_ORGANIZATION=${GlobusOrganization}
           export GLOBUS_SUBSCRIPTION_ID=${GlobusSubscriptionId}
           export DEPLOYMENT_TYPE=${DeploymentType}
           export AUTH_METHOD=${AuthenticationMethod}
