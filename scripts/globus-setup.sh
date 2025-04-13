@@ -188,37 +188,49 @@ cat > /home/ubuntu/run-globus-setup.sh << 'EOF'
 echo "Running Globus endpoint setup with:"
 echo "- Client ID: $(echo $GC_ID | cut -c1-5)... (truncated)"
 echo "- Display Name: $GC_NAME"
+echo "- Organization: $GC_ORG"
 
-# Check for existing endpoint with same name
-echo "Checking for existing endpoint with the same name..."
-EXISTING_ENDPOINT=$(globus-connect-server endpoint list 2>/dev/null | grep -F "$GC_NAME" || echo "")
+echo "Setting up Globus endpoint..."
+# Try all versions in sequence, starting with the modern format
 
-if [ -n "$EXISTING_ENDPOINT" ]; then
-  echo "WARNING: An endpoint with name '$GC_NAME' already exists!"
-  echo "Existing endpoint details:"
-  echo "$EXISTING_ENDPOINT"
+# Try modern format first (with positional DISPLAY_NAME argument)
+echo "Trying modern Globus Connect Server format (positional display name)..."
+globus-connect-server endpoint setup \
+  --organization "$GC_ORG" \
+  --contact-email "admin@example.com" \
+  --owner "admin@example.com" \
+  "$GC_NAME"
+
+# If the modern format fails, try older formats
+if [ $? -ne 0 ]; then
+  echo "Modern setup failed, trying older formats..."
   
-  # Extract endpoint ID if possible
-  ENDPOINT_ID=$(echo "$EXISTING_ENDPOINT" | awk '{print $1}')
-  if [ -n "$ENDPOINT_ID" ]; then
-    echo "Using existing endpoint ID: $ENDPOINT_ID"
-    echo "$ENDPOINT_ID" > /home/ubuntu/existing-endpoint-id.txt
-  else
-    echo "Could not extract endpoint ID, proceeding with setup anyway"
+  # Try with --secret parameter
+  echo "Trying with --secret parameter..."
+  globus-connect-server endpoint setup \
+    --client-id "$GC_ID" \
+    --secret "$GC_SECRET" \
+    --name "$GC_NAME" \
+    --organization "$GC_ORG"
+  
+  # If that fails too, try with --client-secret parameter
+  if [ $? -ne 0 ]; then
+    echo "Trying with --client-secret parameter..."
+    globus-connect-server endpoint setup \
+      --client-id "$GC_ID" \
+      --client-secret "$GC_SECRET" \
+      --name "$GC_NAME" \
+      --organization "$GC_ORG"
+    
+    # Last attempt with minimal parameters
+    if [ $? -ne 0 ]; then
+      echo "Trying with minimal parameters..."
+      globus-connect-server endpoint setup \
+        --client-id "$GC_ID" \
+        --secret "$GC_SECRET"
+    fi
   fi
 fi
-
-# Try setup with versions that support different options
-echo "Setting up Globus endpoint..."
-# Get organization from parameter or use default
-GC_ORG=${4:-"AWS"}
-
-# First try with minimal options (very old versions)
-globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" || \
-# Next try with display name but no organization (mid versions)
-globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" --name "$GC_NAME" || \
-# Try with newer parameter names
-globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" --name "$GC_NAME" --organization "$GC_ORG"
 
 # Show result
 echo "Setup complete! Endpoint details:"
@@ -238,7 +250,16 @@ else
   echo 'GC_SECRET=${2:-$(cat /home/ubuntu/globus-client-secret.txt 2>/dev/null)}' >> /home/ubuntu/run-globus-setup.sh
   echo 'GC_NAME=${3:-$(cat /home/ubuntu/globus-display-name.txt 2>/dev/null)}' >> /home/ubuntu/run-globus-setup.sh
   echo 'GC_ORG=${4:-$(cat /home/ubuntu/globus-organization.txt 2>/dev/null || echo "AWS")}' >> /home/ubuntu/run-globus-setup.sh
-  echo 'globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" || globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" --name "$GC_NAME" || globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" --name "$GC_NAME" --organization "$GC_ORG"' >> /home/ubuntu/run-globus-setup.sh
+  echo 'echo "Trying modern format first..."' >> /home/ubuntu/run-globus-setup.sh
+  echo 'globus-connect-server endpoint setup --organization "$GC_ORG" --contact-email "admin@example.com" --owner "admin@example.com" "$GC_NAME" || \\' >> /home/ubuntu/run-globus-setup.sh
+  echo 'echo "Trying legacy format with --secret parameter..." && \\' >> /home/ubuntu/run-globus-setup.sh
+  echo 'globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" --name "$GC_NAME" --organization "$GC_ORG" || \\' >> /home/ubuntu/run-globus-setup.sh
+  echo 'echo "Trying legacy format with --client-secret parameter..." && \\' >> /home/ubuntu/run-globus-setup.sh
+  echo 'globus-connect-server endpoint setup --client-id "$GC_ID" --client-secret "$GC_SECRET" --name "$GC_NAME" --organization "$GC_ORG" || \\' >> /home/ubuntu/run-globus-setup.sh
+  echo 'echo "Trying minimal parameters..." && \\' >> /home/ubuntu/run-globus-setup.sh
+  echo 'globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET"' >> /home/ubuntu/run-globus-setup.sh
+  echo 'echo "Setup complete (or failed). Endpoint details:"' >> /home/ubuntu/run-globus-setup.sh
+  echo 'globus-connect-server endpoint show || echo "No endpoint found"' >> /home/ubuntu/run-globus-setup.sh
   chmod +x /home/ubuntu/run-globus-setup.sh
   chown ubuntu:ubuntu /home/ubuntu/run-globus-setup.sh
 fi
@@ -286,8 +307,8 @@ fi
 SETUP_LOG="/var/log/globus-setup.log"
 echo "Starting Globus Connect Server setup $(date)" > $SETUP_LOG
 
-# Check if endpoint already exists
-echo "Checking for existing endpoint with the same name..." > $SETUP_LOG
+# Check if endpoint already exists (only once)
+echo "Checking for existing endpoint with the same name..." | tee -a $SETUP_LOG
 EXISTING_ENDPOINT=$(globus-connect-server endpoint list 2>/dev/null | grep -F "$GLOBUS_DISPLAY_NAME" || echo "")
 
 if [ -n "$EXISTING_ENDPOINT" ]; then
@@ -308,16 +329,74 @@ if [ -n "$EXISTING_ENDPOINT" ]; then
 else
   # No existing endpoint, create a new one
   echo "No existing endpoint found. Creating new endpoint..." | tee -a $SETUP_LOG
+  SETUP_STATUS=1  # Default to error until one command succeeds
   
-  # Try all possible parameter combinations for different Globus Connect Server versions
-  echo "Trying setup with minimal parameters..." | tee -a $SETUP_LOG
-  (globus-connect-server endpoint setup --client-id "$GLOBUS_CLIENT_ID" --secret "$GLOBUS_CLIENT_SECRET" >> $SETUP_LOG 2>&1) && SETUP_STATUS=$? || \
+  # Try modern format first (with positional DISPLAY_NAME argument and different parameters)
+  echo "Trying setup with modern Globus Connect Server format (positional display name)..." | tee -a $SETUP_LOG
+  globus-connect-server endpoint setup \
+    --organization "$GLOBUS_ORGANIZATION" \
+    --contact-email "admin@example.com" \
+    --owner "admin@example.com" \
+    "$GLOBUS_DISPLAY_NAME" >> $SETUP_LOG 2>&1
   
-  echo "Trying setup with --name parameter..." | tee -a $SETUP_LOG
-  (globus-connect-server endpoint setup --client-id "$GLOBUS_CLIENT_ID" --secret "$GLOBUS_CLIENT_SECRET" --name "$GLOBUS_DISPLAY_NAME" >> $SETUP_LOG 2>&1) && SETUP_STATUS=$? || \
-  
-  echo "Trying setup with --name and --organization parameters..." | tee -a $SETUP_LOG
-  (globus-connect-server endpoint setup --client-id "$GLOBUS_CLIENT_ID" --secret "$GLOBUS_CLIENT_SECRET" --name "$GLOBUS_DISPLAY_NAME" --organization "$GLOBUS_ORGANIZATION" >> $SETUP_LOG 2>&1) && SETUP_STATUS=$?
+  if [ $? -eq 0 ]; then
+    echo "Modern setup command succeeded!" | tee -a $SETUP_LOG
+    SETUP_STATUS=0
+  else
+    # If modern format fails, fall back to older versions
+    echo "Modern setup failed, trying older command formats..." | tee -a $SETUP_LOG
+    
+    # Try older format with minimal parameters
+    echo "Trying setup with minimal parameters..." | tee -a $SETUP_LOG
+    globus-connect-server endpoint setup \
+      --client-id "$GLOBUS_CLIENT_ID" \
+      --secret "$GLOBUS_CLIENT_SECRET" >> $SETUP_LOG 2>&1
+    
+    if [ $? -eq 0 ]; then
+      echo "Setup with minimal parameters succeeded!" | tee -a $SETUP_LOG
+      SETUP_STATUS=0
+    else
+      # Try with --name parameter
+      echo "Trying setup with --name parameter..." | tee -a $SETUP_LOG
+      globus-connect-server endpoint setup \
+        --client-id "$GLOBUS_CLIENT_ID" \
+        --secret "$GLOBUS_CLIENT_SECRET" \
+        --name "$GLOBUS_DISPLAY_NAME" >> $SETUP_LOG 2>&1
+      
+      if [ $? -eq 0 ]; then
+        echo "Setup with --name parameter succeeded!" | tee -a $SETUP_LOG
+        SETUP_STATUS=0
+      else
+        # Try with --name and --organization parameters
+        echo "Trying setup with --name and --organization parameters..." | tee -a $SETUP_LOG
+        globus-connect-server endpoint setup \
+          --client-id "$GLOBUS_CLIENT_ID" \
+          --secret "$GLOBUS_CLIENT_SECRET" \
+          --name "$GLOBUS_DISPLAY_NAME" \
+          --organization "$GLOBUS_ORGANIZATION" >> $SETUP_LOG 2>&1
+        
+        if [ $? -eq 0 ]; then
+          echo "Setup with --name and --organization parameters succeeded!" | tee -a $SETUP_LOG
+          SETUP_STATUS=0
+        else
+          # Last attempt with client_secret instead of secret
+          echo "Trying setup with --client-secret parameter..." | tee -a $SETUP_LOG
+          globus-connect-server endpoint setup \
+            --client-id "$GLOBUS_CLIENT_ID" \
+            --client-secret "$GLOBUS_CLIENT_SECRET" \
+            --name "$GLOBUS_DISPLAY_NAME" \
+            --organization "$GLOBUS_ORGANIZATION" >> $SETUP_LOG 2>&1
+          
+          if [ $? -eq 0 ]; then
+            echo "Setup with --client-secret parameter succeeded!" | tee -a $SETUP_LOG
+            SETUP_STATUS=0
+          else
+            echo "All setup attempts failed!" | tee -a $SETUP_LOG
+          fi
+        fi
+      fi
+    fi
+  fi
 fi
 
 # Diagnostics and reporting
