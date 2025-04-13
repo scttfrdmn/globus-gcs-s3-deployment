@@ -268,13 +268,14 @@ if [ $? -eq 0 ] && [ -f "$KEY_FILE" ]; then
   echo "Successfully converted credentials to key. Setting up endpoint..."
   
   # Setup endpoint with GCS 5.4.61+ parameters
+  # Ensure values are properly quoted for multi-word organization and display names
   globus-connect-server endpoint setup \
-    --organization "$GC_ORG" \
+    --organization "${GC_ORG}" \
     --contact-email "admin@example.com" \
     --owner "admin@example.com" \
     --agree-to-letsencrypt-tos \
     --deployment-key "$KEY_FILE" \
-    "$GC_NAME"
+    "${GC_NAME}"
   
   if [ $? -eq 0 ]; then
     echo "Endpoint setup succeeded!"
@@ -322,13 +323,14 @@ else
   echo 'globus-connect-server endpoint key convert --client-id "$GC_ID" --secret "$GC_SECRET" > "$KEY_FILE"' >> /home/ubuntu/run-globus-setup.sh
   echo 'if [ $? -eq 0 ] && [ -f "$KEY_FILE" ]; then' >> /home/ubuntu/run-globus-setup.sh
   echo '  echo "Successfully converted credentials to key. Setting up endpoint..."' >> /home/ubuntu/run-globus-setup.sh
+  echo '  # Ensure values are properly quoted for multi-word organization and display names' >> /home/ubuntu/run-globus-setup.sh
   echo '  globus-connect-server endpoint setup \\' >> /home/ubuntu/run-globus-setup.sh
-  echo '    --organization "$GC_ORG" \\' >> /home/ubuntu/run-globus-setup.sh
+  echo '    --organization "${GC_ORG}" \\' >> /home/ubuntu/run-globus-setup.sh
   echo '    --contact-email "admin@example.com" \\' >> /home/ubuntu/run-globus-setup.sh
   echo '    --owner "admin@example.com" \\' >> /home/ubuntu/run-globus-setup.sh
   echo '    --agree-to-letsencrypt-tos \\' >> /home/ubuntu/run-globus-setup.sh
   echo '    --deployment-key "$KEY_FILE" \\' >> /home/ubuntu/run-globus-setup.sh
-  echo '    "$GC_NAME"' >> /home/ubuntu/run-globus-setup.sh
+  echo '    "${GC_NAME}"' >> /home/ubuntu/run-globus-setup.sh
   echo '  if [ $? -eq 0 ]; then' >> /home/ubuntu/run-globus-setup.sh
   echo '    echo "Endpoint setup succeeded!"' >> /home/ubuntu/run-globus-setup.sh
   echo '  else' >> /home/ubuntu/run-globus-setup.sh
@@ -434,13 +436,14 @@ else
     echo "Successfully converted credentials to key file. Setting up endpoint..." | tee -a $SETUP_LOG
     
     # Setup endpoint with the correct parameters for GCS 5.4.61+ (based on the help output)
+    # Ensure values are properly quoted for multi-word organization and display names
     globus-connect-server endpoint setup \
-      --organization "$GLOBUS_ORGANIZATION" \
+      --organization "${GLOBUS_ORGANIZATION}" \
       --contact-email "admin@example.com" \
       --owner "admin@example.com" \
       --agree-to-letsencrypt-tos \
       --deployment-key "$KEY_FILE" \
-      "$GLOBUS_DISPLAY_NAME" >> $SETUP_LOG 2>&1
+      "${GLOBUS_DISPLAY_NAME}" >> $SETUP_LOG 2>&1
     
     if [ $? -eq 0 ]; then
       echo "Endpoint setup succeeded!" | tee -a $SETUP_LOG
