@@ -407,13 +407,12 @@ SETUP_CMD+=" --contact-email \"admin@example.com\""
 # Standard options
 SETUP_CMD+=" --agree-to-letsencrypt-tos"
 
-# Finally, add the display name as the positional argument
-SETUP_CMD+=" \"${GC_NAME}\""
+# Log the command we're about to run
+echo "Running endpoint setup command with display name: ${GC_NAME}"
 
-echo "Running endpoint setup command: $SETUP_CMD"
-
-# Execute the command
-eval $SETUP_CMD
+# Execute the command - passing the display name as a direct positional argument
+# to ensure proper quoting
+eval $SETUP_CMD '"${GC_NAME}"'
 
 SETUP_RESULT=$?
 if [ $SETUP_RESULT -eq 0 ]; then
@@ -631,13 +630,12 @@ else
   # Standard options
   SETUP_CMD+=" --agree-to-letsencrypt-tos"
   
-  # Finally, add the display name as the positional argument
-  SETUP_CMD+=" \"${GLOBUS_DISPLAY_NAME}\""
+  # Log the command we're about to run
+  echo "Running endpoint setup command with display name: ${GLOBUS_DISPLAY_NAME}" | tee -a $SETUP_LOG
   
-  echo "Running endpoint setup command: $SETUP_CMD" | tee -a $SETUP_LOG
-  
-  # Execute the command
-  eval $SETUP_CMD >> $SETUP_LOG 2>&1
+  # Execute the command - passing the display name as a direct positional argument
+  # rather than as part of the command string to ensure proper quoting
+  eval $SETUP_CMD '"${GLOBUS_DISPLAY_NAME}"' >> $SETUP_LOG 2>&1
     
   SETUP_RESULT=$?
   if [ $SETUP_RESULT -eq 0 ]; then
