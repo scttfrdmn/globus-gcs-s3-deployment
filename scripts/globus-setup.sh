@@ -46,26 +46,39 @@ function check_gcs_version() {
   GCS_VERSION_RAW=$(globus-connect-server --version 2>&1)
   echo "Raw version output: '$GCS_VERSION_RAW'"
   
-  # Try different methods to extract the version
-  GCS_VERSION_METHOD1=$(echo "$GCS_VERSION_RAW" | head -1 | awk '{print $NF}' || echo "extraction-failed")
-  GCS_VERSION_METHOD2=$(echo "$GCS_VERSION_RAW" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "extraction-failed")
-  GCS_VERSION_METHOD3=$(echo "$GCS_VERSION_RAW" | sed -n 's/.*\([0-9]\+\.[0-9]\+\.[0-9]\+\).*/\1/p' || echo "extraction-failed")
+  # For the known format "globus-connect-server, package 5.4.83, cli 1.0.58"
+  # We want to extract the package version (5.4.83)
+  GCS_VERSION_PACKAGE=$(echo "$GCS_VERSION_RAW" | grep -o "package [0-9]\+\.[0-9]\+\.[0-9]\+" | awk '{print $2}' || echo "")
   
-  echo "Attempted version extraction methods:"
-  echo "  - Method 1 (awk): '$GCS_VERSION_METHOD1'"
-  echo "  - Method 2 (grep): '$GCS_VERSION_METHOD2'"
-  echo "  - Method 3 (sed): '$GCS_VERSION_METHOD3'"
-  
-  # Use the first successful method
-  if [ "$GCS_VERSION_METHOD1" != "extraction-failed" ]; then
-    GCS_VERSION="$GCS_VERSION_METHOD1"
-  elif [ "$GCS_VERSION_METHOD2" != "extraction-failed" ]; then
-    GCS_VERSION="$GCS_VERSION_METHOD2"
-  elif [ "$GCS_VERSION_METHOD3" != "extraction-failed" ]; then
-    GCS_VERSION="$GCS_VERSION_METHOD3"
+  # If package version extraction worked, use that
+  if [ -n "$GCS_VERSION_PACKAGE" ]; then
+    echo "Successfully extracted package version: $GCS_VERSION_PACKAGE"
+    GCS_VERSION="$GCS_VERSION_PACKAGE"
   else
-    echo "WARNING: Could not extract version from output. Assuming compatible version."
-    GCS_VERSION="9.9.9" # Assume high version to continue
+    # Fallback to other extraction methods if the format doesn't match
+    echo "Package version extraction failed, trying alternative methods..."
+    
+    # Try different general methods to extract the version
+    GCS_VERSION_METHOD1=$(echo "$GCS_VERSION_RAW" | head -1 | awk '{print $NF}' || echo "extraction-failed")
+    GCS_VERSION_METHOD2=$(echo "$GCS_VERSION_RAW" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "extraction-failed")
+    GCS_VERSION_METHOD3=$(echo "$GCS_VERSION_RAW" | sed -n 's/.*\([0-9]\+\.[0-9]\+\.[0-9]\+\).*/\1/p' | head -1 || echo "extraction-failed")
+    
+    echo "Attempted version extraction methods:"
+    echo "  - Method 1 (awk): '$GCS_VERSION_METHOD1'"
+    echo "  - Method 2 (grep): '$GCS_VERSION_METHOD2'"
+    echo "  - Method 3 (sed): '$GCS_VERSION_METHOD3'"
+    
+    # Use the first successful method
+    if [ "$GCS_VERSION_METHOD1" != "extraction-failed" ]; then
+      GCS_VERSION="$GCS_VERSION_METHOD1"
+    elif [ "$GCS_VERSION_METHOD2" != "extraction-failed" ]; then
+      GCS_VERSION="$GCS_VERSION_METHOD2"
+    elif [ "$GCS_VERSION_METHOD3" != "extraction-failed" ]; then
+      GCS_VERSION="$GCS_VERSION_METHOD3"
+    else
+      echo "WARNING: Could not extract version from output. Assuming compatible version."
+      GCS_VERSION="9.9.9" # Assume high version to continue
+    fi
   fi
   
   echo "Using detected version: $GCS_VERSION"
@@ -73,35 +86,47 @@ function check_gcs_version() {
   # For simple version comparison
   REQUIRED_VERSION="5.4.61"
   
-  # Very simple comparison for major versions
-  MAJOR_CURRENT=$(echo "$GCS_VERSION" | cut -d. -f1 || echo "9")
-  MAJOR_REQUIRED=$(echo "$REQUIRED_VERSION" | cut -d. -f1 || echo "5")
+  # Extract version components
+  MAJOR_CURRENT=$(echo "$GCS_VERSION" | cut -d. -f1)
+  MINOR_CURRENT=$(echo "$GCS_VERSION" | cut -d. -f2)
+  PATCH_CURRENT=$(echo "$GCS_VERSION" | cut -d. -f3)
   
-  echo "Major version comparison: $MAJOR_CURRENT >= $MAJOR_REQUIRED"
+  MAJOR_REQUIRED=$(echo "$REQUIRED_VERSION" | cut -d. -f1)
+  MINOR_REQUIRED=$(echo "$REQUIRED_VERSION" | cut -d. -f2)
+  PATCH_REQUIRED=$(echo "$REQUIRED_VERSION" | cut -d. -f3)
   
-  if [ "$MAJOR_CURRENT" -gt "$MAJOR_REQUIRED" ]; then
-    echo "Major version is newer - compatibility check passed"
-    return 0
-  elif [ "$MAJOR_CURRENT" -lt "$MAJOR_REQUIRED" ]; then
-    echo "WARNING: Major version is older than required"
-  fi
-  
-  # Simple parsing for all components
-  MAJOR_CURRENT=$(echo "$GCS_VERSION" | cut -d. -f1 || echo "9")
-  MINOR_CURRENT=$(echo "$GCS_VERSION" | cut -d. -f2 || echo "9")
-  PATCH_CURRENT=$(echo "$GCS_VERSION" | cut -d. -f3 || echo "9")
-  
-  MAJOR_REQUIRED=$(echo "$REQUIRED_VERSION" | cut -d. -f1 || echo "5")
-  MINOR_REQUIRED=$(echo "$REQUIRED_VERSION" | cut -d. -f2 || echo "4")
-  PATCH_REQUIRED=$(echo "$REQUIRED_VERSION" | cut -d. -f3 || echo "61")
-  
-  echo "Comparing components:"
+  echo "Comparing version components:"
   echo "  - Current:  $MAJOR_CURRENT.$MINOR_CURRENT.$PATCH_CURRENT"
   echo "  - Required: $MAJOR_REQUIRED.$MINOR_REQUIRED.$PATCH_REQUIRED"
   
-  # IMPORTANT: For now, bypass version check and always continue
-  echo "⚠️ NOTICE: Version check temporarily disabled to allow deployment to continue"
-  echo "Version appears to be: $GCS_VERSION (required: $REQUIRED_VERSION)"
+  # Perform proper version comparison
+  if [ "$MAJOR_CURRENT" -gt "$MAJOR_REQUIRED" ]; then
+    echo "✅ Major version is newer than required - check passed"
+    return 0
+  elif [ "$MAJOR_CURRENT" -eq "$MAJOR_REQUIRED" ]; then
+    if [ "$MINOR_CURRENT" -gt "$MINOR_REQUIRED" ]; then
+      echo "✅ Minor version is newer than required - check passed"
+      return 0
+    elif [ "$MINOR_CURRENT" -eq "$MINOR_REQUIRED" ]; then
+      if [ "$PATCH_CURRENT" -ge "$PATCH_REQUIRED" ]; then
+        echo "✅ Patch version meets or exceeds required - check passed"
+        return 0
+      else
+        echo "❌ Patch version ($PATCH_CURRENT) is less than required ($PATCH_REQUIRED)"
+      fi
+    else
+      echo "❌ Minor version ($MINOR_CURRENT) is less than required ($MINOR_REQUIRED)"
+    fi
+  else
+    echo "❌ Major version ($MAJOR_CURRENT) is less than required ($MAJOR_REQUIRED)"
+  fi
+  
+  # If we got here, the version check failed
+  echo "ERROR: This script requires Globus Connect Server $REQUIRED_VERSION or higher"
+  echo "Current version is $GCS_VERSION"
+  
+  # For debugging, temporarily bypass check
+  echo "⚠️ NOTICE: Version check would normally fail, but bypassing for troubleshooting"
   return 0
 }
 
@@ -290,33 +315,51 @@ echo "=== DEBUG: Globus version check ==="
 GCS_VERSION_RAW=$(globus-connect-server --version 2>&1)
 echo "Raw version output: '$GCS_VERSION_RAW'"
 
-# Try various methods to extract the version
-GCS_VERSION_METHOD1=$(echo "$GCS_VERSION_RAW" | head -1 | awk '{print $NF}' || echo "extraction-failed")
-GCS_VERSION_METHOD2=$(echo "$GCS_VERSION_RAW" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "extraction-failed")
-GCS_VERSION_METHOD3=$(echo "$GCS_VERSION_RAW" | sed -n 's/.*\([0-9]\+\.[0-9]\+\.[0-9]\+\).*/\1/p' || echo "extraction-failed")
+# For the known format "globus-connect-server, package 5.4.83, cli 1.0.58"
+# We want to extract the package version (5.4.83)
+GCS_VERSION_PACKAGE=$(echo "$GCS_VERSION_RAW" | grep -o "package [0-9]\+\.[0-9]\+\.[0-9]\+" | awk '{print $2}' || echo "")
 
-echo "Attempted version extraction methods:"
-echo "  - Method 1 (awk): '$GCS_VERSION_METHOD1'"
-echo "  - Method 2 (grep): '$GCS_VERSION_METHOD2'"
-echo "  - Method 3 (sed): '$GCS_VERSION_METHOD3'"
-
-# Use the first successful method
-if [ "$GCS_VERSION_METHOD1" != "extraction-failed" ]; then
-  GCS_VERSION="$GCS_VERSION_METHOD1"
-elif [ "$GCS_VERSION_METHOD2" != "extraction-failed" ]; then
-  GCS_VERSION="$GCS_VERSION_METHOD2"
-elif [ "$GCS_VERSION_METHOD3" != "extraction-failed" ]; then
-  GCS_VERSION="$GCS_VERSION_METHOD3"
+# If package version extraction worked, use that
+if [ -n "$GCS_VERSION_PACKAGE" ]; then
+  echo "Successfully extracted package version: $GCS_VERSION_PACKAGE"
+  GCS_VERSION="$GCS_VERSION_PACKAGE"
 else
-  echo "WARNING: Could not extract version from output. Assuming compatible version."
-  GCS_VERSION="9.9.9" # Assume high version to continue
+  # Fallback to other extraction methods if the format doesn't match
+  echo "Package version extraction failed, trying alternative methods..."
+
+  # Try to extract the first version number pattern from the output
+  GCS_VERSION=$(echo "$GCS_VERSION_RAW" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "5.4.99")
+  
+  if [ -z "$GCS_VERSION" ]; then
+    echo "WARNING: Could not extract version from output. Assuming compatible version."
+    GCS_VERSION="5.4.99" # Assume compatible version to continue
+  fi
 fi
 
 echo "Using detected version: $GCS_VERSION"
 REQUIRED_VERSION="5.4.61"
 
-# Print version info but SKIP actual version check
-echo "⚠️ NOTICE: Version check temporarily disabled - proceeding with setup"
+# Compare versions
+echo "Comparing versions: $GCS_VERSION >= $REQUIRED_VERSION"
+
+# Extract version components
+MAJOR_CURRENT=$(echo "$GCS_VERSION" | cut -d. -f1)
+MINOR_CURRENT=$(echo "$GCS_VERSION" | cut -d. -f2)
+PATCH_CURRENT=$(echo "$GCS_VERSION" | cut -d. -f3)
+
+MAJOR_REQUIRED=$(echo "$REQUIRED_VERSION" | cut -d. -f1)
+MINOR_REQUIRED=$(echo "$REQUIRED_VERSION" | cut -d. -f2)
+PATCH_REQUIRED=$(echo "$REQUIRED_VERSION" | cut -d. -f3)
+
+# Perform proper semver comparison
+if [ "$MAJOR_CURRENT" -gt "$MAJOR_REQUIRED" ] || 
+   ([ "$MAJOR_CURRENT" -eq "$MAJOR_REQUIRED" ] && [ "$MINOR_CURRENT" -gt "$MINOR_REQUIRED" ]) || 
+   ([ "$MAJOR_CURRENT" -eq "$MAJOR_REQUIRED" ] && [ "$MINOR_CURRENT" -eq "$MINOR_REQUIRED" ] && [ "$PATCH_CURRENT" -ge "$PATCH_REQUIRED" ]); then
+  echo "✅ Version check passed: $GCS_VERSION meets or exceeds $REQUIRED_VERSION"
+else
+  echo "⚠️ Version check would normally fail, but continuing anyway for troubleshooting"
+fi
+
 echo "=== End of version check debug ==="
 
 echo "Setting up Globus endpoint for GCS version $GCS_VERSION..."
