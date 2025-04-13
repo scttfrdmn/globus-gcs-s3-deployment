@@ -374,61 +374,27 @@ echo "- Using direct client credentials for single-server deployment"
 echo "- Client ID: ${GC_ID:0:5}... (truncated)"
 echo "- Secret: ${GC_SECRET:0:3}... (truncated)"
 
-# Try with client-id and client-secret parameters first (preferred method)
-echo "Attempting endpoint setup with --client-secret parameter..."
+# Use the standard documented format for Globus Connect Server 5.4.61+
+echo "Setting up endpoint using standard parameters format..."
+
+# Use the exact format from the documentation
 globus-connect-server endpoint setup \
   --client-id "${GC_ID}" \
   --client-secret "${GC_SECRET}" \
-  --organization "${GC_ORG}" \
   --contact-email "admin@example.com" \
   --owner "admin@example.com" \
+  --organization "${GC_ORG}" \
   --agree-to-letsencrypt-tos \
   "${GC_NAME}"
 
-METHOD1_RESULT=$?
-if [ $METHOD1_RESULT -eq 0 ]; then
-  echo "Endpoint setup succeeded with --client-secret parameter!"
+SETUP_RESULT=$?
+if [ $SETUP_RESULT -eq 0 ]; then
+  echo "Endpoint setup succeeded!"
 else
-  echo "Setup with --client-secret parameter failed with code $METHOD1_RESULT. Trying alternative format..."
-  
-  # Try with --secret parameter (older versions may use this)
-  echo "Attempting endpoint setup with --secret parameter..."
-  globus-connect-server endpoint setup \
-    --client-id "${GC_ID}" \
-    --secret "${GC_SECRET}" \
-    --organization "${GC_ORG}" \
-    --contact-email "admin@example.com" \
-    --owner "admin@example.com" \
-    --agree-to-letsencrypt-tos \
-    "${GC_NAME}"
-  
-  METHOD2_RESULT=$?
-  if [ $METHOD2_RESULT -eq 0 ]; then
-    echo "Endpoint setup succeeded with --secret parameter!"
-  else
-    echo "Setup with --secret parameter failed with code $METHOD2_RESULT. Trying standard required parameters..."
-    
-    # Try with standard required parameters as specified in docs
-    echo "Attempting endpoint setup with required parameters..."
-    globus-connect-server endpoint setup \
-      --contact-email "admin@example.com" \
-      --owner "admin@example.com" \
-      --organization "${GC_ORG}" \
-      --agree-to-letsencrypt-tos \
-      "${GC_NAME}"
-    
-    METHOD3_RESULT=$?
-    if [ $METHOD3_RESULT -eq 0 ]; then
-      echo "Endpoint setup succeeded with standard required parameters!"
-    else
-      echo "All endpoint setup methods failed. Please check your credentials."
-      echo "Error details:"
-      echo "- Method 1 (--client-secret): $METHOD1_RESULT"
-      echo "- Method 2 (--secret): $METHOD2_RESULT"
-      echo "- Method 3 (standard required): $METHOD3_RESULT"
-      exit 1
-    fi
-  fi
+  echo "Endpoint setup failed with code $SETUP_RESULT."
+  echo "Please check your client credentials and ensure they are correct."
+  echo "The client ID and secret must have authorization to create endpoints."
+  exit 1
 fi
 
 # Show result
@@ -578,67 +544,28 @@ else
   echo "Client ID: ${GLOBUS_CLIENT_ID:0:5}... (truncated)" | tee -a $SETUP_LOG
   echo "Secret: ${GLOBUS_CLIENT_SECRET:0:3}... (truncated)" | tee -a $SETUP_LOG
   
-  # Try method 1: Using client-id and client-secret parameters (recommended)
-  echo "Attempting endpoint setup with client-secret parameter..." | tee -a $SETUP_LOG
+  # Use the standard documented format for Globus Connect Server 5.4.61+
+  echo "Setting up endpoint using standard parameters format..." | tee -a $SETUP_LOG
   
+  # Use the exact format from the documentation
   globus-connect-server endpoint setup \
     --client-id "${GLOBUS_CLIENT_ID}" \
     --client-secret "${GLOBUS_CLIENT_SECRET}" \
-    --organization "${GLOBUS_ORGANIZATION}" \
     --contact-email "admin@example.com" \
     --owner "admin@example.com" \
+    --organization "${GLOBUS_ORGANIZATION}" \
     --agree-to-letsencrypt-tos \
     "${GLOBUS_DISPLAY_NAME}" >> $SETUP_LOG 2>&1
     
-  METHOD1_STATUS=$?
-  if [ $METHOD1_STATUS -eq 0 ]; then
-    echo "Endpoint setup succeeded with client-secret parameter!" | tee -a $SETUP_LOG
+  SETUP_RESULT=$?
+  if [ $SETUP_RESULT -eq 0 ]; then
+    echo "Endpoint setup succeeded!" | tee -a $SETUP_LOG
     SETUP_STATUS=0
   else
-    echo "Setup with --client-secret parameter failed with code $METHOD1_STATUS. Trying alternative parameter format..." | tee -a $SETUP_LOG
-    
-    # Method 2: Try with older parameter format (--secret instead of --client-secret)
-    echo "Attempting endpoint setup with --secret parameter..." | tee -a $SETUP_LOG
-    globus-connect-server endpoint setup \
-      --client-id "${GLOBUS_CLIENT_ID}" \
-      --secret "${GLOBUS_CLIENT_SECRET}" \
-      --organization "${GLOBUS_ORGANIZATION}" \
-      --contact-email "admin@example.com" \
-      --owner "admin@example.com" \
-      --agree-to-letsencrypt-tos \
-      "${GLOBUS_DISPLAY_NAME}" >> $SETUP_LOG 2>&1
-    
-    METHOD2_STATUS=$?
-    if [ $METHOD2_STATUS -eq 0 ]; then
-      echo "Endpoint setup succeeded with --secret parameter!" | tee -a $SETUP_LOG
-      SETUP_STATUS=0
-    else
-      echo "Setup with --secret parameter failed with code $METHOD2_STATUS. Trying standard required parameters..." | tee -a $SETUP_LOG
-      
-      # Method 3: Try the exact format from the documentation with all required parameters
-      echo "Attempting endpoint setup with correct required parameters..." | tee -a $SETUP_LOG
-      globus-connect-server endpoint setup \
-        --contact-email "admin@example.com" \
-        --owner "admin@example.com" \
-        --organization "${GLOBUS_ORGANIZATION}" \
-        --agree-to-letsencrypt-tos \
-        "${GLOBUS_DISPLAY_NAME}" >> $SETUP_LOG 2>&1
-      
-      METHOD3_STATUS=$?
-      if [ $METHOD3_STATUS -eq 0 ]; then
-        echo "Endpoint setup succeeded with standard required parameters!" | tee -a $SETUP_LOG
-        SETUP_STATUS=0
-      else
-        echo "All endpoint setup methods failed." | tee -a $SETUP_LOG
-        echo "Error details:" | tee -a $SETUP_LOG
-        echo "- Method 1 (--client-secret): $METHOD1_STATUS" | tee -a $SETUP_LOG
-        echo "- Method 2 (--secret): $METHOD2_STATUS" | tee -a $SETUP_LOG
-        echo "- Method 3 (standard required): $METHOD3_STATUS" | tee -a $SETUP_LOG
-        echo "Please check your client credentials and ensure they are correct." | tee -a $SETUP_LOG
-        echo "The client ID and secret must have authorization to create endpoints." | tee -a $SETUP_LOG
-        SETUP_STATUS=1
-      fi
-    fi
+    echo "Endpoint setup failed with code $SETUP_RESULT." | tee -a $SETUP_LOG
+    echo "Please check your client credentials and ensure they are correct." | tee -a $SETUP_LOG
+    echo "The client ID and secret must have authorization to create endpoints." | tee -a $SETUP_LOG
+    SETUP_STATUS=1
   fi
 fi
 
