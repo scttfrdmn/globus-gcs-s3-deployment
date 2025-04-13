@@ -125,13 +125,17 @@ For more information on Globus Connect Server options, see the [Globus CLI Refer
   // Required Globus parameters - MUST be customized with valid values
   {
     "ParameterKey": "GlobusOwner",
-    "ParameterValue": "user@example.com"  // REQUIRED: Identity username of the endpoint owner
+    "ParameterValue": "user@example.com"  // CRITICAL: Identity username of the endpoint owner
                                           // Must be a valid Globus identity (no default value)
+                                          // Cannot be a client ID or other non-identity value
+                                          // Must be an actual Globus user identity that exists
   },
   {
     "ParameterKey": "GlobusContactEmail",
-    "ParameterValue": "support@example.com"  // REQUIRED: Email address for endpoint support
-                                             // Visible to users (defaults to admin@example.com)
+    "ParameterValue": "support@example.com"  // CRITICAL: Email address for endpoint support
+                                             // Must be a valid email address
+                                             // Cannot be a client ID or other non-email value
+                                             // Visible to users who need assistance
   },
   {
     "ParameterKey": "GlobusClientId",     // Required for GCS < 5.4.67

@@ -24,11 +24,14 @@ This repository contains a CloudFormation template for deploying Globus Connect 
    - Account at [globus.org](https://www.globus.org/)
    - Application registered in [Globus Developer Console](https://developers.globus.org/)
    - Client ID and Client Secret (required only for GCS < 5.4.67)
-   - **Owner identity username** (e.g., user@example.edu) - REQUIRED
+   - **Owner identity username** (e.g., user@example.edu) - CRITICAL REQUIRED PARAMETER
      - This must be a valid Globus identity that will own the endpoint
+     - Must be an actual Globus user identity that exists (cannot be a client ID)
      - The template parameter `GlobusOwner` has no default value and must be set
-   - **Contact email** for support requests - REQUIRED
-     - Email visible to users for support inquiries
+     - Deployment will fail if this is not a valid Globus identity
+   - **Contact email** for support requests - CRITICAL REQUIRED PARAMETER
+     - Must be a valid email address (cannot be a client ID)
+     - Email visible to users who need assistance with your endpoint
      - The template parameter `GlobusContactEmail` defaults to "admin@example.com" but should be customized
    - (Optional) Project ID, Project Name, and Project Admin for organizing endpoints
    - (Optional) Subscription ID for connector support
@@ -198,16 +201,20 @@ These variables can be modified in the CloudFormation template's UserData sectio
    CLIENT_ID=$(cat /home/ubuntu/globus-client-id.txt)
    CLIENT_SECRET=$(cat /home/ubuntu/globus-client-secret.txt)
    DISPLAY_NAME=$(cat /home/ubuntu/globus-display-name.txt)
-   bash /home/ubuntu/run-globus-setup.sh "$CLIENT_ID" "$CLIENT_SECRET" "$DISPLAY_NAME"
+   OWNER=$(cat /home/ubuntu/globus-owner.txt)
+   EMAIL=$(cat /home/ubuntu/globus-contact-email.txt)
+   
+   # CRITICAL: Must provide valid owner and contact email values
+   bash /home/ubuntu/run-globus-setup.sh "$CLIENT_ID" "$CLIENT_SECRET" "$DISPLAY_NAME" "Organization Name" "$OWNER" "$EMAIL"
    
    # Or if you have credentials directly:
-   bash /home/ubuntu/run-globus-setup.sh "your-client-id" "your-client-secret" "display-name"
+   bash /home/ubuntu/run-globus-setup.sh "your-client-id" "your-client-secret" "display-name" "organization-name" "user@example.edu" "contact@example.edu"
    ```
 4. Check logs: `cat /home/ubuntu/globus-setup-complete.log`
 5. If endpoint creation still fails, try running the setup with debug output:
    ```bash
    # Run with debug output
-   bash -x /home/ubuntu/run-globus-setup.sh "$CLIENT_ID" "$CLIENT_SECRET" "$DISPLAY_NAME"
+   bash -x /home/ubuntu/run-globus-setup.sh "$CLIENT_ID" "$CLIENT_SECRET" "$DISPLAY_NAME" "Organization Name" "$OWNER" "$EMAIL"
    ```
 
 ## License

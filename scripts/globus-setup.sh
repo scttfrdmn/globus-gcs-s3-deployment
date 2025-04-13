@@ -304,11 +304,15 @@ cat > /home/ubuntu/run-globus-setup.sh << 'EOF'
 [ -z "$2" ] && [ -f /home/ubuntu/globus-client-secret.txt ] && GC_SECRET=$(cat /home/ubuntu/globus-client-secret.txt) || GC_SECRET="$2"
 [ -z "$3" ] && [ -f /home/ubuntu/globus-display-name.txt ] && GC_NAME=$(cat /home/ubuntu/globus-display-name.txt) || GC_NAME="$3"
 [ -z "$4" ] && [ -f /home/ubuntu/globus-organization.txt ] && GC_ORG=$(cat /home/ubuntu/globus-organization.txt) || GC_ORG="${4:-AWS}"
+[ -z "$5" ] && [ -f /home/ubuntu/globus-owner.txt ] && GC_OWNER=$(cat /home/ubuntu/globus-owner.txt)
+[ -z "$6" ] && [ -f /home/ubuntu/globus-contact-email.txt ] && GC_EMAIL=$(cat /home/ubuntu/globus-contact-email.txt)
 
 echo "Running Globus endpoint setup with:"
 echo "- Client ID: $(echo $GC_ID | cut -c1-5)... (truncated)"
 echo "- Display Name: $GC_NAME"
 echo "- Organization: $GC_ORG"
+echo "- Owner: $GC_OWNER"
+echo "- Contact Email: $GC_EMAIL"
 
 # IMPORTANT: We completely skip endpoint existence check in this helper script
 # The main script already does that check if needed, and when 
@@ -413,8 +417,9 @@ if [ -n "${GC_OWNER}" ]; then
   echo "Using specified owner: ${GC_OWNER}"
   SETUP_CMD+=" --owner \"${GC_OWNER}\""
 else
-  echo "Using parameter owner: ${GC_ID} (fallback)"
-  SETUP_CMD+=" --owner \"${GC_ID}\""
+  echo "ERROR: No owner specified. Owner parameter is required."
+  echo "Please provide the owner parameter via the GLOBUS_OWNER environment variable."
+  exit 1
 fi
 
 # Contact email is required - use specified email or fallback
@@ -422,8 +427,9 @@ if [ -n "${GC_EMAIL}" ]; then
   echo "Using specified contact email: ${GC_EMAIL}"
   SETUP_CMD+=" --contact-email \"${GC_EMAIL}\""
 else
-  echo "Using fallback contact email: ${GC_ID}"
-  SETUP_CMD+=" --contact-email \"${GC_ID}\""
+  echo "ERROR: No contact email specified. Contact email parameter is required."
+  echo "Please provide the contact email parameter via the GLOBUS_CONTACT_EMAIL environment variable."
+  exit 1
 fi
 
 # Standard options
@@ -649,8 +655,10 @@ else
   
   # Owner is required - use DEFAULT_ADMIN if not provided
   if [ -n "${GLOBUS_OWNER}" ]; then
+    echo "Using specified owner: ${GLOBUS_OWNER}" | tee -a $SETUP_LOG
     SETUP_CMD+=" --owner \"${GLOBUS_OWNER}\""
   elif [ -n "${DEFAULT_ADMIN}" ]; then
+    echo "Using default admin as owner: ${DEFAULT_ADMIN}" | tee -a $SETUP_LOG
     SETUP_CMD+=" --owner \"${DEFAULT_ADMIN}\""
   else
     echo "ERROR: No owner specified. Please provide either GlobusOwner or DefaultAdminIdentity" | tee -a $SETUP_LOG
@@ -660,7 +668,15 @@ else
   fi
   
   # Contact email is required
-  SETUP_CMD+=" --contact-email \"${GLOBUS_CONTACT_EMAIL}\""
+  if [ -n "${GLOBUS_CONTACT_EMAIL}" ]; then
+    echo "Using specified contact email: ${GLOBUS_CONTACT_EMAIL}" | tee -a $SETUP_LOG
+    SETUP_CMD+=" --contact-email \"${GLOBUS_CONTACT_EMAIL}\""
+  else
+    echo "ERROR: No contact email specified. Please provide the GlobusContactEmail parameter" | tee -a $SETUP_LOG
+    echo "See Globus documentation: https://docs.globus.org/globus-connect-server/v5.4/reference/cli-reference/#endpoint-setup" | tee -a $SETUP_LOG
+    SETUP_STATUS=1
+    exit 1
+  fi
   
   # Optional project parameters (for GCS 5.4.61+)
   if [ -n "${GLOBUS_PROJECT_ID}" ]; then
