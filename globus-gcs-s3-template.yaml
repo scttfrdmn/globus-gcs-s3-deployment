@@ -11,14 +11,10 @@ Conditions:
   HasDefaultAdmin: !Not [!Equals [!Ref DefaultAdminIdentity, ""]]
 
 Parameters:
-  ScriptBucket:
-    Description: S3 bucket where the installation script is stored
+  ScriptUrl:
+    Description: URL to the Globus installation script (e.g., GitHub raw URL)
     Type: String
-    
-  ScriptKey:
-    Description: S3 key for the installation script (e.g., scripts/globus-setup.sh)
-    Type: String
-    Default: "scripts/globus-setup.sh"
+    Default: "https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/scripts/globus-setup.sh"
     
   DeploymentType:
     Description: Type of deployment (affects resource configuration)
@@ -206,6 +202,7 @@ Resources:
 
   GlobusServerS3Policy:
     Type: AWS::IAM::Policy
+    Condition: DeployS3Connector
     Properties:
       PolicyName: GlobusServerS3Access
       PolicyDocument:
@@ -213,16 +210,9 @@ Resources:
         Statement:
           - Effect: Allow
             Action:
-              - s3:GetObject
-            Resource: !Sub "arn:aws:s3:::${ScriptBucket}/${ScriptKey}"
-          - Effect: Allow
-            Action:
               - s3:ListBucket
               - s3:GetBucketLocation
             Resource: !Sub "arn:aws:s3:::${S3BucketName}"
-            Condition:
-              StringNotEquals:
-                "s3:${S3BucketName}": ""
           - Effect: Allow
             Action:
               - s3:PutObject
@@ -231,9 +221,6 @@ Resources:
               - s3:ListMultipartUploadParts
               - s3:AbortMultipartUpload
             Resource: !Sub "arn:aws:s3:::${S3BucketName}/*"
-            Condition:
-              StringNotEquals:
-                "s3:${S3BucketName}": ""
           - Effect: Allow
             Action:
               - ec2:CreateTags
@@ -304,9 +291,9 @@ Resources:
           export ENABLE_S3_CONNECTOR=${EnableS3Connector}
           export S3_BUCKET_NAME=${S3BucketName}
           
-          # Download the installation script from S3
-          echo "Downloading installation script from s3://${ScriptBucket}/${ScriptKey}"
-          aws s3 cp s3://${ScriptBucket}/${ScriptKey} /tmp/globus-setup.sh
+          # Download the installation script from GitHub
+          echo "Downloading installation script from ${ScriptUrl}"
+          curl -s -L -o /tmp/globus-setup.sh "${ScriptUrl}"
           
           # Make it executable
           chmod +x /tmp/globus-setup.sh

@@ -50,12 +50,8 @@
 ```json
 [
   {
-    "ParameterKey": "ScriptBucket",
-    "ParameterValue": "your-script-bucket"
-  },
-  {
-    "ParameterKey": "ScriptKey",
-    "ParameterValue": "scripts/globus-setup.sh"
+    "ParameterKey": "ScriptUrl",
+    "ParameterValue": "https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/scripts/globus-setup.sh"
   },
   {
     "ParameterKey": "DeploymentType",
@@ -116,37 +112,7 @@
 ]
 ```
 
-### 2. Upload the installation script to S3
-
-```bash
-# Create an S3 bucket (or use an existing one)
-aws s3 mb s3://your-script-bucket --region your-region
-
-# Upload the installation script
-aws s3 cp scripts/globus-setup.sh s3://your-script-bucket/scripts/
-
-# Set bucket policy to allow the EC2 instance to access the script (optional)
-cat > bucket-policy.json << EOF
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Principal": {
-                "AWS": "arn:aws:iam::YOUR_ACCOUNT_ID:role/YOUR_STACK_NAME-GlobusServerRole-XXXX"
-            },
-            "Action": "s3:GetObject",
-            "Resource": "arn:aws:s3:::your-script-bucket/scripts/globus-setup.sh"
-        }
-    ]
-}
-EOF
-
-# Apply the bucket policy (optional - only if needed)
-# aws s3api put-bucket-policy --bucket your-script-bucket --policy file://bucket-policy.json
-```
-
-### 3. Deploy the CloudFormation stack
+### 2. Deploy the CloudFormation stack
 
 ```bash
 aws cloudformation create-stack \
@@ -156,9 +122,9 @@ aws cloudformation create-stack \
   --capabilities CAPABILITY_IAM
 ```
 
-> **Important**: The parameters file must include `ScriptBucket` parameter pointing to your S3 bucket.
+> **Note**: The `ScriptUrl` parameter should point to the raw GitHub URL of the installation script. If you've forked this repository, update the URL to point to your fork. Alternatively, you could host the script on any other publicly accessible URL.
 
-### 4. Monitor deployment
+### 3. Monitor deployment
 
 ```bash
 # Check stack creation status - outputs just the status without quotes
