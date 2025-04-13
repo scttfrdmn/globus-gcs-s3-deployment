@@ -22,6 +22,8 @@ function check_gcs_version() {
   # CRITICAL: Skip version check completely if debugging flag is set
   if [ -n "$DEBUG_SKIP_VERSION_CHECK" ]; then
     echo "DEBUG_SKIP_VERSION_CHECK is set - bypassing version compatibility check"
+    # Set a high version to ensure version-specific logic still works
+    GCS_VERSION="9.9.9"
     return 0
   fi
   
@@ -380,16 +382,24 @@ echo "Setting up endpoint using standard parameters format..."
 # Prepare command with required parameters
 SETUP_CMD="globus-connect-server endpoint setup"
 
+# Make sure GCS_VERSION is a valid version string
+if [[ ! "$GCS_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "WARNING: Invalid GCS_VERSION format, using default high version"
+  GCS_VERSION="9.9.9"
+fi
+
 # Check Globus version to determine if we need client-id
 GCS_VERSION_MAJOR=$(echo "$GCS_VERSION" | cut -d. -f1)
 GCS_VERSION_MINOR=$(echo "$GCS_VERSION" | cut -d. -f2)
 GCS_VERSION_PATCH=$(echo "$GCS_VERSION" | cut -d. -f3)
 
+echo "Using GCS version components for client credential check: $GCS_VERSION_MAJOR.$GCS_VERSION_MINOR.$GCS_VERSION_PATCH"
+
 # Include client-id and client-secret only if version < 5.4.67
 # See Globus docs: https://docs.globus.org/globus-connect-server/v5.4/reference/cli-reference/#endpoint-setup
-if [ "$GCS_VERSION_MAJOR" -lt "5" ] || 
-   ([ "$GCS_VERSION_MAJOR" -eq "5" ] && [ "$GCS_VERSION_MINOR" -lt "4" ]) || 
-   ([ "$GCS_VERSION_MAJOR" -eq "5" ] && [ "$GCS_VERSION_MINOR" -eq "4" ] && [ "$GCS_VERSION_PATCH" -lt "67" ]); then
+if [[ $GCS_VERSION_MAJOR -lt 5 || 
+     ($GCS_VERSION_MAJOR -eq 5 && $GCS_VERSION_MINOR -lt 4) || 
+     ($GCS_VERSION_MAJOR -eq 5 && $GCS_VERSION_MINOR -eq 4 && $GCS_VERSION_PATCH -lt 67) ]]; then
   echo "Using client credentials for Globus Connect Server < 5.4.67"
   echo "For details, see: https://docs.globus.org/globus-connect-server/v5.4/reference/cli-reference/#endpoint-setup"
   SETUP_CMD+=" --client-id \"${GC_ID}\" --client-secret \"${GC_SECRET}\""
@@ -530,6 +540,12 @@ check_gcs_version || {
   exit 1
 }
 
+# Ensure GCS_VERSION is available outside the function for version-specific logic
+if [ -n "$DEBUG_SKIP_VERSION_CHECK" ] && [ -z "$GCS_VERSION" ]; then
+  echo "Setting default high version for debug mode"
+  GCS_VERSION="9.9.9"
+fi
+
 # Attempt setup with parameters for GCS 5.4.61+
 SETUP_LOG="/var/log/globus-setup.log"
 echo "Starting Globus Connect Server setup $(date)" > $SETUP_LOG
@@ -577,16 +593,24 @@ else
   # Prepare command with required parameters
   SETUP_CMD="globus-connect-server endpoint setup"
   
+  # Make sure GCS_VERSION is a valid version string
+  if [[ ! "$GCS_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "WARNING: Invalid GCS_VERSION format, using default high version" | tee -a $SETUP_LOG
+    GCS_VERSION="9.9.9"
+  fi
+  
   # Check Globus version to determine if we need client-id
   GCS_VERSION_MAJOR=$(echo "$GCS_VERSION" | cut -d. -f1)
   GCS_VERSION_MINOR=$(echo "$GCS_VERSION" | cut -d. -f2)
   GCS_VERSION_PATCH=$(echo "$GCS_VERSION" | cut -d. -f3)
   
+  echo "Using GCS version components for client credential check: $GCS_VERSION_MAJOR.$GCS_VERSION_MINOR.$GCS_VERSION_PATCH" | tee -a $SETUP_LOG
+  
   # Include client-id and client-secret only if version < 5.4.67
   # As per Globus docs: https://docs.globus.org/globus-connect-server/v5.4/reference/cli-reference/#endpoint-setup
-  if [ "$GCS_VERSION_MAJOR" -lt "5" ] || 
-     ([ "$GCS_VERSION_MAJOR" -eq "5" ] && [ "$GCS_VERSION_MINOR" -lt "4" ]) || 
-     ([ "$GCS_VERSION_MAJOR" -eq "5" ] && [ "$GCS_VERSION_MINOR" -eq "4" ] && [ "$GCS_VERSION_PATCH" -lt "67" ]); then
+  if [[ $GCS_VERSION_MAJOR -lt 5 || 
+     ($GCS_VERSION_MAJOR -eq 5 && $GCS_VERSION_MINOR -lt 4) || 
+     ($GCS_VERSION_MAJOR -eq 5 && $GCS_VERSION_MINOR -eq 4 && $GCS_VERSION_PATCH -lt 67) ]]; then
     echo "Using client credentials for Globus Connect Server < 5.4.67" | tee -a $SETUP_LOG
     echo "See Globus docs: https://docs.globus.org/globus-connect-server/v5.4/reference/cli-reference/#endpoint-setup" | tee -a $SETUP_LOG
     SETUP_CMD+=" --client-id \"${GLOBUS_CLIENT_ID}\" --client-secret \"${GLOBUS_CLIENT_SECRET}\""
