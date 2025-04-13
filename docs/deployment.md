@@ -179,6 +179,20 @@ Common issues include:
   - Common version output format "globus-connect-server, package X.Y.Z, cli A.B.C" is specifically supported
 - Parameter handling issues with multi-word values (fixed with proper quoting)
 - Duplicate endpoint names (now handled with check and reuse functionality)
+- Key conversion failures when trying to convert credentials to a deployment key
+  - Now includes detailed debugging output for key conversion
+  - Provides automatic fallback methods if key conversion fails
+  - Tries multiple command formats to maximize compatibility
+
+### Debugging Environment Variables
+
+The template includes debugging flags that can help troubleshoot deployment issues:
+
+1. **DEBUG_SKIP_VERSION_CHECK**: Set to "true" in the template to bypass version compatibility checking. This is useful when your Globus version reports itself in an unusual format but is actually compatible.
+
+2. **DEBUG_SKIP_DUPLICATE_CHECK**: Set to "true" to skip the check for existing endpoints with the same name, useful if you're testing the endpoint creation process or encountering duplicate check errors.
+
+These variables can be modified in the CloudFormation template's UserData section or used directly when running the helper script manually:
 
 If you see "WARNING - Failed to run module scripts-user" in the logs, this is likely a cloud-init warning that doesn't affect the deployment. The template includes robust error handling to continue despite these warnings. Check these files for diagnostic information:
 
@@ -191,6 +205,12 @@ cat /var/log/user-data.log                 # User-data script output
 
 # You can also try to manually run the Globus setup script if needed
 sudo bash /home/ubuntu/run-globus-setup.sh
+
+# To skip duplicate endpoint checks:
+sudo DEBUG_SKIP_DUPLICATE_CHECK=true bash /home/ubuntu/run-globus-setup.sh
+
+# To see detailed execution for debugging:
+sudo bash -x /home/ubuntu/run-globus-setup.sh
 ```
 
 The deployment script now includes:

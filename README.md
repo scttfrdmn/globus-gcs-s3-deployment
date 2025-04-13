@@ -170,7 +170,18 @@ The template follows the official Globus Connect Server installation process for
 
 This approach follows best practices from the official Globus documentation to ensure compatibility and reliability when installing on Ubuntu systems. The installation process properly handles the repository setup, eliminating URL format issues or missing GPG keys.
 
-Common troubleshooting steps:
+### Debugging Environment Variables
+
+The template supports special debugging environment variables that can help resolve complex deployment issues:
+
+- **DEBUG_SKIP_VERSION_CHECK**: When set to "true", bypasses the version compatibility check. Useful when testing with versions that report themselves differently but are compatible.
+
+- **DEBUG_SKIP_DUPLICATE_CHECK**: When set to "true", skips duplicate endpoint checking. Useful if you suspect the endpoint check is causing issues or you want to create a new endpoint with the same name for testing.
+
+These variables can be modified in the CloudFormation template's UserData section for troubleshooting purposes.
+
+### Common Troubleshooting Steps
+
 1. SSH to the instance: `ssh -i /path/to/your/key.pem ubuntu@<PUBLIC-IP-ADDRESS>`
 2. Check setup status: `cat /home/ubuntu/globus-setup-failed.txt`
 3. Run manual setup: 
@@ -185,6 +196,11 @@ Common troubleshooting steps:
    bash /home/ubuntu/run-globus-setup.sh "your-client-id" "your-client-secret" "display-name"
    ```
 4. Check logs: `cat /home/ubuntu/globus-setup-complete.log`
+5. If endpoint creation still fails, try running the setup with debug output:
+   ```bash
+   # Run with debug output
+   bash -x /home/ubuntu/run-globus-setup.sh "$CLIENT_ID" "$CLIENT_SECRET" "$DISPLAY_NAME"
+   ```
 
 ## License
 

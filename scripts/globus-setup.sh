@@ -308,6 +308,10 @@ echo "- Client ID: $(echo $GC_ID | cut -c1-5)... (truncated)"
 echo "- Display Name: $GC_NAME"
 echo "- Organization: $GC_ORG"
 
+# Note: We intentionally skip endpoint existence check here
+# since the main script already does that check
+# IMPORTANT: When DEBUG_SKIP_DUPLICATE_CHECK=true, both checks are skipped
+
 # Check GCS version - print detailed debug info
 echo "=== DEBUG: Globus version check ==="
 
@@ -364,37 +368,62 @@ echo "=== End of version check debug ==="
 
 echo "Setting up Globus endpoint for GCS version $GCS_VERSION..."
 
-# First, convert client credentials to a deployment key
-echo "Converting client credentials to deployment key..."
-KEY_FILE="/tmp/globus-key.json"
+# Direct client credentials approach is recommended for single server deployments
+echo "Setting up endpoint with client credentials..."
+echo "- Using direct client credentials for single-server deployment"
+echo "- Client ID: ${GC_ID:0:5}... (truncated)"
+echo "- Secret: ${GC_SECRET:0:3}... (truncated)"
 
-# Convert client ID/secret to key file
-globus-connect-server endpoint key convert \
-  --client-id "$GC_ID" \
-  --secret "$GC_SECRET" > "$KEY_FILE"
+# Try with client-id and client-secret parameters first (preferred method)
+echo "Attempting endpoint setup with --client-secret parameter..."
+globus-connect-server endpoint setup \
+  --client-id "${GC_ID}" \
+  --client-secret "${GC_SECRET}" \
+  --organization "${GC_ORG}" \
+  --contact-email "admin@example.com" \
+  --owner "admin@example.com" \
+  --agree-to-letsencrypt-tos \
+  "${GC_NAME}"
 
-if [ $? -eq 0 ] && [ -f "$KEY_FILE" ]; then
-  echo "Successfully converted credentials to key. Setting up endpoint..."
+METHOD1_RESULT=$?
+if [ $METHOD1_RESULT -eq 0 ]; then
+  echo "Endpoint setup succeeded with --client-secret parameter!"
+else
+  echo "Setup with --client-secret parameter failed with code $METHOD1_RESULT. Trying alternative format..."
   
-  # Setup endpoint with GCS 5.4.61+ parameters
-  # Ensure values are properly quoted for multi-word organization and display names
+  # Try with --secret parameter (older versions may use this)
+  echo "Attempting endpoint setup with --secret parameter..."
   globus-connect-server endpoint setup \
+    --client-id "${GC_ID}" \
+    --secret "${GC_SECRET}" \
     --organization "${GC_ORG}" \
     --contact-email "admin@example.com" \
     --owner "admin@example.com" \
     --agree-to-letsencrypt-tos \
-    --deployment-key "$KEY_FILE" \
     "${GC_NAME}"
   
-  if [ $? -eq 0 ]; then
-    echo "Endpoint setup succeeded!"
+  METHOD2_RESULT=$?
+  if [ $METHOD2_RESULT -eq 0 ]; then
+    echo "Endpoint setup succeeded with --secret parameter!"
   else
-    echo "Endpoint setup failed. See logs for details."
-    exit 1
+    echo "Setup with --secret parameter failed with code $METHOD2_RESULT. Trying minimal parameters..."
+    
+    # Try minimal parameters as last resort
+    echo "Attempting endpoint setup with minimal parameters..."
+    globus-connect-server endpoint setup "${GC_NAME}"
+    
+    METHOD3_RESULT=$?
+    if [ $METHOD3_RESULT -eq 0 ]; then
+      echo "Endpoint setup succeeded with minimal parameters!"
+    else
+      echo "All endpoint setup methods failed. Please check your credentials."
+      echo "Error details:"
+      echo "- Method 1 (--client-secret): $METHOD1_RESULT"
+      echo "- Method 2 (--secret): $METHOD2_RESULT"
+      echo "- Method 3 (minimal): $METHOD3_RESULT"
+      exit 1
+    fi
   fi
-else
-  echo "Failed to convert credentials to key file"
-  exit 1
 fi
 
 # Show result
@@ -509,7 +538,14 @@ echo "Starting Globus Connect Server setup $(date)" > $SETUP_LOG
 
 # Check if endpoint already exists (only once)
 echo "Checking for existing endpoint with the same name..." | tee -a $SETUP_LOG
-EXISTING_ENDPOINT=$(globus-connect-server endpoint list 2>/dev/null | grep -F "$GLOBUS_DISPLAY_NAME" || echo "")
+
+# Skip duplicate check if debugging flag is set
+if [ "$DEBUG_SKIP_DUPLICATE_CHECK" = "true" ]; then
+  echo "DEBUG: Skipping initial endpoint check due to DEBUG_SKIP_DUPLICATE_CHECK flag" | tee -a $SETUP_LOG
+  EXISTING_ENDPOINT=""
+else
+  EXISTING_ENDPOINT=$(globus-connect-server endpoint list 2>/dev/null | grep -F "$GLOBUS_DISPLAY_NAME" || echo "")
+fi
 
 if [ -n "$EXISTING_ENDPOINT" ]; then
   echo "WARNING: An endpoint with name '$GLOBUS_DISPLAY_NAME' already exists!" | tee -a $SETUP_LOG
@@ -531,41 +567,70 @@ else
   echo "No existing endpoint found. Creating new endpoint..." | tee -a $SETUP_LOG
   SETUP_STATUS=1  # Default to error until setup succeeds
   
-  # First, convert client credentials to deployment key
-  echo "Converting client credentials to deployment key..." | tee -a $SETUP_LOG
-  # Create temporary key file
-  KEY_FILE="/tmp/globus-key.json"
+  # Use direct client credentials as recommended for single-server deployments
+  echo "Setting up endpoint with direct client credentials..." | tee -a $SETUP_LOG
   
-  # Convert client ID/secret to a key file (redirect output for GCS 5.4.61+)
-  globus-connect-server endpoint key convert \
-    --client-id "$GLOBUS_CLIENT_ID" \
-    --secret "$GLOBUS_CLIENT_SECRET" > "$KEY_FILE" 2>> $SETUP_LOG
+  # Log truncated credentials for debugging
+  echo "Client ID: ${GLOBUS_CLIENT_ID:0:5}... (truncated)" | tee -a $SETUP_LOG
+  echo "Secret: ${GLOBUS_CLIENT_SECRET:0:3}... (truncated)" | tee -a $SETUP_LOG
   
-  if [ $? -eq 0 ] && [ -f "$KEY_FILE" ]; then
-    echo "Successfully converted credentials to key file. Setting up endpoint..." | tee -a $SETUP_LOG
+  # Try method 1: Using client-id and client-secret parameters (recommended)
+  echo "Attempting endpoint setup with client-secret parameter..." | tee -a $SETUP_LOG
+  
+  globus-connect-server endpoint setup \
+    --client-id "${GLOBUS_CLIENT_ID}" \
+    --client-secret "${GLOBUS_CLIENT_SECRET}" \
+    --organization "${GLOBUS_ORGANIZATION}" \
+    --contact-email "admin@example.com" \
+    --owner "admin@example.com" \
+    --agree-to-letsencrypt-tos \
+    "${GLOBUS_DISPLAY_NAME}" >> $SETUP_LOG 2>&1
     
-    # Setup endpoint with the correct parameters for GCS 5.4.61+ (based on the help output)
-    # Ensure values are properly quoted for multi-word organization and display names
+  METHOD1_STATUS=$?
+  if [ $METHOD1_STATUS -eq 0 ]; then
+    echo "Endpoint setup succeeded with client-secret parameter!" | tee -a $SETUP_LOG
+    SETUP_STATUS=0
+  else
+    echo "Setup with --client-secret parameter failed with code $METHOD1_STATUS. Trying alternative parameter format..." | tee -a $SETUP_LOG
+    
+    # Method 2: Try with older parameter format (--secret instead of --client-secret)
+    echo "Attempting endpoint setup with --secret parameter..." | tee -a $SETUP_LOG
     globus-connect-server endpoint setup \
+      --client-id "${GLOBUS_CLIENT_ID}" \
+      --secret "${GLOBUS_CLIENT_SECRET}" \
       --organization "${GLOBUS_ORGANIZATION}" \
       --contact-email "admin@example.com" \
       --owner "admin@example.com" \
       --agree-to-letsencrypt-tos \
-      --deployment-key "$KEY_FILE" \
       "${GLOBUS_DISPLAY_NAME}" >> $SETUP_LOG 2>&1
     
-    if [ $? -eq 0 ]; then
-      echo "Endpoint setup succeeded!" | tee -a $SETUP_LOG
+    METHOD2_STATUS=$?
+    if [ $METHOD2_STATUS -eq 0 ]; then
+      echo "Endpoint setup succeeded with --secret parameter!" | tee -a $SETUP_LOG
       SETUP_STATUS=0
     else
-      echo "Endpoint setup failed!" | tee -a $SETUP_LOG
-      echo "See $SETUP_LOG for details."
+      echo "Setup with --secret parameter failed with code $METHOD2_STATUS. Trying minimal parameters..." | tee -a $SETUP_LOG
+      
+      # Method 3: Try with minimal parameters
+      echo "Attempting endpoint setup with minimal parameters..." | tee -a $SETUP_LOG
+      globus-connect-server endpoint setup \
+        "${GLOBUS_DISPLAY_NAME}" >> $SETUP_LOG 2>&1
+      
+      METHOD3_STATUS=$?
+      if [ $METHOD3_STATUS -eq 0 ]; then
+        echo "Endpoint setup succeeded with minimal parameters!" | tee -a $SETUP_LOG
+        SETUP_STATUS=0
+      else
+        echo "All endpoint setup methods failed." | tee -a $SETUP_LOG
+        echo "Error details:" | tee -a $SETUP_LOG
+        echo "- Method 1 (--client-secret): $METHOD1_STATUS" | tee -a $SETUP_LOG
+        echo "- Method 2 (--secret): $METHOD2_STATUS" | tee -a $SETUP_LOG
+        echo "- Method 3 (minimal): $METHOD3_STATUS" | tee -a $SETUP_LOG
+        echo "Please check your client credentials and ensure they are correct." | tee -a $SETUP_LOG
+        echo "The client ID and secret must have authorization to create endpoints." | tee -a $SETUP_LOG
+        SETUP_STATUS=1
+      fi
     fi
-  else
-    echo "Failed to convert credentials to key file" | tee -a $SETUP_LOG
-    echo "This is a critical error for GCS 5.4.61+ which requires key conversion."
-    SETUP_STATUS=1
-    
   fi
 fi
 

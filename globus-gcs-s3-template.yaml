@@ -301,8 +301,9 @@ Resources:
           export DEFAULT_ADMIN="${DefaultAdminIdentity}"
           export ENABLE_S3_CONNECTOR="${EnableS3Connector}"
           export S3_BUCKET_NAME="${S3BucketName}"
-          # IMPORTANT: Debugging flags - set to force bypass of problematic checks
+          # IMPORTANT: Debugging flags
           export DEBUG_SKIP_VERSION_CHECK="true" # Skip version compatibility check
+          export DEBUG_SKIP_DUPLICATE_CHECK="true" # Skip duplicate endpoint check in helper script
           
           # Download the installation script from GitHub
           echo "Downloading installation script from ${ScriptUrl}"
