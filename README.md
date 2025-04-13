@@ -7,7 +7,7 @@ This repository contains a CloudFormation template for deploying Globus Connect 
 - **AWS CloudFormation Template**: Infrastructure-as-code deployment
 - **S3 Integration**: Connect S3 buckets directly to the Globus ecosystem
 - **Security**: IAM roles and policies for secure access
-- **Flexible Authentication**: Support for Globus Auth federation
+- **Globus Auth Integration**: Identity federation using Globus Auth
 - **Production & Testing Modes**: Configurable deployment types
 - **Optimized Deployment**: Streamlined UserData script stays within AWS limits
 - **Multi-word Parameters**: Support for spaces in organization and display names
@@ -23,9 +23,13 @@ This repository contains a CloudFormation template for deploying Globus Connect 
 2. **Globus Account and Registration**:
    - Account at [globus.org](https://www.globus.org/)
    - Application registered in [Globus Developer Console](https://developers.globus.org/)
-   - Client ID and Client Secret
+   - Client ID and Client Secret (required only for GCS < 5.4.67)
+   - Owner identity username (e.g., user@example.edu)
+   - Contact email for support requests
+   - (Optional) Project ID, Project Name, and Project Admin for organizing endpoints
    - (Optional) Subscription ID for connector support
    - **IMPORTANT**: Requires Globus Connect Server 5.4.61 or higher (template will verify version)
+   - **NOTE**: For GCS 5.4.67+, the template handles registration without explicit client credentials
 
 3. **S3 Storage**:
    - Existing S3 bucket or plan to create one
@@ -98,7 +102,7 @@ The CloudFormation template includes the following reliability features:
 The template deploys Globus Connect Server with the following configuration:
 
 1. **Operating System**: Ubuntu Server 22.04 LTS
-2. **Authentication**: Uses Globus Auth by default (configurable to MyProxy)
+2. **Authentication**: Uses Globus Auth for identity federation
 3. **Storage**: Connects to Amazon S3 buckets for scalable, managed cloud storage
 4. **Networking**: The template ensures the Globus Connect Server is publicly accessible through one of two approaches:
    - **For Production Deployments**: Uses an Elastic IP address for persistent, static public IP
@@ -146,7 +150,7 @@ This template requires Globus Connect Server version 5.4.61 or higher. The scrip
 - **Proper SemVer Comparison**: Correctly compares major.minor.patch components
 - **Detailed Version Diagnostics**: Provides comprehensive debug output for troubleshooting
 - **Modern Command Format**: Uses the positional argument syntax required by newer Globus versions
-- **Deployment Key Conversion**: Properly handles credential conversion to deployment keys
+- **API Evolution Support**: Handles parameter changes across different Globus Connect Server versions
 
 The script specifically supports the common version format: `globus-connect-server, package 5.4.83, cli 1.0.58`, correctly extracting the package version for compatibility checks.
 

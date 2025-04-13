@@ -24,9 +24,21 @@ The deployment uses Ubuntu 22.04 LTS and installs Globus packages using the Debi
   - Main command: `globus-connect-server`
   - Version checking: `globus-connect-server --version` (returns "globus-connect-server, package X.Y.Z, cli A.B.C")
   - Endpoint setup (v5.4.61+): `globus-connect-server endpoint setup [OPTIONS] DISPLAY_NAME`
-    - Modern parameters: `--organization`, `--contact-email`, `--owner`, `--agree-to-letsencrypt-tos`, `--deployment-key`
+    - Required parameters:
+      - `--organization`: Organization that owns this endpoint
+      - `--contact-email`: Email address of the support contact
+      - `--owner`: Identity username of the owner
+    - Optional parameters:
+      - `--project-id`: The Globus Auth project ID (new in 5.4.61)
+      - `--project-name`: Name of the Auth project (new in 5.4.72)
+      - `--project-admin`: Globus username of the admin (new in 5.4.62)
+      - `--always-create-project`: Create a new project even if admin has one
+    - Standard options:
+      - `--agree-to-letsencrypt-tos`: Agree to Let's Encrypt TOS
+    - Version-specific parameters:
+      - For GCS < 5.4.67: `--client-id`, `--client-secret`
+      - For GCS >= 5.4.67: Client credentials not needed
     - Display name is a positional argument (last argument)
-  - Endpoint key conversion: `globus-connect-server endpoint key convert --client-id <id> --secret <secret>`
   - Create permissions: `globus-connect-server endpoint permission create`
   - Create storage gateway: `globus-connect-server storage-gateway create s3 [OPTIONS]`
     - S3 is a subcommand (positional argument)
@@ -36,6 +48,8 @@ The deployment uses Ubuntu 22.04 LTS and installs Globus packages using the Debi
     - The script handles various version output formats
     - Specifically extracts version from "package X.Y.Z" format
     - Performs proper SemVer comparison for compatibility checks
+    - Handles parameter changes across different versions
+    - Documentation: https://docs.globus.org/globus-connect-server/v5.4/reference/cli-reference/
 - For command path issues:
   - Verify installation: `dpkg -l | grep globus`
   - Check command path: `which globus-connect-server`
