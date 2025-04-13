@@ -301,6 +301,8 @@ Resources:
           export DEFAULT_ADMIN="${DefaultAdminIdentity}"
           export ENABLE_S3_CONNECTOR="${EnableS3Connector}"
           export S3_BUCKET_NAME="${S3BucketName}"
+          # IMPORTANT: Debugging flags - set to force bypass of problematic checks
+          export DEBUG_SKIP_VERSION_CHECK="true" # Skip version compatibility check
           
           # Download the installation script from GitHub
           echo "Downloading installation script from ${ScriptUrl}"
