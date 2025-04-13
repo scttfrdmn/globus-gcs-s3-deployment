@@ -67,12 +67,16 @@ Based on the [Globus endpoint setup CLI documentation](https://docs.globus.org/g
   - Must be a valid Globus identity that will own the endpoint
   - If not provided, the deployment will fail with a clear error message
   - Parameter is passed to the `--owner` option of the Globus setup command
+  - The template uses `--dont-set-advertised-owner` to prevent showing the service identity as the owner
 - **GlobusContactEmail**: Email address for the support contact for this endpoint
   - This is a REQUIRED parameter that defaults to "admin@example.com"
   - Should be customized to a valid support email for your organization
   - Visible to users who need assistance with your endpoint
   - Parameter is passed to the `--contact-email` option of the Globus setup command
-- **GlobusClientId/Secret**: Client credentials (required for GCS < 5.4.67, optional for newer versions)
+- **GlobusClientId/Secret**: Service credentials required for automated deployment
+  - Used by the template with environment variables for non-interactive authentication
+  - These credentials must have permissions to create endpoints
+  - Used with the recommended [automated deployment approach](https://docs.globus.org/globus-connect-server/v5/automated-deployment/)
 
 #### Optional Parameters
 
@@ -149,11 +153,11 @@ For more information on Globus Connect Server options, see the [Globus CLI Refer
                                              // Visible to users who need assistance
   },
   {
-    "ParameterKey": "GlobusClientId",     // Required for GCS < 5.4.67
+    "ParameterKey": "GlobusClientId",     // Required for service credential authentication
     "ParameterValue": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
   },
   {
-    "ParameterKey": "GlobusClientSecret", // Required for GCS < 5.4.67
+    "ParameterKey": "GlobusClientSecret", // Required for service credential authentication
     "ParameterValue": "xxxxxxxxxxxxxxxxxxxx"
   },
   

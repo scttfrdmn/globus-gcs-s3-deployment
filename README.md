@@ -24,12 +24,16 @@ This repository contains a CloudFormation template for deploying Globus Connect 
 2. **Globus Account and Registration**:
    - Account at [globus.org](https://www.globus.org/)
    - Application registered in [Globus Developer Console](https://developers.globus.org/)
-   - Client ID and Client Secret (required only for GCS < 5.4.67)
+   - **Service credentials** (Client ID and Client Secret) REQUIRED for automated deployment
+     - These credentials are used with environment variables for non-interactive authentication
+     - Must have permissions to create endpoints in Globus
+     - Used with the recommended [automated deployment approach](https://docs.globus.org/globus-connect-server/v5/automated-deployment/)
    - **Owner identity username** (e.g., user@example.edu) - CRITICAL REQUIRED PARAMETER
      - This must be a valid Globus identity that will own the endpoint
      - Must be an actual Globus user identity that exists (cannot be a client ID)
      - The template parameter `GlobusOwner` has no default value and must be set
      - Deployment will fail if this is not a valid Globus identity
+     - The template uses `--dont-set-advertised-owner` to prevent showing the service identity as the owner
    - **Contact email** for support requests - CRITICAL REQUIRED PARAMETER
      - Must be a valid email address (cannot be a client ID)
      - Email visible to users who need assistance with your endpoint
@@ -37,7 +41,6 @@ This repository contains a CloudFormation template for deploying Globus Connect 
    - (Optional) Project ID, Project Name, and Project Admin for organizing endpoints
    - (Optional) Subscription ID for connector support
    - **IMPORTANT**: Requires Globus Connect Server 5.4.61 or higher (template will verify version)
-   - **NOTE**: For GCS 5.4.67+, the template handles registration without explicit client credentials
 
 3. **S3 Storage**:
    - Existing S3 bucket or plan to create one
