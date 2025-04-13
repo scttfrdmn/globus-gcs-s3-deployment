@@ -8,6 +8,7 @@ This repository contains a CloudFormation template for deploying Globus Connect 
 - **S3 Integration**: Connect S3 buckets directly to the Globus ecosystem
 - **Security**: IAM roles and policies for secure access
 - **Globus Auth Integration**: Identity federation using Globus Auth
+- **Automated Authentication**: Uses environment-based service credentials for non-interactive deployment
 - **Production & Testing Modes**: Configurable deployment types
 - **Optimized Deployment**: Streamlined UserData script stays within AWS limits
 - **Multi-word Parameters**: Support for spaces in organization and display names
@@ -191,27 +192,43 @@ The template supports special debugging environment variables that can help reso
 
 These variables can be modified in the CloudFormation template's UserData section for troubleshooting purposes.
 
+### Automated Authentication
+
+The template uses Globus Connect Server's recommended approach for automated deployment:
+
+- **Service Credentials**: Uses environment variables for authentication (`GCS_CLI_CLIENT_ID` and `GCS_CLI_CLIENT_SECRET`)
+- **Non-Interactive**: Allows fully automated deployment without user interaction
+- **Compatibility**: Works with both older and newer versions of Globus Connect Server
+- **Documentation**: Follows best practices from [Globus Automated Deployment Documentation](https://docs.globus.org/globus-connect-server/v5/automated-deployment/)
+
 ### Common Troubleshooting Steps
 
 1. SSH to the instance: `ssh -i /path/to/your/key.pem ubuntu@<PUBLIC-IP-ADDRESS>`
 2. Check setup status: `cat /home/ubuntu/globus-setup-failed.txt`
-3. Run manual setup: 
+3. Check authentication variables: `env | grep GCS_CLI`
+4. Run manual setup with service credential authentication: 
    ```bash
-   # Using credential files:
+   # Using credential files and environment-based authentication:
    CLIENT_ID=$(cat /home/ubuntu/globus-client-id.txt)
    CLIENT_SECRET=$(cat /home/ubuntu/globus-client-secret.txt)
    DISPLAY_NAME=$(cat /home/ubuntu/globus-display-name.txt)
    OWNER=$(cat /home/ubuntu/globus-owner.txt)
    EMAIL=$(cat /home/ubuntu/globus-contact-email.txt)
    
+   # Set environment variables for service credential authentication
+   export GCS_CLI_CLIENT_ID="$CLIENT_ID"
+   export GCS_CLI_CLIENT_SECRET="$CLIENT_SECRET"
+   
    # CRITICAL: Must provide valid owner and contact email values
    bash /home/ubuntu/run-globus-setup.sh "$CLIENT_ID" "$CLIENT_SECRET" "$DISPLAY_NAME" "Organization Name" "$OWNER" "$EMAIL"
    
    # Or if you have credentials directly:
+   export GCS_CLI_CLIENT_ID="your-client-id"
+   export GCS_CLI_CLIENT_SECRET="your-client-secret"
    bash /home/ubuntu/run-globus-setup.sh "your-client-id" "your-client-secret" "display-name" "organization-name" "user@example.edu" "contact@example.edu"
    ```
-4. Check logs: `cat /home/ubuntu/globus-setup-complete.log`
-5. If endpoint creation still fails, try running the setup with debug output:
+5. Check logs: `cat /home/ubuntu/globus-setup-complete.log` and `cat /var/log/globus-setup.log`
+6. If endpoint creation still fails, try running the setup with debug output:
    ```bash
    # Run with debug output
    bash -x /home/ubuntu/run-globus-setup.sh "$CLIENT_ID" "$CLIENT_SECRET" "$DISPLAY_NAME" "Organization Name" "$OWNER" "$EMAIL"

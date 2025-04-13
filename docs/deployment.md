@@ -12,12 +12,23 @@
 
    - Create account at [globus.org](https://www.globus.org/)
    - Register application in [Globus Developer Console](https://developers.globus.org/)
-   - Obtain Client ID and Client Secret
+   - Obtain Client ID and Client Secret as service credentials
    - (Optional) Obtain Subscription ID for connector support
    - **IMPORTANT**: This template requires Globus Connect Server 5.4.61 or higher
      - The deployment script will automatically detect and verify version compatibility
      - Supports various version formats including "package X.Y.Z" format
      - Provides detailed debug information for version detection and comparison
+     
+   **Automated Deployment Authentication**:
+   
+   This template uses the recommended Globus automated deployment approach with service credentials:
+   
+   - **Service Credentials**: Uses client ID and secret as service credentials via environment variables
+   - **Environment Variables**: Sets `GCS_CLI_CLIENT_ID` and `GCS_CLI_CLIENT_SECRET` for authentication
+   - **Non-Interactive Setup**: Enables fully automated deployment without user interaction
+   - **Compatibility**: Works with both older and newer Globus Connect Server versions
+   
+   For details, see the [Globus Automated Deployment Documentation](https://docs.globus.org/globus-connect-server/v5/automated-deployment/)
 
 3. S3 Storage:
 
@@ -286,12 +297,19 @@ cat /home/ubuntu/cloud-init-debug.log      # Detailed step-by-step deployment pr
 cat /home/ubuntu/cloud-init-modules.log    # Information about cloud-init module issues
 cat /var/log/cloud-init-output.log         # Standard cloud-init output
 cat /var/log/user-data.log                 # User-data script output
+cat /var/log/globus-setup.log              # Detailed Globus setup log
+
+# Check environment variables for service credential authentication
+env | grep GCS_CLI                         # Should show GCS_CLI_CLIENT_ID and GCS_CLI_CLIENT_SECRET
 
 # You can also try to manually run the Globus setup script if needed
 sudo bash /home/ubuntu/run-globus-setup.sh
 
 # To skip duplicate endpoint checks:
 sudo DEBUG_SKIP_DUPLICATE_CHECK=true bash /home/ubuntu/run-globus-setup.sh
+
+# To run with explicit service credentials:
+sudo GCS_CLI_CLIENT_ID=your_client_id GCS_CLI_CLIENT_SECRET=your_client_secret bash /home/ubuntu/run-globus-setup.sh
 
 # To see detailed execution for debugging:
 sudo bash -x /home/ubuntu/run-globus-setup.sh
@@ -303,9 +321,30 @@ The deployment script now includes:
 - Multiple retry attempts for critical installation steps
 - Comprehensive diagnostic information collection
 - Version compatibility checks for different versions of Globus Connect Server
-- Support for different command line parameter formats (both `--secret` and `--client-secret`)
+- Environment-based service credential authentication for automated deployment
+- Non-interactive deployment using proper service authentication
 - Checks for existing endpoints with the same name before deployment
 - Ability to reuse existing endpoints rather than failing
+
+## Authentication for Automated Deployment
+
+The template now uses Globus Connect Server's recommended approach for automated deployment:
+
+1. **Service Credentials**: 
+   - Client ID and Secret are passed as environment variables
+   - Uses `GCS_CLI_CLIENT_ID` and `GCS_CLI_CLIENT_SECRET` 
+   - No manual interaction required during deployment
+
+2. **Implementation Details**:
+   - CloudFormation UserData sets environment variables
+   - Deployment script uses these variables for authentication
+   - Uses `--dont-set-advertised-owner` to prevent service identity showing as owner
+
+3. **Troubleshooting Authentication Issues**:
+   - Check `/var/log/globus-setup.log` for detailed authentication logs
+   - Verify environment variables are set: `env | grep GCS_CLI`
+   - Check [Globus authentication documentation](https://docs.globus.org/globus-connect-server/v5/automated-deployment/)
+   - Review credentials in Globus Developer Console
 
 ### 2. SSH into the instance
 

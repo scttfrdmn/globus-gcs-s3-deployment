@@ -333,9 +333,14 @@ Resources:
           export DEFAULT_ADMIN="${DefaultAdminIdentity}"
           export ENABLE_S3_CONNECTOR="${EnableS3Connector}"
           export S3_BUCKET_NAME="${S3BucketName}"
-          # IMPORTANT: Debugging flags
+          # IMPORTANT: Environment variables for service authentication and debugging
           export DEBUG_SKIP_VERSION_CHECK="true" # Skip version compatibility check
           export DEBUG_SKIP_DUPLICATE_CHECK="true" # Skip duplicate endpoint check in helper script
+          
+          # Use service credential environment variables for automated deployment
+          # See: https://docs.globus.org/globus-connect-server/v5/automated-deployment/
+          export GCS_CLI_CLIENT_ID="${GlobusClientId}"
+          export GCS_CLI_CLIENT_SECRET="${GlobusClientSecret}"
           
           # Download the installation script from GitHub
           echo "Downloading installation script from ${ScriptUrl}"

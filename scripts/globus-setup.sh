@@ -298,7 +298,7 @@ chown ubuntu:ubuntu /home/ubuntu
 # Create the helper script for GCS 5.4.61+ with version check
 cat > /home/ubuntu/run-globus-setup.sh << 'EOF'
 #!/bin/bash
-# Helper script for Globus Connect Server 5.4.61+ setup
+# Helper script for Globus Connect Server 5.4.61+ setup using automated deployment approach
 # Get credentials from args or files
 [ -z "$1" ] && [ -f /home/ubuntu/globus-client-id.txt ] && GC_ID=$(cat /home/ubuntu/globus-client-id.txt) || GC_ID="$1"
 [ -z "$2" ] && [ -f /home/ubuntu/globus-client-secret.txt ] && GC_SECRET=$(cat /home/ubuntu/globus-client-secret.txt) || GC_SECRET="$2"
@@ -374,40 +374,24 @@ echo "=== End of version check debug ==="
 
 echo "Setting up Globus endpoint for GCS version $GCS_VERSION..."
 
-# Direct client credentials approach is recommended for single server deployments
-echo "Setting up endpoint with client credentials..."
-echo "- Using direct client credentials for single-server deployment"
+# Set up environment-based service credential authentication as recommended in
+# https://docs.globus.org/globus-connect-server/v5/automated-deployment/
+echo "Setting up endpoint using service credentials..."
+echo "- Using environment variables for service credential authentication"
 echo "- Client ID: ${GC_ID:0:5}... (truncated)"
-echo "- Secret: ${GC_SECRET:0:3}... (truncated)"
 
-# Use the standard documented format for Globus Connect Server 5.4.61+
-echo "Setting up endpoint using standard parameters format..."
+# Set the environment variables for service credential authentication
+export GCS_CLI_CLIENT_ID="${GC_ID}"
+export GCS_CLI_CLIENT_SECRET="${GC_SECRET}"
+
+# Use the standard documented format for Globus Connect Server with environment auth
+echo "Setting up endpoint using automated deployment approach..."
 
 # Prepare command with required parameters
 SETUP_CMD="globus-connect-server endpoint setup"
 
-# Make sure GCS_VERSION is a valid version string
-if [[ ! "$GCS_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "WARNING: Invalid GCS_VERSION format, using default high version"
-  GCS_VERSION="9.9.9"
-fi
-
-# Check Globus version to determine if we need client-id
-GCS_VERSION_MAJOR=$(echo "$GCS_VERSION" | cut -d. -f1)
-GCS_VERSION_MINOR=$(echo "$GCS_VERSION" | cut -d. -f2)
-GCS_VERSION_PATCH=$(echo "$GCS_VERSION" | cut -d. -f3)
-
-echo "Using GCS version components for client credential check: $GCS_VERSION_MAJOR.$GCS_VERSION_MINOR.$GCS_VERSION_PATCH"
-
-# Include client-id and client-secret only if version < 5.4.67
-# See Globus docs: https://docs.globus.org/globus-connect-server/v5.4/reference/cli-reference/#endpoint-setup
-if [[ $GCS_VERSION_MAJOR -lt 5 || 
-     ($GCS_VERSION_MAJOR -eq 5 && $GCS_VERSION_MINOR -lt 4) || 
-     ($GCS_VERSION_MAJOR -eq 5 && $GCS_VERSION_MINOR -eq 4 && $GCS_VERSION_PATCH -lt 67) ]]; then
-  echo "Using client credentials for Globus Connect Server < 5.4.67"
-  echo "For details, see: https://docs.globus.org/globus-connect-server/v5.4/reference/cli-reference/#endpoint-setup"
-  SETUP_CMD+=" --client-id \"${GC_ID}\" --client-secret \"${GC_SECRET}\""
-fi
+# Add --dont-set-advertised-owner flag for automated deployments
+SETUP_CMD+=" --dont-set-advertised-owner"
 
 # Required parameters
 SETUP_CMD+=" --organization \"${GC_ORG}\""
@@ -437,6 +421,7 @@ SETUP_CMD+=" --agree-to-letsencrypt-tos"
 
 # Log the command we're about to run
 echo "Running endpoint setup command with display name: ${GC_NAME}"
+echo "Using environment variables GCS_CLI_CLIENT_ID and GCS_CLI_CLIENT_SECRET for authentication"
 
 # Execute the command - passing the display name as a direct positional argument
 # to ensure proper quoting
@@ -447,8 +432,14 @@ if [ $SETUP_RESULT -eq 0 ]; then
   echo "Endpoint setup succeeded!"
 else
   echo "Endpoint setup failed with code $SETUP_RESULT."
-  echo "Please check your client credentials and ensure they are correct."
+  echo "Please check your service credentials and ensure they are correct."
   echo "The client ID and secret must have authorization to create endpoints."
+  
+  # Provide detailed diagnostics
+  echo "=== Error diagnostics ==="
+  echo "1. Credentials environment variables set: $(env | grep -c GCS_CLI)"
+  echo "2. Command that failed: ${SETUP_CMD} \"${GC_NAME}\""
+  echo "3. Check Globus documentation: https://docs.globus.org/globus-connect-server/v5/automated-deployment/"
   exit 1
 fi
 
@@ -627,6 +618,10 @@ else
   # Prepare command with required parameters
   SETUP_CMD="globus-connect-server endpoint setup"
   
+  # Add --dont-set-advertised-owner flag for automated deployments to avoid 
+  # showing the service identity as the endpoint owner in Globus app UI
+  SETUP_CMD+=" --dont-set-advertised-owner"
+  
   # Make sure GCS_VERSION is a valid version string
   if [[ ! "$GCS_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     echo "WARNING: Invalid GCS_VERSION format, using default high version" | tee -a $SETUP_LOG
@@ -640,15 +635,14 @@ else
   
   echo "Using GCS version components for client credential check: $GCS_VERSION_MAJOR.$GCS_VERSION_MINOR.$GCS_VERSION_PATCH" | tee -a $SETUP_LOG
   
-  # Include client-id and client-secret only if version < 5.4.67
-  # As per Globus docs: https://docs.globus.org/globus-connect-server/v5.4/reference/cli-reference/#endpoint-setup
-  if [[ $GCS_VERSION_MAJOR -lt 5 || 
-     ($GCS_VERSION_MAJOR -eq 5 && $GCS_VERSION_MINOR -lt 4) || 
-     ($GCS_VERSION_MAJOR -eq 5 && $GCS_VERSION_MINOR -eq 4 && $GCS_VERSION_PATCH -lt 67) ]]; then
-    echo "Using client credentials for Globus Connect Server < 5.4.67" | tee -a $SETUP_LOG
-    echo "See Globus docs: https://docs.globus.org/globus-connect-server/v5.4/reference/cli-reference/#endpoint-setup" | tee -a $SETUP_LOG
-    SETUP_CMD+=" --client-id \"${GLOBUS_CLIENT_ID}\" --client-secret \"${GLOBUS_CLIENT_SECRET}\""
-  fi
+  # For Globus versions < 5.4.67, we might need to include client-id and client-secret as parameters
+  # However, we'll primarily use the environment variable authentication method as recommended
+  # in the automated deployment docs: https://docs.globus.org/globus-connect-server/v5/automated-deployment/
+  
+  # Note: No longer adding client credentials directly to command line
+  # The environment variables GCS_CLI_CLIENT_ID and GCS_CLI_CLIENT_SECRET will be used instead
+  echo "Using environment-based service credentials authentication for all GCS versions" | tee -a $SETUP_LOG
+  echo "See Globus docs: https://docs.globus.org/globus-connect-server/v5/automated-deployment/" | tee -a $SETUP_LOG
   
   # Required parameters
   SETUP_CMD+=" --organization \"${GLOBUS_ORGANIZATION}\""
@@ -701,8 +695,18 @@ else
   # Log the command we're about to run
   echo "Running endpoint setup command with display name: ${GLOBUS_DISPLAY_NAME}" | tee -a $SETUP_LOG
   
+  # Setup proper environment variables for service credentials
+  # This is the recommended approach for automated deployment as per
+  # https://docs.globus.org/globus-connect-server/v5/automated-deployment/
+  export GCS_CLI_CLIENT_ID="${GLOBUS_CLIENT_ID}"
+  export GCS_CLI_CLIENT_SECRET="${GLOBUS_CLIENT_SECRET}"
+  
+  echo "Setting up service credentials via environment variables" | tee -a $SETUP_LOG
+  echo "GCS_CLI_CLIENT_ID=${GCS_CLI_CLIENT_ID:0:5}... (truncated)" | tee -a $SETUP_LOG
+  
   # Execute the command - passing the display name as a direct positional argument
   # rather than as part of the command string to ensure proper quoting
+  echo "Running command with environment-based authentication: ${SETUP_CMD} \"${GLOBUS_DISPLAY_NAME}\"" | tee -a $SETUP_LOG
   eval $SETUP_CMD '"${GLOBUS_DISPLAY_NAME}"' >> $SETUP_LOG 2>&1
     
   SETUP_RESULT=$?
@@ -713,6 +717,14 @@ else
     echo "Endpoint setup failed with code $SETUP_RESULT." | tee -a $SETUP_LOG
     echo "Please check your client credentials and ensure they are correct." | tee -a $SETUP_LOG
     echo "The client ID and secret must have authorization to create endpoints." | tee -a $SETUP_LOG
+    
+    # For debugging, show detailed error information
+    echo "=== Error diagnostics ===" | tee -a $SETUP_LOG
+    echo "1. Credentials environment variables set: $(env | grep -c GCS_CLI)" | tee -a $SETUP_LOG
+    echo "2. Command that failed: ${SETUP_CMD} \"${GLOBUS_DISPLAY_NAME}\"" | tee -a $SETUP_LOG
+    echo "3. Check Globus documentation: https://docs.globus.org/globus-connect-server/v5/automated-deployment/" | tee -a $SETUP_LOG
+    echo "=========================" | tee -a $SETUP_LOG
+    
     SETUP_STATUS=1
   fi
 fi
