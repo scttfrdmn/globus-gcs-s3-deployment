@@ -199,35 +199,64 @@ globus-connect-server endpoint setup \
   --organization "$GC_ORG" \
   --contact-email "admin@example.com" \
   --owner "admin@example.com" \
+  --yes \
   "$GC_NAME"
 
 # If the modern format fails, try older formats
 if [ $? -ne 0 ]; then
-  echo "Modern setup failed, trying older formats..."
+  echo "Modern setup failed, trying alternative methods..."
   
-  # Try with --secret parameter
-  echo "Trying with --secret parameter..."
-  globus-connect-server endpoint setup \
-    --client-id "$GC_ID" \
-    --secret "$GC_SECRET" \
-    --name "$GC_NAME" \
-    --organization "$GC_ORG"
-  
-  # If that fails too, try with --client-secret parameter
-  if [ $? -ne 0 ]; then
-    echo "Trying with --client-secret parameter..."
+  # Check if we need to convert client credentials to a key
+  if globus-connect-server endpoint key convert --help &>/dev/null; then
+    echo "Trying to convert client credentials to a deployment key..."
+    KEY_FILE="/tmp/globus-key.json"
+    
+    # Convert client ID/secret to a key file
+    globus-connect-server endpoint key convert \
+      --client-id "$GC_ID" \
+      --secret "$GC_SECRET" \
+      --output "$KEY_FILE"
+    
+    if [ $? -eq 0 ] && [ -f "$KEY_FILE" ]; then
+      echo "Successfully converted credentials to key. Trying setup with deployment key..."
+      globus-connect-server endpoint setup \
+        --organization "$GC_ORG" \
+        --contact-email "admin@example.com" \
+        --owner "admin@example.com" \
+        --yes \
+        --deployment-key "$KEY_FILE" \
+        "$GC_NAME"
+    else
+      echo "Failed to convert credentials to key file"
+    fi
+  else
+    # Fall back to older formats if key convert is not available
+    echo "Key conversion not available, trying older command formats..."
+    
+    # Try with --secret parameter
+    echo "Trying with --secret parameter..."
     globus-connect-server endpoint setup \
       --client-id "$GC_ID" \
-      --client-secret "$GC_SECRET" \
+      --secret "$GC_SECRET" \
       --name "$GC_NAME" \
       --organization "$GC_ORG"
     
-    # Last attempt with minimal parameters
+    # If that fails too, try with --client-secret parameter
     if [ $? -ne 0 ]; then
-      echo "Trying with minimal parameters..."
+      echo "Trying with --client-secret parameter..."
       globus-connect-server endpoint setup \
         --client-id "$GC_ID" \
-        --secret "$GC_SECRET"
+        --client-secret "$GC_SECRET" \
+        --name "$GC_NAME" \
+        --organization "$GC_ORG"
+      
+      # Last attempt with minimal parameters
+      if [ $? -ne 0 ]; then
+        echo "Trying with minimal parameters..."
+        globus-connect-server endpoint setup \
+          --client-id "$GC_ID" \
+          --secret "$GC_SECRET"
+      fi
     fi
   fi
 fi
@@ -251,13 +280,21 @@ else
   echo 'GC_NAME=${3:-$(cat /home/ubuntu/globus-display-name.txt 2>/dev/null)}' >> /home/ubuntu/run-globus-setup.sh
   echo 'GC_ORG=${4:-$(cat /home/ubuntu/globus-organization.txt 2>/dev/null || echo "AWS")}' >> /home/ubuntu/run-globus-setup.sh
   echo 'echo "Trying modern format first..."' >> /home/ubuntu/run-globus-setup.sh
-  echo 'globus-connect-server endpoint setup --organization "$GC_ORG" --contact-email "admin@example.com" --owner "admin@example.com" "$GC_NAME" || \\' >> /home/ubuntu/run-globus-setup.sh
-  echo 'echo "Trying legacy format with --secret parameter..." && \\' >> /home/ubuntu/run-globus-setup.sh
-  echo 'globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" --name "$GC_NAME" --organization "$GC_ORG" || \\' >> /home/ubuntu/run-globus-setup.sh
-  echo 'echo "Trying legacy format with --client-secret parameter..." && \\' >> /home/ubuntu/run-globus-setup.sh
-  echo 'globus-connect-server endpoint setup --client-id "$GC_ID" --client-secret "$GC_SECRET" --name "$GC_NAME" --organization "$GC_ORG" || \\' >> /home/ubuntu/run-globus-setup.sh
-  echo 'echo "Trying minimal parameters..." && \\' >> /home/ubuntu/run-globus-setup.sh
-  echo 'globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET"' >> /home/ubuntu/run-globus-setup.sh
+  echo 'globus-connect-server endpoint setup --organization "$GC_ORG" --contact-email "admin@example.com" --owner "admin@example.com" --yes "$GC_NAME" || \\' >> /home/ubuntu/run-globus-setup.sh
+  echo 'if globus-connect-server endpoint key convert --help &>/dev/null; then \\' >> /home/ubuntu/run-globus-setup.sh
+  echo '  echo "Converting client credentials to deployment key..." && \\' >> /home/ubuntu/run-globus-setup.sh
+  echo '  KEY_FILE="/tmp/globus-key.json" && \\' >> /home/ubuntu/run-globus-setup.sh
+  echo '  globus-connect-server endpoint key convert --client-id "$GC_ID" --secret "$GC_SECRET" --output "$KEY_FILE" && \\' >> /home/ubuntu/run-globus-setup.sh
+  echo '  [ -f "$KEY_FILE" ] && \\' >> /home/ubuntu/run-globus-setup.sh
+  echo '  globus-connect-server endpoint setup --organization "$GC_ORG" --contact-email "admin@example.com" --owner "admin@example.com" --yes --deployment-key "$KEY_FILE" "$GC_NAME" \\' >> /home/ubuntu/run-globus-setup.sh
+  echo 'else \\' >> /home/ubuntu/run-globus-setup.sh
+  echo '  echo "Trying legacy format with --secret parameter..." && \\' >> /home/ubuntu/run-globus-setup.sh
+  echo '  globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" --name "$GC_NAME" --organization "$GC_ORG" || \\' >> /home/ubuntu/run-globus-setup.sh
+  echo '  echo "Trying legacy format with --client-secret parameter..." && \\' >> /home/ubuntu/run-globus-setup.sh
+  echo '  globus-connect-server endpoint setup --client-id "$GC_ID" --client-secret "$GC_SECRET" --name "$GC_NAME" --organization "$GC_ORG" || \\' >> /home/ubuntu/run-globus-setup.sh
+  echo '  echo "Trying minimal parameters..." && \\' >> /home/ubuntu/run-globus-setup.sh
+  echo '  globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" \\' >> /home/ubuntu/run-globus-setup.sh
+  echo 'fi' >> /home/ubuntu/run-globus-setup.sh
   echo 'echo "Setup complete (or failed). Endpoint details:"' >> /home/ubuntu/run-globus-setup.sh
   echo 'globus-connect-server endpoint show || echo "No endpoint found"' >> /home/ubuntu/run-globus-setup.sh
   chmod +x /home/ubuntu/run-globus-setup.sh
@@ -332,11 +369,13 @@ else
   SETUP_STATUS=1  # Default to error until one command succeeds
   
   # Try modern format first (with positional DISPLAY_NAME argument and different parameters)
+  # Add --yes to accept the Let's Encrypt Terms of Service automatically
   echo "Trying setup with modern Globus Connect Server format (positional display name)..." | tee -a $SETUP_LOG
   globus-connect-server endpoint setup \
     --organization "$GLOBUS_ORGANIZATION" \
     --contact-email "admin@example.com" \
     --owner "admin@example.com" \
+    --yes \
     "$GLOBUS_DISPLAY_NAME" >> $SETUP_LOG 2>&1
   
   if [ $? -eq 0 ]; then
@@ -346,52 +385,86 @@ else
     # If modern format fails, fall back to older versions
     echo "Modern setup failed, trying older command formats..." | tee -a $SETUP_LOG
     
-    # Try older format with minimal parameters
-    echo "Trying setup with minimal parameters..." | tee -a $SETUP_LOG
-    globus-connect-server endpoint setup \
-      --client-id "$GLOBUS_CLIENT_ID" \
-      --secret "$GLOBUS_CLIENT_SECRET" >> $SETUP_LOG 2>&1
-    
-    if [ $? -eq 0 ]; then
-      echo "Setup with minimal parameters succeeded!" | tee -a $SETUP_LOG
-      SETUP_STATUS=0
-    else
-      # Try with --name parameter
-      echo "Trying setup with --name parameter..." | tee -a $SETUP_LOG
-      globus-connect-server endpoint setup \
+    # Check if we need to convert the client ID/secret to a key first
+    echo "Checking if we need to convert client credentials to a key..." | tee -a $SETUP_LOG
+    if globus-connect-server endpoint key convert --help &>/dev/null; then
+      echo "Found endpoint key convert command, trying to convert credentials..." | tee -a $SETUP_LOG
+      
+      # Create temporary key file
+      KEY_FILE="/tmp/globus-key.json"
+      globus-connect-server endpoint key convert \
         --client-id "$GLOBUS_CLIENT_ID" \
         --secret "$GLOBUS_CLIENT_SECRET" \
-        --name "$GLOBUS_DISPLAY_NAME" >> $SETUP_LOG 2>&1
+        --output "$KEY_FILE" >> $SETUP_LOG 2>&1
+      
+      if [ $? -eq 0 ] && [ -f "$KEY_FILE" ]; then
+        echo "Successfully converted credentials to key file. Trying setup with key..." | tee -a $SETUP_LOG
+        globus-connect-server endpoint setup \
+          --organization "$GLOBUS_ORGANIZATION" \
+          --contact-email "admin@example.com" \
+          --owner "admin@example.com" \
+          --yes \
+          --deployment-key "$KEY_FILE" \
+          "$GLOBUS_DISPLAY_NAME" >> $SETUP_LOG 2>&1
+        
+        if [ $? -eq 0 ]; then
+          echo "Setup with deployment key succeeded!" | tee -a $SETUP_LOG
+          SETUP_STATUS=0
+        else
+          echo "Setup with deployment key failed!" | tee -a $SETUP_LOG
+        fi
+      else
+        echo "Failed to convert credentials to key file" | tee -a $SETUP_LOG
+      fi
+    else
+      # Fall back to older methods if key convert is not available
+      # Try older format with minimal parameters
+      echo "Trying older format with minimal parameters..." | tee -a $SETUP_LOG
+      globus-connect-server endpoint setup \
+        --client-id "$GLOBUS_CLIENT_ID" \
+        --secret "$GLOBUS_CLIENT_SECRET" >> $SETUP_LOG 2>&1
       
       if [ $? -eq 0 ]; then
-        echo "Setup with --name parameter succeeded!" | tee -a $SETUP_LOG
+        echo "Setup with minimal parameters succeeded!" | tee -a $SETUP_LOG
         SETUP_STATUS=0
       else
-        # Try with --name and --organization parameters
-        echo "Trying setup with --name and --organization parameters..." | tee -a $SETUP_LOG
+        # Try with --name parameter
+        echo "Trying setup with --name parameter..." | tee -a $SETUP_LOG
         globus-connect-server endpoint setup \
           --client-id "$GLOBUS_CLIENT_ID" \
           --secret "$GLOBUS_CLIENT_SECRET" \
-          --name "$GLOBUS_DISPLAY_NAME" \
-          --organization "$GLOBUS_ORGANIZATION" >> $SETUP_LOG 2>&1
+          --name "$GLOBUS_DISPLAY_NAME" >> $SETUP_LOG 2>&1
         
         if [ $? -eq 0 ]; then
-          echo "Setup with --name and --organization parameters succeeded!" | tee -a $SETUP_LOG
+          echo "Setup with --name parameter succeeded!" | tee -a $SETUP_LOG
           SETUP_STATUS=0
         else
-          # Last attempt with client_secret instead of secret
-          echo "Trying setup with --client-secret parameter..." | tee -a $SETUP_LOG
+          # Try with --name and --organization parameters
+          echo "Trying setup with --name and --organization parameters..." | tee -a $SETUP_LOG
           globus-connect-server endpoint setup \
             --client-id "$GLOBUS_CLIENT_ID" \
-            --client-secret "$GLOBUS_CLIENT_SECRET" \
+            --secret "$GLOBUS_CLIENT_SECRET" \
             --name "$GLOBUS_DISPLAY_NAME" \
             --organization "$GLOBUS_ORGANIZATION" >> $SETUP_LOG 2>&1
           
           if [ $? -eq 0 ]; then
-            echo "Setup with --client-secret parameter succeeded!" | tee -a $SETUP_LOG
+            echo "Setup with --name and --organization parameters succeeded!" | tee -a $SETUP_LOG
             SETUP_STATUS=0
           else
-            echo "All setup attempts failed!" | tee -a $SETUP_LOG
+            # Last attempt with client_secret instead of secret
+            echo "Trying setup with --client-secret parameter..." | tee -a $SETUP_LOG
+            globus-connect-server endpoint setup \
+              --client-id "$GLOBUS_CLIENT_ID" \
+              --client-secret "$GLOBUS_CLIENT_SECRET" \
+              --name "$GLOBUS_DISPLAY_NAME" \
+              --organization "$GLOBUS_ORGANIZATION" >> $SETUP_LOG 2>&1
+            
+            if [ $? -eq 0 ]; then
+              echo "Setup with --client-secret parameter succeeded!" | tee -a $SETUP_LOG
+              SETUP_STATUS=0
+            else
+              echo "All setup attempts failed!" | tee -a $SETUP_LOG
+            fi
           fi
         fi
       fi
