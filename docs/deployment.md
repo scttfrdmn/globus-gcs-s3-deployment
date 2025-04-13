@@ -14,6 +14,9 @@
    - Register application in [Globus Developer Console](https://developers.globus.org/)
    - Obtain Client ID and Client Secret
    - (Optional) Obtain Subscription ID for connector support
+   - **IMPORTANT**: This template requires Globus Connect Server 5.4.61 or higher
+     - The deployment script will automatically verify version compatibility
+     - Clear error messages will be provided if version requirements aren't met
 
 3. S3 Storage:
 
@@ -95,11 +98,11 @@
   },
   {
     "ParameterKey": "GlobusDisplayName",
-    "ParameterValue": "Your-Globus-Endpoint"
+    "ParameterValue": "Your Globus Endpoint"
   },
   {
     "ParameterKey": "GlobusOrganization",
-    "ParameterValue": "Your-Organization"
+    "ParameterValue": "Your Organization Name"
   },
   {
     "ParameterKey": "GlobusSubscriptionId",
@@ -169,7 +172,8 @@ Common issues include:
 - Exceeding UserData script size limits (now fixed with optimized script)
 - Network configuration issues preventing package installation
 - Incorrect parameters such as bucket names or availability zones
-- Globus Connect Server command parameter incompatibility (older versions use `--secret` instead of `--client-secret`)
+- Incompatible Globus Connect Server version (must be 5.4.61 or higher)
+- Parameter handling issues with multi-word values (fixed with proper quoting)
 - Duplicate endpoint names (now handled with check and reuse functionality)
 
 If you see "WARNING - Failed to run module scripts-user" in the logs, this is likely a cloud-init warning that doesn't affect the deployment. The template includes robust error handling to continue despite these warnings. Check these files for diagnostic information:

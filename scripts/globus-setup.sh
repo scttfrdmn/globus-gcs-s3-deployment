@@ -12,6 +12,7 @@ echo "=== GLOBUS-CONNECT-SERVER-INSTALLATION-SCRIPT ==="
 
 echo "=== Starting Globus Connect Server installation $(date) ==="
 echo "Stack:$AWS_STACK_NAME Region:$AWS_REGION Type:$DEPLOYMENT_TYPE Auth:$AUTH_METHOD"
+echo "Organization:\"$GLOBUS_ORGANIZATION\" DisplayName:\"$GLOBUS_DISPLAY_NAME\"" 
 echo "S3 Connector: $ENABLE_S3_CONNECTOR Bucket: $S3_BUCKET_NAME"
 
 # Check GCS version to ensure compatibility
@@ -39,13 +40,24 @@ function check_gcs_version() {
   # For simple version comparison
   REQUIRED_VERSION="5.4.61"
   
-  # Convert versions to comparable integers (e.g., 5.4.61 -> 5004061)
+  # Extract and compare only major.minor.patch numbers
+  function extract_version_components() {
+    echo "$@" | sed -E 's/([0-9]+\.[0-9]+\.[0-9]+).*/\1/'
+  }
+  
   function version_to_int() {
     echo "$@" | awk -F. '{ printf("%d%03d%03d\n", $1, $2, $3); }'
   }
   
-  CURRENT_VER_INT=$(version_to_int "$GCS_VERSION")
-  REQUIRED_VER_INT=$(version_to_int "$REQUIRED_VERSION")
+  # Extract only major.minor.patch from versions that might have additional components
+  CLEAN_CURRENT_VERSION=$(extract_version_components "$GCS_VERSION")
+  CLEAN_REQUIRED_VERSION=$(extract_version_components "$REQUIRED_VERSION")
+  
+  # Convert clean versions to comparable integers
+  CURRENT_VER_INT=$(version_to_int "$CLEAN_CURRENT_VERSION")
+  REQUIRED_VER_INT=$(version_to_int "$CLEAN_REQUIRED_VERSION")
+  
+  echo "Comparing version $CLEAN_CURRENT_VERSION (${CURRENT_VER_INT}) with required $CLEAN_REQUIRED_VERSION (${REQUIRED_VER_INT})"
   
   if [ "$CURRENT_VER_INT" -lt "$REQUIRED_VER_INT" ]; then
     echo "ERROR: This script requires Globus Connect Server $REQUIRED_VERSION or higher"
@@ -239,13 +251,25 @@ echo "- Organization: $GC_ORG"
 GCS_VERSION=$(globus-connect-server --version 2>&1 | head -1 | awk '{print $NF}')
 REQUIRED_VERSION="5.4.61"
 
+# Extract and compare only major.minor.patch numbers
+function extract_version_components() {
+  echo "$@" | sed -E 's/([0-9]+\.[0-9]+\.[0-9]+).*/\1/'
+}
+
 # Function to convert version strings to comparable integers
 function version_to_int() {
   echo "$@" | awk -F. '{ printf("%d%03d%03d\n", $1, $2, $3); }'
 }
 
-CURRENT_VER_INT=$(version_to_int "$GCS_VERSION")
-REQUIRED_VER_INT=$(version_to_int "$REQUIRED_VERSION")
+# Extract only major.minor.patch from versions that might have additional components
+CLEAN_CURRENT_VERSION=$(extract_version_components "$GCS_VERSION")
+CLEAN_REQUIRED_VERSION=$(extract_version_components "$REQUIRED_VERSION")
+
+# Convert clean versions to comparable integers
+CURRENT_VER_INT=$(version_to_int "$CLEAN_CURRENT_VERSION")
+REQUIRED_VER_INT=$(version_to_int "$CLEAN_REQUIRED_VERSION")
+
+echo "Comparing version $CLEAN_CURRENT_VERSION (${CURRENT_VER_INT}) with required $CLEAN_REQUIRED_VERSION (${REQUIRED_VER_INT})"
 
 if [ "$CURRENT_VER_INT" -lt "$REQUIRED_VER_INT" ]; then
   echo "ERROR: This script requires Globus Connect Server $REQUIRED_VERSION or higher"

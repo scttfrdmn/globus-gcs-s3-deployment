@@ -287,19 +287,20 @@ Resources:
           pip3 install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz
           mkdir -p /opt/aws/bin && ln -sf /usr/local/bin/cfn-* /opt/aws/bin/
           
-          # Environment variables for the script
-          export AWS_REGION=${AWS::Region}
-          export AWS_STACK_NAME=${AWS::StackName}
-          export GLOBUS_CLIENT_ID=${GlobusClientId}
-          export GLOBUS_CLIENT_SECRET=${GlobusClientSecret}
-          export GLOBUS_DISPLAY_NAME=${GlobusDisplayName}
-          export GLOBUS_ORGANIZATION=${GlobusOrganization}
-          export GLOBUS_SUBSCRIPTION_ID=${GlobusSubscriptionId}
-          export DEPLOYMENT_TYPE=${DeploymentType}
-          export AUTH_METHOD=${AuthenticationMethod}
-          export DEFAULT_ADMIN=${DefaultAdminIdentity}
-          export ENABLE_S3_CONNECTOR=${EnableS3Connector}
-          export S3_BUCKET_NAME=${S3BucketName}
+          # Environment variables for the script - use proper quoting for multi-word parameters
+          export AWS_REGION="${AWS::Region}"
+          export AWS_STACK_NAME="${AWS::StackName}"
+          export GLOBUS_CLIENT_ID="${GlobusClientId}"
+          export GLOBUS_CLIENT_SECRET="${GlobusClientSecret}"
+          # Use proper escaping and quoting for multi-word values
+          export GLOBUS_DISPLAY_NAME='${GlobusDisplayName}'
+          export GLOBUS_ORGANIZATION='${GlobusOrganization}'
+          export GLOBUS_SUBSCRIPTION_ID="${GlobusSubscriptionId}"
+          export DEPLOYMENT_TYPE="${DeploymentType}"
+          export AUTH_METHOD="${AuthenticationMethod}"
+          export DEFAULT_ADMIN="${DefaultAdminIdentity}"
+          export ENABLE_S3_CONNECTOR="${EnableS3Connector}"
+          export S3_BUCKET_NAME="${S3BucketName}"
           
           # Download the installation script from GitHub
           echo "Downloading installation script from ${ScriptUrl}"

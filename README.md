@@ -10,6 +10,8 @@ This repository contains a CloudFormation template for deploying Globus Connect 
 - **Flexible Authentication**: Support for Globus Auth federation
 - **Production & Testing Modes**: Configurable deployment types
 - **Optimized Deployment**: Streamlined UserData script stays within AWS limits
+- **Multi-word Parameters**: Support for spaces in organization and display names
+- **Version Validation**: Ensures compatibility with Globus Connect Server 5.4.61+
 
 ## Prerequisites
 
@@ -23,6 +25,7 @@ This repository contains a CloudFormation template for deploying Globus Connect 
    - Application registered in [Globus Developer Console](https://developers.globus.org/)
    - Client ID and Client Secret
    - (Optional) Subscription ID for connector support
+   - **IMPORTANT**: Requires Globus Connect Server 5.4.61 or higher (template will verify version)
 
 3. **S3 Storage**:
    - Existing S3 bucket or plan to create one
@@ -133,6 +136,23 @@ If Globus setup fails, the instance will still be created and kept running for t
 9. **Cloud-Init Output**: `/var/log/cloud-init-output.log` - Standard cloud-init output
 
 ### Common Issues
+
+#### Version Compatibility
+
+This template requires Globus Connect Server version 5.4.61 or higher. The script will check the installed version and exit with a clear error message if the version is incompatible. Key compatibility features:
+
+- **Automatic Version Detection**: Script checks the installed version against the required minimum
+- **Clear Error Messages**: If version requirements aren't met, a specific error message is provided
+- **Modern Command Format**: Uses the positional argument syntax required by newer Globus versions
+- **Deployment Key Conversion**: Properly handles credential conversion to deployment keys
+
+#### Multi-word Parameter Values
+
+The template supports multi-word values for parameters like `GlobusOrganization` and `GlobusDisplayName`:
+
+- **Proper Quoting**: All parameters are properly quoted in command execution
+- **Standard Parameter Format**: Both single-word and multi-word values work correctly
+- Example: "Amazon Web Services" and "My Globus Endpoint" are properly handled
 
 #### Installation Process for Ubuntu
 
