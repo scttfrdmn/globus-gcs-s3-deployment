@@ -11,6 +11,15 @@ Conditions:
   HasDefaultAdmin: !Not [!Equals [!Ref DefaultAdminIdentity, ""]]
 
 Parameters:
+  ScriptBucket:
+    Description: S3 bucket where the installation script is stored
+    Type: String
+    
+  ScriptKey:
+    Description: S3 key for the installation script (e.g., scripts/globus-setup.sh)
+    Type: String
+    Default: "scripts/globus-setup.sh"
+    
   DeploymentType:
     Description: Type of deployment (affects resource configuration)
     Type: String
@@ -78,8 +87,6 @@ Parameters:
     Description: Subnet within the selected VPC and Availability Zone
     Type: AWS::EC2::Subnet::Id
 
-# S3BucketName parameter moved below with the other connector parameters
-
   GlobusClientId:
     Description: Globus Client ID for registration
     Type: String
@@ -112,7 +119,6 @@ Parameters:
     AllowedPattern: "^$|[a-zA-Z0-9\\-\\.]{3,63}"
     ConstraintDescription: Bucket name must be between 3 and 63 characters, contain only letters, numbers, hyphens, and periods.
     
-
   GlobusDisplayName:
     Description: Display name for the Globus endpoint
     Type: String
@@ -200,7 +206,6 @@ Resources:
 
   GlobusServerS3Policy:
     Type: AWS::IAM::Policy
-    Condition: DeployS3Connector
     Properties:
       PolicyName: GlobusServerS3Access
       PolicyDocument:
@@ -208,9 +213,16 @@ Resources:
         Statement:
           - Effect: Allow
             Action:
+              - s3:GetObject
+            Resource: !Sub "arn:aws:s3:::${ScriptBucket}/${ScriptKey}"
+          - Effect: Allow
+            Action:
               - s3:ListBucket
               - s3:GetBucketLocation
             Resource: !Sub "arn:aws:s3:::${S3BucketName}"
+            Condition:
+              StringNotEquals:
+                "s3:${S3BucketName}": ""
           - Effect: Allow
             Action:
               - s3:PutObject
@@ -219,6 +231,9 @@ Resources:
               - s3:ListMultipartUploadParts
               - s3:AbortMultipartUpload
             Resource: !Sub "arn:aws:s3:::${S3BucketName}/*"
+            Condition:
+              StringNotEquals:
+                "s3:${S3BucketName}": ""
           - Effect: Allow
             Action:
               - ec2:CreateTags
@@ -259,355 +274,51 @@ Resources:
             VolumeType: gp3
             DeleteOnTermination: true
       UserData:
-        Fn::Base64:
-          !Join [ "", [
-            "#!/bin/bash\n",
-            "# Cloud-init script for installing Globus Connect Server\n",
-            "cd /\n",
-            "exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1\n",
-            "echo \"=== GLOBUS-CONNECT-SERVER-DEPLOYMENT-SCRIPT ===\"\n",
-            "echo \"=== Starting Globus Connect Server deployment $(date) ===\"\n",
-            "echo \"Stack:", { "Ref": "AWS::StackName" }, " Region:", { "Ref": "AWS::Region" }, " Type:", { "Ref": "DeploymentType" }, " Auth:", { "Ref": "AuthenticationMethod" }, "\"\n",
-            "echo \"S3 Connector: ", { "Ref": "EnableS3Connector" }, " Bucket: ", { "Ref": "S3BucketName" }, "\"\n",
-            "# Improved error handling - log errors but don't terminate script\n",
-            "function handle_error {\n",
-            "  local exit_code=$1\n",
-            "  local error_message=$2\n",
-            "  local stage=$3\n",
-            "  echo \"ERROR: $error_message (Exit code: $exit_code)\" | tee -a /home/ubuntu/deployment-error.txt\n",
-            "  echo \"$(date) - Error in stage: $stage\" >> /home/ubuntu/deployment-error.txt\n",
-            "  logger -t \"globus-deploy\" \"ERROR in $stage: $error_message (code: $exit_code)\"\n",
-            "  if [ \"$SHOULD_FAIL\" = \"yes\" ]; then\n",
-            "    /opt/aws/bin/cfn-signal -e $exit_code --stack ", { "Ref": "AWS::StackName" }, " --resource GlobusServerInstance --region ", { "Ref": "AWS::Region" }, "\n",
-            "    exit $exit_code\n",
-            "  else\n",
-            "    return 0\n",
-            "  fi\n",
-            "}\n",
-            "SHOULD_FAIL=\"no\"\n",
-            "# Create a debug file to make it easier to diagnose cloud-init issues\n",
-            "echo \"Cloud-init script started at $(date)\" > /home/ubuntu/cloud-init-debug.log\n",
-            "echo \"Script running as: $(id)\" >> /home/ubuntu/cloud-init-debug.log\n",
-            "# Install packages with retry mechanism for robustness\n",
-            "echo \"===== [1/10] Updating package lists =====\" | tee -a /home/ubuntu/cloud-init-debug.log\n",
-            "for i in {1..3}; do\n",
-            "  echo \"Attempt $i: apt-get update\" >> /home/ubuntu/cloud-init-debug.log\n",
-            "  apt-get update && break\n",
-            "  sleep 5\n",
-            "done\n",
-            "echo \"===== [2/10] Installing base packages =====\" | tee -a /home/ubuntu/cloud-init-debug.log\n",
-            "for i in {1..3}; do\n",
-            "  echo \"Attempt $i: Installing packages\" >> /home/ubuntu/cloud-init-debug.log\n",
-            "  apt-get install -y python3-pip jq curl wget gnupg gnupg2 gpg software-properties-common dnsutils apt-transport-https ca-certificates && break\n",
-            "  sleep 5\n",
-            "  [ $i -eq 3 ] && handle_error $? \"Package install failed after 3 attempts\" \"packages\"\n",
-            "done\n",
-            "echo \"===== [3/10] Installing AWS tools =====\" | tee -a /home/ubuntu/cloud-init-debug.log\n",
-            "pip3 install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz || handle_error $? \"Failed to install cfn-bootstrap\" \"aws-tools\"\n",
-            "mkdir -p /opt/aws/bin && ln -sf /usr/local/bin/cfn-* /opt/aws/bin/ || echo \"WARNING: Could not link cfn tools to /opt/aws/bin\"\n",
-            "pip3 install --upgrade awscli || echo \"AWS CLI install warning (non-critical)\"\n",
-            "if [ -f /opt/aws/bin/cfn-signal ]; then\n",
-            "  echo \"CloudFormation tools installed successfully\" >> /home/ubuntu/cloud-init-debug.log\n",
-            "else\n",
-            "  echo \"WARNING: CloudFormation tools not found at expected location\" >> /home/ubuntu/cloud-init-debug.log\n",
-            "fi\n",
-            "# Install Globus Connect Server following official Ubuntu installation instructions\n",
-            "echo \"===== [4/10] Beginning Globus Connect Server installation =====\" | tee -a /home/ubuntu/cloud-init-debug.log\n",
-            "echo \"===== [5/10] Downloading Globus repository package =====\" | tee -a /home/ubuntu/cloud-init-debug.log\n",
-            "for i in {1..3}; do\n",
-            "  echo \"Attempt $i: Downloading repository package\" >> /home/ubuntu/cloud-init-debug.log\n",
-            "  curl -LOs https://downloads.globus.org/globus-connect-server/stable/installers/repo/deb/globus-repo_latest_all.deb && break\n",
-            "  sleep 5\n",
-            "  [ $i -eq 3 ] && handle_error $? \"Failed to download Globus repository package after 3 attempts\" \"repo-download\"\n",
-            "done\n",
-            "if [ -f globus-repo_latest_all.deb ]; then\n",
-            "  echo \"Repository package downloaded successfully: $(ls -l globus-repo_latest_all.deb)\" >> /home/ubuntu/cloud-init-debug.log\n",
-            "else\n",
-            "  echo \"WARNING: Repository package not found after download\" >> /home/ubuntu/cloud-init-debug.log\n",
-            "  ls -l >> /home/ubuntu/cloud-init-debug.log\n",
-            "fi\n",
-            "echo \"===== [6/10] Installing Globus repository package =====\" | tee -a /home/ubuntu/cloud-init-debug.log\n",
-            "dpkg -i globus-repo_latest_all.deb || handle_error $? \"Failed to install Globus repository package\" \"repo-install\"\n",
-            "if [ -f /etc/apt/sources.list.d/globus.list ]; then\n",
-            "  echo \"Repository configuration installed: $(cat /etc/apt/sources.list.d/globus.list)\" >> /home/ubuntu/cloud-init-debug.log\n",
-            "else\n",
-            "  echo \"WARNING: Globus repository configuration not found\" >> /home/ubuntu/cloud-init-debug.log\n",
-            "  ls -l /etc/apt/sources.list.d/ >> /home/ubuntu/cloud-init-debug.log\n",
-            "fi\n",
-            "echo \"===== [7/10] Updating package lists for Globus repo =====\" | tee -a /home/ubuntu/cloud-init-debug.log\n",
-            "for i in {1..3}; do\n",
-            "  echo \"Attempt $i: apt-get update\" >> /home/ubuntu/cloud-init-debug.log\n",
-            "  apt-get update && break\n",
-            "  sleep 5\n",
-            "  [ $i -eq 3 ] && handle_error $? \"Failed to update package lists after 3 attempts\" \"apt-update\"\n",
-            "done\n",
-            "echo \"===== [8/10] Installing Globus Connect Server package =====\" | tee -a /home/ubuntu/cloud-init-debug.log\n",
-            "for i in {1..3}; do\n",
-            "  echo \"Attempt $i: Installing globus-connect-server54\" >> /home/ubuntu/cloud-init-debug.log\n",
-            "  DEBIAN_FRONTEND=noninteractive apt-get install -y globus-connect-server54 && break\n",
-            "  sleep 5\n",
-            "  [ $i -eq 3 ] && handle_error $? \"Failed to install Globus Connect Server package after 3 attempts\" \"gcs-install\"\n",
-            "done\n",
-            "echo \"Verifying Globus Connect Server installation:\" >> /home/ubuntu/cloud-init-debug.log\n",
-            "dpkg -l | grep globus >> /home/ubuntu/cloud-init-debug.log\n",
-            "which globus-connect-server >> /home/ubuntu/cloud-init-debug.log\n",
-            "# Check version and capabilities (using the version 5.4 command)\n",
-            "GCS_VERSION=$(globus-connect-server --version 2>&1 | head -1 | awk '{print $NF}')\n",
-            "echo \"Globus version: $GCS_VERSION ($(which globus-connect-server || echo \"command not found\"))\"\n",
-            "NEEDS_CLIENT_ID=false\n",
-            "# Create configuration directories and files\n",
-            "mkdir -p /etc/globus-connect-server\n",
-            "# Create the configuration file based on authentication method\n",
-            "HOST=$(hostname -f)\n",
-            "CONFIG_FILE=\"/etc/globus-connect-server/globus-connect-server.conf\"\n",
-            "# First part of config is the same for both auth methods\n",
-            "cat > $CONFIG_FILE << EOF\n",
-            "[Globus]\n",
-            "ClientId = ", { "Ref": "GlobusClientId" }, "\n",
-            "ClientSecret = ", { "Ref": "GlobusClientSecret" }, "\n",
-            "\n",
-            "[Endpoint]\n",
-            "Name = ", { "Ref": "GlobusDisplayName" }, "\n",
-            "Public = True\n",
-            "DefaultDirectory = /\n",
-            "EOF\n",
-            "# Security section varies by auth method\n",
-            "if [ \"", { "Ref": "AuthenticationMethod" }, "\" = \"Globus\" ]; then\n",
-            "  cat >> $CONFIG_FILE << EOF\n",
-            "[Security]\n",
-            "Authentication = Globus\n",
-            "IdentityMethod = OAuth\n",
-            "RequireEncryption = True\n",
-            "Authorization = True\n",
-            "EOF\n",
-            "else\n",
-            "  cat >> $CONFIG_FILE << EOF\n",
-            "[Security]\n",
-            "FetchCredentialFromRelay = True\n",
-            "IdentityMethod = MyProxy\n",
-            "Authorization = False\n",
-            "EOF\n",
-            "fi\n",
-            "# Add GridFTP section\n",
-            "cat >> $CONFIG_FILE << EOF\n",
-            "[GridFTP]\n",
-            "Server = $HOST\n",
-            "IncomingPortRange = 50000,51000\n",
-            "OutgoingPortRange = 50000,51000\n",
-            "RestrictPaths = \n",
-            "Sharing = True\n",
-            "SharingRestrictPaths = \n",
-            "EOF\n",
-            "# Configure S3 connector if needed\n",
-            "if [ \"", { "Ref": "EnableS3Connector" }, "\" = \"true\" ] && [ \"", { "Ref": "S3BucketName" }, "\" != \"\" ]; then\n",
-            "  mkdir -p /opt/globus-connect-server-s3\n",
-            "  echo '{\"canonical_name\":\"s3_storage\",\"display_name\":\"S3 Connector\",\"storage_type\":\"s3\",\"connector_type\":\"s3\",\"authentication_method\":\"aws_s3_path_style\",\"configuration\":{\"credentials_type\":\"role\",\"bucket\":\"", { "Ref": "S3BucketName" }, "\"}}' > /opt/globus-connect-server-s3/s3_connector.json\n",
-            "fi\n",
-            "# Setup helper script and credentials files\n",
-            "echo \"Creating run-globus-setup.sh helper script...\" | tee -a /home/ubuntu/cloud-init-debug.log\n",
-            "# Ensure ubuntu home directory exists\n",
-            "mkdir -p /home/ubuntu\n",
-            "chown ubuntu:ubuntu /home/ubuntu\n",
-            "# Create the helper script with error checking\n",
-            "cat > /home/ubuntu/run-globus-setup.sh << 'EOF'\n",
-            "#!/bin/bash\n",
-            "# Get credentials from args or files\n",
-            "[ -z \"$1\" ] && [ -f /home/ubuntu/globus-client-id.txt ] && GC_ID=$(cat /home/ubuntu/globus-client-id.txt) || GC_ID=\"$1\"\n",
-            "[ -z \"$2\" ] && [ -f /home/ubuntu/globus-client-secret.txt ] && GC_SECRET=$(cat /home/ubuntu/globus-client-secret.txt) || GC_SECRET=\"$2\"\n",
-            "[ -z \"$3\" ] && [ -f /home/ubuntu/globus-display-name.txt ] && GC_NAME=$(cat /home/ubuntu/globus-display-name.txt) || GC_NAME=\"$3\"\n",
-            "\n",
-            "echo \"Running Globus endpoint setup with:\"\n",
-            "echo \"- Client ID: $(echo $GC_ID | cut -c1-5)... (truncated)\"\n",
-            "echo \"- Display Name: $GC_NAME\"\n",
-            "\n",
-            "# Check for existing endpoint with same name\n",
-            "echo \"Checking for existing endpoint with the same name...\"\n",
-            "EXISTING_ENDPOINT=$(globus-connect-server endpoint list 2>/dev/null | grep -F \"$GC_NAME\" || echo \"\")\n",
-            "\n",
-            "if [ -n \"$EXISTING_ENDPOINT\" ]; then\n",
-            "  echo \"WARNING: An endpoint with name '$GC_NAME' already exists!\"\n",
-            "  echo \"Existing endpoint details:\"\n",
-            "  echo \"$EXISTING_ENDPOINT\"\n",
-            "  \n",
-            "  # Extract endpoint ID if possible\n",
-            "  ENDPOINT_ID=$(echo \"$EXISTING_ENDPOINT\" | awk '{print $1}')\n",
-            "  if [ -n \"$ENDPOINT_ID\" ]; then\n",
-            "    echo \"Using existing endpoint ID: $ENDPOINT_ID\"\n",
-            "    echo \"$ENDPOINT_ID\" > /home/ubuntu/existing-endpoint-id.txt\n",
-            "  else\n",
-            "    echo \"Could not extract endpoint ID, proceeding with setup anyway\"\n",
-            "  fi\n",
-            "fi\n",
-            "\n",
-            "# Try setup with correct parameter name for older versions\n",
-            "echo \"Setting up Globus endpoint...\"\n",
-            "globus-connect-server endpoint setup --client-id \"$GC_ID\" --secret \"$GC_SECRET\" --display-name \"$GC_NAME\" --organization \"AWS\"\n",
-            "\n",
-            "# Show result\n",
-            "echo \"Setup complete! Endpoint details:\"\n",
-            "globus-connect-server endpoint show\n",
-            "EOF\n",
-            "if [ -f /home/ubuntu/run-globus-setup.sh ]; then\n",
-            "  chmod +x /home/ubuntu/run-globus-setup.sh\n",
-            "  chown ubuntu:ubuntu /home/ubuntu/run-globus-setup.sh\n",
-            "  echo \"Helper script created successfully at /home/ubuntu/run-globus-setup.sh\" | tee -a /home/ubuntu/cloud-init-debug.log\n",
-            "else\n",
-            "  echo \"ERROR: Failed to create helper script!\" | tee -a /home/ubuntu/cloud-init-debug.log\n",
-            "  # Try an alternative approach - create it using echo\n",
-            "  echo '#!/bin/bash' > /home/ubuntu/run-globus-setup.sh\n",
-            "  echo '# Manual setup script for Globus' >> /home/ubuntu/run-globus-setup.sh\n",
-            "  echo 'GC_ID=${1:-$(cat /home/ubuntu/globus-client-id.txt 2>/dev/null)}' >> /home/ubuntu/run-globus-setup.sh\n",
-            "  echo 'GC_SECRET=${2:-$(cat /home/ubuntu/globus-client-secret.txt 2>/dev/null)}' >> /home/ubuntu/run-globus-setup.sh\n",
-            "  echo 'GC_NAME=${3:-$(cat /home/ubuntu/globus-display-name.txt 2>/dev/null)}' >> /home/ubuntu/run-globus-setup.sh\n",
-            "  echo 'globus-connect-server endpoint setup --client-id \"$GC_ID\" --secret \"$GC_SECRET\" --display-name \"$GC_NAME\" --organization \"AWS\"' >> /home/ubuntu/run-globus-setup.sh\n",
-            "  chmod +x /home/ubuntu/run-globus-setup.sh\n",
-            "  chown ubuntu:ubuntu /home/ubuntu/run-globus-setup.sh\n",
-            "fi\n",
-            "# Store credentials and deployment details for troubleshooting\n",
-            "echo \"Storing credentials for troubleshooting...\" | tee -a /home/ubuntu/cloud-init-debug.log\n",
-            "# Store each credential file separately with error checking\n",
-            "echo \"", { "Ref": "GlobusClientId" }, "\" > /home/ubuntu/globus-client-id.txt && \\\n",
-            "  chmod 600 /home/ubuntu/globus-client-id.txt && \\\n",
-            "  chown ubuntu:ubuntu /home/ubuntu/globus-client-id.txt && \\\n",
-            "  echo \"- Created client ID file\" >> /home/ubuntu/cloud-init-debug.log || \\\n",
-            "  echo \"ERROR: Failed to create client ID file\" | tee -a /home/ubuntu/cloud-init-debug.log\n",
-            "echo \"", { "Ref": "GlobusClientSecret" }, "\" > /home/ubuntu/globus-client-secret.txt && \\\n",
-            "  chmod 600 /home/ubuntu/globus-client-secret.txt && \\\n",
-            "  chown ubuntu:ubuntu /home/ubuntu/globus-client-secret.txt && \\\n",
-            "  echo \"- Created client secret file\" >> /home/ubuntu/cloud-init-debug.log || \\\n",
-            "  echo \"ERROR: Failed to create client secret file\" | tee -a /home/ubuntu/cloud-init-debug.log\n",
-            "echo \"", { "Ref": "GlobusDisplayName" }, "\" > /home/ubuntu/globus-display-name.txt && \\\n",
-            "  chmod 600 /home/ubuntu/globus-display-name.txt && \\\n",
-            "  chown ubuntu:ubuntu /home/ubuntu/globus-display-name.txt && \\\n",
-            "  echo \"- Created display name file\" >> /home/ubuntu/cloud-init-debug.log || \\\n",
-            "  echo \"ERROR: Failed to create display name file\" | tee -a /home/ubuntu/cloud-init-debug.log\n",
-            "# Create a deployment log that can be checked for \"scripts-user\" errors\n",
-            "echo \"Checking for cloud-init script-user issues...\"\n",
-            "if grep -q \"Failed to run module scripts-user\" /var/log/cloud-init.log 2>/dev/null; then\n",
-            "  echo \"WARNING: Found 'Failed to run module scripts-user' in cloud-init logs.\" > /home/ubuntu/cloud-init-warning.txt\n",
-            "  echo \"This warning can sometimes be ignored if the deployment completes successfully.\" >> /home/ubuntu/cloud-init-warning.txt\n",
-            "  echo \"Checking if we're still running...\" >> /home/ubuntu/cloud-init-warning.txt\n",
-            "  echo \"Current script PID: $$\" >> /home/ubuntu/cloud-init-warning.txt\n",
-            "  ps -ef | grep cloud-init >> /home/ubuntu/cloud-init-warning.txt\n",
-            "else\n",
-            "  echo \"No cloud-init script-user issues detected.\" > /home/ubuntu/cloud-init-warning.txt\n",
-            "fi\n",
-            "# Attempt setup with appropriate method\n",
-            "SETUP_LOG=\"/var/log/globus-setup.log\"\n",
-            "echo \"Starting Globus Connect Server setup $(date)\" > $SETUP_LOG\n",
-            "# Check if endpoint already exists\n",
-            "echo \"Checking for existing endpoint with the same name...\" > $SETUP_LOG\n",
-            "EXISTING_ENDPOINT=$(globus-connect-server endpoint list 2>/dev/null | grep -F \"", { "Ref": "GlobusDisplayName" }, "\" || echo \"\")\n",
-            "if [ -n \"$EXISTING_ENDPOINT\" ]; then\n",
-            "  echo \"WARNING: An endpoint with name '", { "Ref": "GlobusDisplayName" }, "' already exists!\" | tee -a $SETUP_LOG\n",
-            "  echo \"Existing endpoint details:\" | tee -a $SETUP_LOG\n",
-            "  echo \"$EXISTING_ENDPOINT\" | tee -a $SETUP_LOG\n",
-            "  # Extract endpoint ID if possible to use existing endpoint\n",
-            "  ENDPOINT_ID=$(echo \"$EXISTING_ENDPOINT\" | awk '{print $1}')\n",
-            "  if [ -n \"$ENDPOINT_ID\" ]; then\n",
-            "    echo \"Using existing endpoint ID: $ENDPOINT_ID\" | tee -a $SETUP_LOG\n",
-            "    echo \"$ENDPOINT_ID\" > /home/ubuntu/existing-endpoint-id.txt\n",
-            "    SETUP_STATUS=0  # Not an error, we'll use existing endpoint\n",
-            "  else\n",
-            "    echo \"ERROR: Could not extract endpoint ID from existing endpoint.\" | tee -a $SETUP_LOG\n",
-            "    SETUP_STATUS=1\n",
-            "  fi\n",
-            "else\n",
-            "  # No existing endpoint, create a new one\n",
-            "  echo \"No existing endpoint found. Creating new endpoint...\" | tee -a $SETUP_LOG\n",
-            "  # Use the correct parameter name for pre-5.4.61 versions\n",
-            "  globus-connect-server endpoint setup --client-id \"", { "Ref": "GlobusClientId" }, "\" --secret \"", { "Ref": "GlobusClientSecret" }, "\" \\\n",
-            "    --display-name \"", { "Ref": "GlobusDisplayName" }, "\" --organization \"AWS\" >> $SETUP_LOG 2>&1\n",
-            "  SETUP_STATUS=$?\n",
-            "fi\n",
-            "# Diagnostics and reporting\n",
-            "SYSTEM_INFO=\"System: $(uname -a) Host: $(hostname -f) Packages: $(dpkg -l | grep -c globus)\"\n",
-            "echo \"$SYSTEM_INFO\" > /home/ubuntu/globus-setup-diag.log\n",
-            "cp $SETUP_LOG /home/ubuntu/globus-setup-complete.log\n",
-            "# Record setup status\n",
-            "[ $SETUP_STATUS -eq 124 ] && echo \"FAILURE_REASON=TIMEOUT\" > /home/ubuntu/globus-setup-failed.txt || \\\n",
-            "[ $SETUP_STATUS -ne 0 ] && echo \"FAILURE_REASON=ERROR_CODE_$SETUP_STATUS\" > /home/ubuntu/globus-setup-failed.txt || \\\n",
-            "echo \"SETUP_FAILED=false\" > /home/ubuntu/globus-setup-failed.txt\n",
-            "# Configure admin access if specified\n",
-            "if [ \"", { "Ref": "AuthenticationMethod" }, "\" = \"Globus\" ] && [ \"", { "Ref": "DefaultAdminIdentity" }, "\" != \"\" ]; then\n",
-            "  for try in {1..3}; do\n",
-            "    sleep 5\n",
-            "    globus-connect-server endpoint permission create --permissions read,write --principal \"", { "Ref": "DefaultAdminIdentity" }, "\" --path \"/\" && break\n",
-            "  done\n",
-            "fi\n",
-            "# Configure S3 connector if subscription exists\n",
-            "if [ -n \"", { "Ref": "GlobusSubscriptionId" }, "\" ]; then\n",
-            "  # S3 connector - check command availability first\n",
-            "  if [ \"", { "Ref": "EnableS3Connector" }, "\" = \"true\" ] && [ \"", { "Ref": "S3BucketName" }, "\" != \"\" ] && aws s3 ls \"s3://", { "Ref": "S3BucketName" }, "\" >/dev/null 2>&1; then\n",
-            "    # Check if the command supports storage-gateway\n",
-            "    if globus-connect-server help 2>&1 | grep -q \"storage-gateway\"; then\n",
-            "      globus-connect-server storage-gateway create --connector-id s3_storage --display-name \"S3 Connector\" \\\n",
-            "        --connector-type s3 --authentication-method aws_s3_path_style --credentials-type role --bucket ", { "Ref": "S3BucketName" }, "\n",
-            "    else\n",
-            "      echo \"WARNING: This version of Globus does not support the storage-gateway command\" | tee -a $SETUP_LOG\n",
-            "    fi\n",
-            "  fi\n",
-            "  # Join subscription\n",
-            "  pip3 install -q globus-cli\n",
-            "  mkdir -p ~/.globus && echo -e \"[cli]\\ndefault_client_id = ", { "Ref": "GlobusClientId" }, "\\n\" > ~/.globus/globus.cfg\n",
-            "  # Add secret instead of client_secret for compatibility\n",
-            "  echo -e \"default_client_secret = ", { "Ref": "GlobusClientSecret" }, "\" >> ~/.globus/globus.cfg\n",
-            "  sleep 5\n",
-            "  ENDPOINT_ID=$(globus-connect-server endpoint show 2>/dev/null | grep -E 'UUID|ID' | awk '{print $2}' | head -1)\n",
-            "  [ -n \"$ENDPOINT_ID\" ] && globus-connect-server endpoint update --subscription-id \"", { "Ref": "GlobusSubscriptionId" }, "\" --display-name \"", { "Ref": "GlobusDisplayName" }, "\"\n",
-            "fi\n",
-            "# Enable services and tag instance\n",
-            "[ -f /lib/systemd/system/globus-gridftp-server.service ] && systemctl enable globus-gridftp-server && systemctl start globus-gridftp-server\n",
-            "INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)\n",
-            "aws ec2 create-tags --resources $INSTANCE_ID --tags Key=GlobusInstalled,Value=true --region ", { "Ref": "AWS::Region" }, " || true\n",
-            "# Create minimal deployment summary\n",
-            "echo \"Deployment: $(date) Instance:$INSTANCE_ID Type:", { "Ref": "DeploymentType" }, " Auth:", { "Ref": "AuthenticationMethod" }, " S3:", { "Ref": "EnableS3Connector" }, "\" > /home/ubuntu/deployment-summary.txt\n",
-            "# ===== Final deployment steps and diagnostics =====\n",
-            "echo \"===== [9/10] Collecting diagnostic information =====\" | tee -a /home/ubuntu/cloud-init-debug.log\n",
-            "# Copy cloud-init logs for debugging\n",
-            "echo \"Collecting cloud-init logs...\" >> /home/ubuntu/cloud-init-debug.log\n",
-            "for logfile in /var/log/cloud-init.log /var/log/cloud-init-output.log /var/log/user-data.log; do\n",
-            "  if [ -f \"$logfile\" ]; then\n",
-            "    cp \"$logfile\" \"/home/ubuntu/$(basename $logfile)\"\n",
-            "    echo \"Copied $logfile\" >> /home/ubuntu/cloud-init-debug.log\n",
-            "  else\n",
-            "    echo \"WARNING: $logfile not found\" >> /home/ubuntu/cloud-init-debug.log\n",
-            "  fi\n",
-            "done\n",
-            "# Collect cloud-init diagnostics\n",
-            "echo \"Cloud-init diagnostics:\" >> /home/ubuntu/cloud-init-debug.log\n",
-            "cloud-init status >> /home/ubuntu/cloud-init-debug.log 2>&1 || echo \"Could not get cloud-init status\" >> /home/ubuntu/cloud-init-debug.log\n",
-            "# Check for scripts-user module errors\n",
-            "if grep -q \"Failed to run module scripts-user\" /var/log/cloud-init.log 2>/dev/null; then\n",
-            "  echo \"NOTICE: Found 'Failed to run module scripts-user' in cloud-init logs.\" > /home/ubuntu/cloud-init-modules.log\n",
-            "  echo \"Checking part files in /var/lib/cloud/instance/scripts/:\" >> /home/ubuntu/cloud-init-modules.log\n",
-            "  ls -la /var/lib/cloud/instance/scripts/ >> /home/ubuntu/cloud-init-modules.log 2>&1\n",
-            "  # Extract the relevant errors\n",
-            "  grep -A10 \"Failed to run module scripts-user\" /var/log/cloud-init.log >> /home/ubuntu/cloud-init-modules.log\n",
-            "fi\n",
-            "# Copy CloudFormation logs\n",
-            "if [ -f /var/log/cfn-init.log ]; then\n",
-            "  cp /var/log/cfn-init.log /home/ubuntu/cfn-init.log\n",
-            "fi\n",
-            "if [ -f /var/log/cfn-init-cmd.log ]; then \n",
-            "  cp /var/log/cfn-init-cmd.log /home/ubuntu/cfn-init-cmd.log\n",
-            "fi\n",
-            "# Create a status summary file\n",
-            "echo \"===== [10/10] Finalizing deployment =====\" | tee -a /home/ubuntu/cloud-init-debug.log\n",
-            "echo \"Deployment completed at: $(date)\" > /home/ubuntu/deployment-summary.txt\n",
-            "echo \"Globus installation status: $(dpkg -l | grep -c globus-connect-server)\" >> /home/ubuntu/deployment-summary.txt\n",
-            "echo \"Globus command found: $(which globus-connect-server || echo \"NOT FOUND\")\" >> /home/ubuntu/deployment-summary.txt\n",
-            "echo \"Cloud-init status: $(cloud-init status 2>&1 || echo \"Could not determine\")\" >> /home/ubuntu/deployment-summary.txt\n",
-            "# Make sure we wait a bit to allow any background processes to complete\n",
-            "sleep 5\n",
-            "echo \"Signaling CloudFormation stack that deployment is complete\"\n",
-            "# Signal success to CloudFormation\n",
-            "# Explicitly setting status to 0 to prevent cloud-init errors from failing the stack\n",
-            "/opt/aws/bin/cfn-signal -e 0 --stack ", { "Ref": "AWS::StackName" }, " --resource GlobusServerInstance --region ", { "Ref": "AWS::Region" }, " || echo \"WARNING: cfn-signal failed\" > /home/ubuntu/cfn-signal-failed.txt\n",
-            "# Important: Mark the end of our script for proper cloud-init completion\n",
-            "echo \"=== GLOBUS-CONNECT-SERVER-DEPLOYMENT-COMPLETE ===\"\n",
-            "exit 0  # Explicitly exit with success code for cloud-init\n"
-          ]]
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          # Bootstrap script to download and run the Globus installation script from S3
+          
+          # Ensure we log errors and output
+          exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+          
+          echo "=== GLOBUS-CONNECT-SERVER-BOOTSTRAP ==="
+          
+          # Install AWS CLI if not present
+          apt-get update && apt-get install -y python3-pip curl
+          pip3 install --upgrade awscli
+          
+          # Install AWS CloudFormation helpers
+          pip3 install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz
+          mkdir -p /opt/aws/bin && ln -sf /usr/local/bin/cfn-* /opt/aws/bin/
+          
+          # Environment variables for the script
+          export AWS_REGION=${AWS::Region}
+          export AWS_STACK_NAME=${AWS::StackName}
+          export GLOBUS_CLIENT_ID=${GlobusClientId}
+          export GLOBUS_CLIENT_SECRET=${GlobusClientSecret}
+          export GLOBUS_DISPLAY_NAME=${GlobusDisplayName}
+          export GLOBUS_SUBSCRIPTION_ID=${GlobusSubscriptionId}
+          export DEPLOYMENT_TYPE=${DeploymentType}
+          export AUTH_METHOD=${AuthenticationMethod}
+          export DEFAULT_ADMIN=${DefaultAdminIdentity}
+          export ENABLE_S3_CONNECTOR=${EnableS3Connector}
+          export S3_BUCKET_NAME=${S3BucketName}
+          
+          # Download the installation script from S3
+          echo "Downloading installation script from s3://${ScriptBucket}/${ScriptKey}"
+          aws s3 cp s3://${ScriptBucket}/${ScriptKey} /tmp/globus-setup.sh
+          
+          # Make it executable
+          chmod +x /tmp/globus-setup.sh
+          
+          # Run the installation script
+          echo "Running installation script"
+          bash /tmp/globus-setup.sh
+          
+          # Signal CloudFormation of completion
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}
+          
+          echo "=== GLOBUS-CONNECT-SERVER-BOOTSTRAP-COMPLETE ==="
       Tags:
         - Key: Name
           Value: globus-connect-server

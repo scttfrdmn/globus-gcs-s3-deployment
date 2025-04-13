@@ -50,6 +50,14 @@
 ```json
 [
   {
+    "ParameterKey": "ScriptBucket",
+    "ParameterValue": "your-script-bucket"
+  },
+  {
+    "ParameterKey": "ScriptKey",
+    "ParameterValue": "scripts/globus-setup.sh"
+  },
+  {
     "ParameterKey": "DeploymentType",
     "ParameterValue": "Production"
   },
@@ -108,7 +116,37 @@
 ]
 ```
 
-### 2. Deploy the CloudFormation stack
+### 2. Upload the installation script to S3
+
+```bash
+# Create an S3 bucket (or use an existing one)
+aws s3 mb s3://your-script-bucket --region your-region
+
+# Upload the installation script
+aws s3 cp scripts/globus-setup.sh s3://your-script-bucket/scripts/
+
+# Set bucket policy to allow the EC2 instance to access the script (optional)
+cat > bucket-policy.json << EOF
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": "arn:aws:iam::YOUR_ACCOUNT_ID:role/YOUR_STACK_NAME-GlobusServerRole-XXXX"
+            },
+            "Action": "s3:GetObject",
+            "Resource": "arn:aws:s3:::your-script-bucket/scripts/globus-setup.sh"
+        }
+    ]
+}
+EOF
+
+# Apply the bucket policy (optional - only if needed)
+# aws s3api put-bucket-policy --bucket your-script-bucket --policy file://bucket-policy.json
+```
+
+### 3. Deploy the CloudFormation stack
 
 ```bash
 aws cloudformation create-stack \
@@ -118,7 +156,9 @@ aws cloudformation create-stack \
   --capabilities CAPABILITY_IAM
 ```
 
-### 3. Monitor deployment
+> **Important**: The parameters file must include `ScriptBucket` parameter pointing to your S3 bucket.
+
+### 4. Monitor deployment
 
 ```bash
 # Check stack creation status - outputs just the status without quotes
