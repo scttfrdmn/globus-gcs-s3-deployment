@@ -207,9 +207,14 @@ if [ -n "$EXISTING_ENDPOINT" ]; then
   fi
 fi
 
-# Try setup with correct parameter name for older versions
+# Try setup with versions that support different options
 echo "Setting up Globus endpoint..."
-globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" --display-name "$GC_NAME" --organization "AWS"
+# First try with minimal options (very old versions)
+globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" || \
+# Next try with display name but no organization (mid versions)
+globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" --name "$GC_NAME" || \
+# Try with newer parameter names
+globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" --name "$GC_NAME" --organization "AWS"
 
 # Show result
 echo "Setup complete! Endpoint details:"
@@ -228,7 +233,7 @@ else
   echo 'GC_ID=${1:-$(cat /home/ubuntu/globus-client-id.txt 2>/dev/null)}' >> /home/ubuntu/run-globus-setup.sh
   echo 'GC_SECRET=${2:-$(cat /home/ubuntu/globus-client-secret.txt 2>/dev/null)}' >> /home/ubuntu/run-globus-setup.sh
   echo 'GC_NAME=${3:-$(cat /home/ubuntu/globus-display-name.txt 2>/dev/null)}' >> /home/ubuntu/run-globus-setup.sh
-  echo 'globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" --display-name "$GC_NAME" --organization "AWS"' >> /home/ubuntu/run-globus-setup.sh
+  echo 'globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" || globus-connect-server endpoint setup --client-id "$GC_ID" --secret "$GC_SECRET" --name "$GC_NAME"' >> /home/ubuntu/run-globus-setup.sh
   chmod +x /home/ubuntu/run-globus-setup.sh
   chown ubuntu:ubuntu /home/ubuntu/run-globus-setup.sh
 fi
@@ -292,10 +297,16 @@ if [ -n "$EXISTING_ENDPOINT" ]; then
 else
   # No existing endpoint, create a new one
   echo "No existing endpoint found. Creating new endpoint..." | tee -a $SETUP_LOG
-  # Use the correct parameter name for pre-5.4.61 versions
-  globus-connect-server endpoint setup --client-id "$GLOBUS_CLIENT_ID" --secret "$GLOBUS_CLIENT_SECRET" \
-    --display-name "$GLOBUS_DISPLAY_NAME" --organization "AWS" >> $SETUP_LOG 2>&1
-  SETUP_STATUS=$?
+  
+  # Try all possible parameter combinations for different Globus Connect Server versions
+  echo "Trying setup with minimal parameters..." | tee -a $SETUP_LOG
+  (globus-connect-server endpoint setup --client-id "$GLOBUS_CLIENT_ID" --secret "$GLOBUS_CLIENT_SECRET" >> $SETUP_LOG 2>&1) && SETUP_STATUS=$? || \
+  
+  echo "Trying setup with --name parameter..." | tee -a $SETUP_LOG
+  (globus-connect-server endpoint setup --client-id "$GLOBUS_CLIENT_ID" --secret "$GLOBUS_CLIENT_SECRET" --name "$GLOBUS_DISPLAY_NAME" >> $SETUP_LOG 2>&1) && SETUP_STATUS=$? || \
+  
+  echo "Trying setup with --name and --organization parameters..." | tee -a $SETUP_LOG
+  (globus-connect-server endpoint setup --client-id "$GLOBUS_CLIENT_ID" --secret "$GLOBUS_CLIENT_SECRET" --name "$GLOBUS_DISPLAY_NAME" --organization "AWS" >> $SETUP_LOG 2>&1) && SETUP_STATUS=$?
 fi
 
 # Diagnostics and reporting
