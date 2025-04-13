@@ -212,10 +212,18 @@ if [ $? -ne 0 ]; then
     KEY_FILE="/tmp/globus-key.json"
     
     # Convert client ID/secret to a key file
-    globus-connect-server endpoint key convert \
-      --client-id "$GC_ID" \
-      --secret "$GC_SECRET" \
-      --output "$KEY_FILE"
+    if globus-connect-server endpoint key convert --help 2>/dev/null | grep -q -- "--output"; then
+      # Use --output if supported
+      globus-connect-server endpoint key convert \
+        --client-id "$GC_ID" \
+        --secret "$GC_SECRET" \
+        --output "$KEY_FILE"
+    else
+      # Otherwise, redirect output to the key file
+      globus-connect-server endpoint key convert \
+        --client-id "$GC_ID" \
+        --secret "$GC_SECRET" > "$KEY_FILE"
+    fi
     
     if [ $? -eq 0 ] && [ -f "$KEY_FILE" ]; then
       echo "Successfully converted credentials to key. Trying setup with deployment key..."
@@ -284,7 +292,11 @@ else
   echo 'if globus-connect-server endpoint key convert --help &>/dev/null; then \\' >> /home/ubuntu/run-globus-setup.sh
   echo '  echo "Converting client credentials to deployment key..." && \\' >> /home/ubuntu/run-globus-setup.sh
   echo '  KEY_FILE="/tmp/globus-key.json" && \\' >> /home/ubuntu/run-globus-setup.sh
-  echo '  globus-connect-server endpoint key convert --client-id "$GC_ID" --secret "$GC_SECRET" --output "$KEY_FILE" && \\' >> /home/ubuntu/run-globus-setup.sh
+  echo '  if globus-connect-server endpoint key convert --help 2>/dev/null | grep -q -- "--output"; then \\' >> /home/ubuntu/run-globus-setup.sh
+  echo '    globus-connect-server endpoint key convert --client-id "$GC_ID" --secret "$GC_SECRET" --output "$KEY_FILE"; \\' >> /home/ubuntu/run-globus-setup.sh
+  echo '  else \\' >> /home/ubuntu/run-globus-setup.sh
+  echo '    globus-connect-server endpoint key convert --client-id "$GC_ID" --secret "$GC_SECRET" > "$KEY_FILE"; \\' >> /home/ubuntu/run-globus-setup.sh
+  echo '  fi && \\' >> /home/ubuntu/run-globus-setup.sh
   echo '  [ -f "$KEY_FILE" ] && \\' >> /home/ubuntu/run-globus-setup.sh
   echo '  globus-connect-server endpoint setup --organization "$GC_ORG" --contact-email "admin@example.com" --owner "admin@example.com" --yes --deployment-key "$KEY_FILE" "$GC_NAME" \\' >> /home/ubuntu/run-globus-setup.sh
   echo 'else \\' >> /home/ubuntu/run-globus-setup.sh
@@ -392,10 +404,19 @@ else
       
       # Create temporary key file
       KEY_FILE="/tmp/globus-key.json"
-      globus-connect-server endpoint key convert \
-        --client-id "$GLOBUS_CLIENT_ID" \
-        --secret "$GLOBUS_CLIENT_SECRET" \
-        --output "$KEY_FILE" >> $SETUP_LOG 2>&1
+      # Check if --output is supported
+      if globus-connect-server endpoint key convert --help 2>/dev/null | grep -q -- "--output"; then
+        # Use --output if supported
+        globus-connect-server endpoint key convert \
+          --client-id "$GLOBUS_CLIENT_ID" \
+          --secret "$GLOBUS_CLIENT_SECRET" \
+          --output "$KEY_FILE" >> $SETUP_LOG 2>&1
+      else
+        # Otherwise, redirect output to the key file
+        globus-connect-server endpoint key convert \
+          --client-id "$GLOBUS_CLIENT_ID" \
+          --secret "$GLOBUS_CLIENT_SECRET" > "$KEY_FILE" 2>> $SETUP_LOG
+      fi
       
       if [ $? -eq 0 ] && [ -f "$KEY_FILE" ]; then
         echo "Successfully converted credentials to key file. Trying setup with key..." | tee -a $SETUP_LOG
