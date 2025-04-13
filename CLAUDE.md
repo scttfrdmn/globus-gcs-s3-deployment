@@ -22,12 +22,20 @@ The deployment uses Ubuntu 22.04 LTS and installs Globus packages using the Debi
   - Other related services
 - Command structure:
   - Main command: `globus-connect-server`
-  - Endpoint setup (v5.4.61+): `globus-connect-server endpoint setup --config-file <file>`
-  - Endpoint setup (pre-v5.4.61): `globus-connect-server endpoint setup --client-id <id> --client-secret <secret> ...`
+  - Version checking: `globus-connect-server --version` (returns "globus-connect-server, package X.Y.Z, cli A.B.C")
+  - Endpoint setup (v5.4.61+): `globus-connect-server endpoint setup [OPTIONS] DISPLAY_NAME`
+    - Modern parameters: `--organization`, `--contact-email`, `--owner`, `--agree-to-letsencrypt-tos`, `--deployment-key`
+    - Display name is a positional argument (last argument)
+  - Endpoint key conversion: `globus-connect-server endpoint key convert --client-id <id> --secret <secret>`
   - Create permissions: `globus-connect-server endpoint permission create`
-  - Create storage gateway: `globus-connect-server storage-gateway create`
+  - Create storage gateway: `globus-connect-server storage-gateway create s3 [OPTIONS]`
+    - S3 is a subcommand (positional argument)
   - Show endpoint: `globus-connect-server endpoint show`
-  - **VERSION COMPATIBILITY**: For Globus Connect Server versions prior to 5.4.61, explicit client credentials must be passed with `--client-id` and `--client-secret` options
+  - **VERSION COMPATIBILITY**:
+    - Template requires Globus Connect Server 5.4.61+
+    - The script handles various version output formats
+    - Specifically extracts version from "package X.Y.Z" format
+    - Performs proper SemVer comparison for compatibility checks
 - For command path issues:
   - Verify installation: `dpkg -l | grep globus`
   - Check command path: `which globus-connect-server`
@@ -47,14 +55,23 @@ When troubleshooting CloudFormation deployment failures:
    - Main deployment logs: `/var/log/user-data.log` and `/var/log/cloud-init-output.log`
    - Globus setup log (most detailed): `/var/log/globus-setup.log`
    - Deployment summary: `/home/ubuntu/deployment-summary.txt`
+   - Version check debug info: Look for "Detected Globus Connect Server version" in logs
    - Auth configuration issues: Look for ClientId/ClientSecret issues in config files
    - Package installation issues: Check if Globus packages are correctly installed with `dpkg -l | grep globus`
-   - Verify the Globus setup command path with `which globus-connect-server-setup`
-8. For ROLLBACK_COMPLETE status, focus on the resource that initiated the rollback
-9. **Verify network connectivity:**
-   - Ensure the instance has a public IP address assigned (check Public DNS or IP in the EC2 console)
-   - Confirm security groups allow Globus ports (443, 2811, 7512, 50000-51000)
-   - Test connectivity from the internet to the public endpoint
+   - Verify the Globus command path with `which globus-connect-server`
+8. For version compatibility issues:
+   - Check the raw version output: `globus-connect-server --version`
+   - Verify script correctly extracts the package version number
+   - For version "globus-connect-server, package 5.4.83, cli 1.0.58", ensure "5.4.83" is extracted
+   - Compare with required minimum version 5.4.61
+9. For ROLLBACK_COMPLETE status, focus on the resource that initiated the rollback
+10. For parameter handling issues:
+    - Multi-word values must be properly quoted in all commands
+    - Parameter values like "Amazon Web Services" should be preserved with spaces intact
+11. **Verify network connectivity:**
+    - Ensure the instance has a public IP address assigned (check Public DNS or IP in the EC2 console)
+    - Confirm security groups allow Globus ports (443, 2811, 7512, 50000-51000)
+    - Test connectivity from the internet to the public endpoint
 
 ## Code Style Guidelines
 
