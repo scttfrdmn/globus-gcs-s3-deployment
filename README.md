@@ -17,7 +17,7 @@ This repository contains a CloudFormation template for deploying Globus Connect 
 
 1. **AWS Account and Permissions**:
    - IAM permissions for CloudFormation, EC2, S3, IAM
-   - EC2 key pair for SSH access
+   - Existing EC2 key pair in your AWS account for SSH access
    - Existing VPC with public subnet
 
 2. **Globus Account and Registration**:

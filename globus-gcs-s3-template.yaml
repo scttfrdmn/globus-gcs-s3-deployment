@@ -60,9 +60,9 @@ Parameters:
     ConstraintDescription: Must be a valid EC2 instance type.
 
   KeyName:
-    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+    Description: Name of an existing AWS EC2 KeyPair to enable SSH access to the instance
     Type: AWS::EC2::KeyPair::KeyName
-    ConstraintDescription: Must be the name of an existing EC2 KeyPair.
+    ConstraintDescription: Must be the name of an existing EC2 KeyPair in your AWS account.
 
   AvailabilityZone:
     Description: The Availability Zone to launch the instance in

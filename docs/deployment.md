@@ -36,17 +36,44 @@
 - Using **Globus Auth** for identity federation 
 - For details on Globus Auth, see the [official documentation](https://docs.globus.org/globus-connect-server/v5.4/admin-guide/identity-access-management/)
 
-### Globus Registration Parameters
+### CloudFormation Template Parameters
+
+The template accepts the following parameters:
+
+#### Required Parameters
+
+- **VpcId**: VPC to deploy Globus Connect Server into
+- **SubnetId**: Subnet within the selected VPC and Availability Zone
+- **AvailabilityZone**: The Availability Zone to launch the instance in
+- **KeyName**: Name of an existing AWS EC2 KeyPair to enable SSH access to the instance
+
+#### Required Globus Parameters
 
 Based on the [Globus endpoint setup CLI documentation](https://docs.globus.org/globus-connect-server/v5.4/reference/cli-reference/#endpoint-setup):
 
-- **GlobusOwner**: (Required) Identity username of the endpoint owner (e.g. user@example.edu)
-- **GlobusContactEmail**: (Required) Email address for the support contact for this endpoint
-- **GlobusClientId/Secret**: For Globus Connect Server < 5.4.67, client credentials are required
-- **GlobusProjectId**: (Optional) The Globus Auth project ID to register the endpoint in
-- **GlobusProjectName**: (Optional) Name for the Auth project if one needs to be created
-- **GlobusProjectAdmin**: (Optional) Admin username for the project if different from owner
-- **GlobusAlwaysCreateProject**: (Optional) Force creation of a new project even if one exists
+- **GlobusOwner**: Identity username of the endpoint owner (e.g. user@example.edu)
+- **GlobusContactEmail**: Email address for the support contact for this endpoint
+- **GlobusClientId/Secret**: Client credentials (required for GCS < 5.4.67, optional for newer versions)
+
+#### Optional Parameters
+
+- **ScriptUrl**: URL to the Globus installation script (defaults to GitHub repository)
+- **DeploymentType**: "Integration" or "Production" (defaults to "Integration")
+- **ForceElasticIP**: Force allocation of Elastic IP even for Integration deployment
+- **InstanceType**: EC2 instance type (defaults to m6i.xlarge)
+- **DefaultAdminIdentity**: Globus identity to be granted admin access
+- **GlobusSubscriptionId**: Subscription ID to join this endpoint to your subscription
+- **EnableS3Connector**: Enable S3 Connector (requires subscription)
+- **S3BucketName**: Name of S3 bucket to connect (if S3 Connector is enabled)
+- **GlobusDisplayName**: Display name for the Globus endpoint (defaults to "AWS GCS S3 Endpoint")
+- **GlobusOrganization**: Organization name for the endpoint (defaults to "AWS")
+
+#### Optional Globus Project Parameters (GCS 5.4.61+)
+
+- **GlobusProjectId**: The Globus Auth project ID to register the endpoint in
+- **GlobusProjectName**: Name for the Auth project if one needs to be created
+- **GlobusProjectAdmin**: Admin username for the project if different from owner
+- **GlobusAlwaysCreateProject**: Force creation of a new project even if one exists
 
 For more information on Globus Connect Server options, see the [Globus CLI Reference Documentation](https://docs.globus.org/globus-connect-server/v5.4/reference/cli-reference/).
 
@@ -67,21 +94,12 @@ For more information on Globus Connect Server options, see the [Globus CLI Refer
 
 ```json
 [
-  {
-    "ParameterKey": "ScriptUrl",
-    "ParameterValue": "https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/scripts/globus-setup.sh"
-  },
-  {
-    "ParameterKey": "DeploymentType",
-    "ParameterValue": "Production"
-  },
-  {
-    "ParameterKey": "InstanceType",
-    "ParameterValue": "m6i.xlarge"
-  },
+  // === REQUIRED PARAMETERS ===
+  
+  // Required AWS parameters
   {
     "ParameterKey": "KeyName",
-    "ParameterValue": "your-key-pair"
+    "ParameterValue": "your-key-pair"     // Name of an existing AWS EC2 KeyPair
   },
   {
     "ParameterKey": "AvailabilityZone",
@@ -95,57 +113,82 @@ For more information on Globus Connect Server options, see the [Globus CLI Refer
     "ParameterKey": "SubnetId",
     "ParameterValue": "subnet-xxxxxxxx"
   },
-  # AuthenticationMethod parameter has been removed, using Globus Auth by default
-  {
-    "ParameterKey": "DefaultAdminIdentity",
-    "ParameterValue": "your-email@example.org"
-  },
-  {
-    "ParameterKey": "GlobusClientId",
-    "ParameterValue": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-  },
-  {
-    "ParameterKey": "GlobusClientSecret",
-    "ParameterValue": "xxxxxxxxxxxxxxxxxxxx"
-  },
-  {
-    "ParameterKey": "GlobusDisplayName",
-    "ParameterValue": "Your Globus Endpoint"
-  },
-  {
-    "ParameterKey": "GlobusOrganization",
-    "ParameterValue": "Your Organization Name"
-  },
+  
+  // Required Globus parameters  
   {
     "ParameterKey": "GlobusOwner",
-    "ParameterValue": "user@example.com"
+    "ParameterValue": "user@example.com"  // Required: Identity username of the endpoint owner
   },
   {
     "ParameterKey": "GlobusContactEmail",
-    "ParameterValue": "support@example.com"
+    "ParameterValue": "support@example.com"  // Required: Email address for support contact
   },
   {
-    "ParameterKey": "GlobusProjectId",
+    "ParameterKey": "GlobusClientId",     // Required for GCS < 5.4.67
+    "ParameterValue": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+  },
+  {
+    "ParameterKey": "GlobusClientSecret", // Required for GCS < 5.4.67
+    "ParameterValue": "xxxxxxxxxxxxxxxxxxxx"
+  },
+  
+  // === OPTIONAL PARAMETERS ===
+  
+  // Script and deployment options
+  {
+    "ParameterKey": "ScriptUrl",
+    "ParameterValue": "https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/scripts/globus-setup.sh"
+  },
+  {
+    "ParameterKey": "DeploymentType",
+    "ParameterValue": "Production"        // Optional: "Integration" or "Production"
+  },
+  {
+    "ParameterKey": "InstanceType",
+    "ParameterValue": "m6i.xlarge"        // Optional: EC2 instance type
+  },
+  
+  // Optional Globus parameters
+  {
+    "ParameterKey": "DefaultAdminIdentity",
+    "ParameterValue": "your-email@example.org"  // Optional: Admin identity
+  },
+  {
+    "ParameterKey": "GlobusDisplayName",
+    "ParameterValue": "Your Globus Endpoint"    // Optional: Defaults to "AWS GCS S3 Endpoint"
+  },
+  {
+    "ParameterKey": "GlobusOrganization",
+    "ParameterValue": "Your Organization Name"  // Optional: Defaults to "AWS"
+  },
+  
+  // Optional Globus Project parameters (for GCS 5.4.61+)
+  {
+    "ParameterKey": "GlobusProjectId",         // Optional: Globus Auth project ID
     "ParameterValue": "12345678-abcd-1234-efgh-1234567890ab"
   },
   {
-    "ParameterKey": "GlobusProjectName",
+    "ParameterKey": "GlobusProjectName",       // Optional: Auth project name
     "ParameterValue": "My Globus Project"
   },
+  
+  // Optional connector parameters (requires subscription)
   {
-    "ParameterKey": "GlobusSubscriptionId",
+    "ParameterKey": "GlobusSubscriptionId",    // Optional: Required for S3 connector
     "ParameterValue": "xxxxxxxxxxxx"
   },
   {
-    "ParameterKey": "EnableS3Connector",
+    "ParameterKey": "EnableS3Connector",       // Optional: Defaults to "true"
     "ParameterValue": "true"
   },
   {
-    "ParameterKey": "S3BucketName",
+    "ParameterKey": "S3BucketName",            // Optional: Required if S3Connector is enabled
     "ParameterValue": "your-globus-bucket"
   }
 ]
 ```
+
+> **Note**: The comments in the parameters file above are for documentation purposes only. Actual JSON files used with AWS CloudFormation cannot contain comments. Remove them before using this example.
 
 ### 2. Deploy the CloudFormation stack
 

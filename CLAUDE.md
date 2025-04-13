@@ -87,6 +87,25 @@ When troubleshooting CloudFormation deployment failures:
     - Confirm security groups allow Globus ports (443, 2811, 7512, 50000-51000)
     - Test connectivity from the internet to the public endpoint
 
+## Parameter Requirements
+
+### Required Parameters
+
+- **AWS Parameters**:
+  - `KeyName`: Name of an existing AWS EC2 KeyPair (not a local SSH key)
+  - `VpcId`: VPC to deploy Globus Connect Server into
+  - `SubnetId`: Subnet within the selected VPC
+  - `AvailabilityZone`: The Availability Zone to launch the instance in
+
+- **Globus Parameters**:
+  - `GlobusOwner`: Identity username of the endpoint owner
+  - `GlobusContactEmail`: Email address for the support contact
+  - For Globus Connect Server < 5.4.67:
+    - `GlobusClientId`: Globus Auth client ID
+    - `GlobusClientSecret`: Globus Auth client secret
+
+All other parameters are optional with appropriate defaults.
+
 ## Code Style Guidelines
 
 - **YAML**: Use 2-space indentation, explicit mapping of types
