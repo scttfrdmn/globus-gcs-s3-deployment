@@ -52,7 +52,15 @@ The template accepts the following parameters:
 Based on the [Globus endpoint setup CLI documentation](https://docs.globus.org/globus-connect-server/v5.4/reference/cli-reference/#endpoint-setup):
 
 - **GlobusOwner**: Identity username of the endpoint owner (e.g. user@example.edu)
+  - This is a REQUIRED parameter with no default value
+  - Must be a valid Globus identity that will own the endpoint
+  - If not provided, the deployment will fail with a clear error message
+  - Parameter is passed to the `--owner` option of the Globus setup command
 - **GlobusContactEmail**: Email address for the support contact for this endpoint
+  - This is a REQUIRED parameter that defaults to "admin@example.com"
+  - Should be customized to a valid support email for your organization
+  - Visible to users who need assistance with your endpoint
+  - Parameter is passed to the `--contact-email` option of the Globus setup command
 - **GlobusClientId/Secret**: Client credentials (required for GCS < 5.4.67, optional for newer versions)
 
 #### Optional Parameters
@@ -114,14 +122,16 @@ For more information on Globus Connect Server options, see the [Globus CLI Refer
     "ParameterValue": "subnet-xxxxxxxx"
   },
   
-  // Required Globus parameters  
+  // Required Globus parameters - MUST be customized with valid values
   {
     "ParameterKey": "GlobusOwner",
-    "ParameterValue": "user@example.com"  // Required: Identity username of the endpoint owner
+    "ParameterValue": "user@example.com"  // REQUIRED: Identity username of the endpoint owner
+                                          // Must be a valid Globus identity (no default value)
   },
   {
     "ParameterKey": "GlobusContactEmail",
-    "ParameterValue": "support@example.com"  // Required: Email address for support contact
+    "ParameterValue": "support@example.com"  // REQUIRED: Email address for endpoint support
+                                             // Visible to users (defaults to admin@example.com)
   },
   {
     "ParameterKey": "GlobusClientId",     // Required for GCS < 5.4.67

@@ -98,13 +98,26 @@ When troubleshooting CloudFormation deployment failures:
   - `AvailabilityZone`: The Availability Zone to launch the instance in
 
 - **Globus Parameters**:
-  - `GlobusOwner`: Identity username of the endpoint owner
+  - `GlobusOwner`: Identity username of the endpoint owner (e.g., user@example.edu)
+    - **CRITICAL**: This value must be a valid Globus identity username
+    - Required by Globus for endpoint registration
+    - No default value is provided - must be explicitly set
   - `GlobusContactEmail`: Email address for the support contact
+    - Visible to users of the endpoint for support inquiries
+    - Default is "admin@example.com" but should be customized with a valid contact email
   - For Globus Connect Server < 5.4.67:
     - `GlobusClientId`: Globus Auth client ID
     - `GlobusClientSecret`: Globus Auth client secret
 
 All other parameters are optional with appropriate defaults.
+
+### Parameter Flow
+
+The template passes parameters to the setup script as environment variables:
+1. CloudFormation template parameters (e.g., `GlobusOwner`) are passed to the EC2 instance as environment variables (`GLOBUS_OWNER`)
+2. The main setup script uses these variables directly for configuration
+3. For manual troubleshooting, the values are also stored in files like `/home/ubuntu/globus-owner.txt`
+4. The helper script uses these variables with fallbacks to set proper command parameters
 
 ## Code Style Guidelines
 

@@ -24,8 +24,12 @@ This repository contains a CloudFormation template for deploying Globus Connect 
    - Account at [globus.org](https://www.globus.org/)
    - Application registered in [Globus Developer Console](https://developers.globus.org/)
    - Client ID and Client Secret (required only for GCS < 5.4.67)
-   - Owner identity username (e.g., user@example.edu)
-   - Contact email for support requests
+   - **Owner identity username** (e.g., user@example.edu) - REQUIRED
+     - This must be a valid Globus identity that will own the endpoint
+     - The template parameter `GlobusOwner` has no default value and must be set
+   - **Contact email** for support requests - REQUIRED
+     - Email visible to users for support inquiries
+     - The template parameter `GlobusContactEmail` defaults to "admin@example.com" but should be customized
    - (Optional) Project ID, Project Name, and Project Admin for organizing endpoints
    - (Optional) Subscription ID for connector support
    - **IMPORTANT**: Requires Globus Connect Server 5.4.61 or higher (template will verify version)

@@ -408,11 +408,23 @@ fi
 # Required parameters
 SETUP_CMD+=" --organization \"${GC_ORG}\""
 
-# Use the owner parameter (required)
-SETUP_CMD+=" --owner \"admin@example.com\""
+# Use the owner parameter (required) - either from argument or explicit owner var
+if [ -n "${GC_OWNER}" ]; then
+  echo "Using specified owner: ${GC_OWNER}"
+  SETUP_CMD+=" --owner \"${GC_OWNER}\""
+else
+  echo "Using parameter owner: ${GC_ID} (fallback)"
+  SETUP_CMD+=" --owner \"${GC_ID}\""
+fi
 
-# Contact email is required
-SETUP_CMD+=" --contact-email \"admin@example.com\""
+# Contact email is required - use specified email or fallback
+if [ -n "${GC_EMAIL}" ]; then
+  echo "Using specified contact email: ${GC_EMAIL}"
+  SETUP_CMD+=" --contact-email \"${GC_EMAIL}\""
+else
+  echo "Using fallback contact email: ${GC_ID}"
+  SETUP_CMD+=" --contact-email \"${GC_ID}\""
+fi
 
 # Standard options
 SETUP_CMD+=" --agree-to-letsencrypt-tos"
@@ -463,6 +475,10 @@ else
   echo '  exit 1' >> /home/ubuntu/run-globus-setup.sh
   echo 'fi' >> /home/ubuntu/run-globus-setup.sh
   
+  # Add environment variables for owner and contact email
+  echo 'GC_OWNER=${5:-$(cat /home/ubuntu/globus-owner.txt 2>/dev/null || echo "${GLOBUS_OWNER}")}' >> /home/ubuntu/run-globus-setup.sh
+  echo 'GC_EMAIL=${6:-$(cat /home/ubuntu/globus-contact-email.txt 2>/dev/null || echo "${GLOBUS_CONTACT_EMAIL}")}' >> /home/ubuntu/run-globus-setup.sh
+  
   # Add the actual setup process for GCS 5.4.61+
   echo 'echo "Converting client credentials to deployment key..."' >> /home/ubuntu/run-globus-setup.sh
   echo 'KEY_FILE="/tmp/globus-key.json"' >> /home/ubuntu/run-globus-setup.sh
@@ -472,8 +488,8 @@ else
   echo '  # Ensure values are properly quoted for multi-word organization and display names' >> /home/ubuntu/run-globus-setup.sh
   echo '  globus-connect-server endpoint setup \\' >> /home/ubuntu/run-globus-setup.sh
   echo '    --organization "${GC_ORG}" \\' >> /home/ubuntu/run-globus-setup.sh
-  echo '    --contact-email "admin@example.com" \\' >> /home/ubuntu/run-globus-setup.sh
-  echo '    --owner "admin@example.com" \\' >> /home/ubuntu/run-globus-setup.sh
+  echo '    --contact-email "${GC_EMAIL:-${GC_ID}}" \\' >> /home/ubuntu/run-globus-setup.sh
+  echo '    --owner "${GC_OWNER:-${GC_ID}}" \\' >> /home/ubuntu/run-globus-setup.sh
   echo '    --agree-to-letsencrypt-tos \\' >> /home/ubuntu/run-globus-setup.sh
   echo '    --deployment-key "$KEY_FILE" \\' >> /home/ubuntu/run-globus-setup.sh
   echo '    "${GC_NAME}"' >> /home/ubuntu/run-globus-setup.sh
@@ -520,6 +536,18 @@ echo "$GLOBUS_ORGANIZATION" > /home/ubuntu/globus-organization.txt && \
   chown ubuntu:ubuntu /home/ubuntu/globus-organization.txt && \
   echo "- Created organization file" >> /home/ubuntu/install-debug.log || \
   echo "ERROR: Failed to create organization file" | tee -a /home/ubuntu/install-debug.log
+
+echo "$GLOBUS_OWNER" > /home/ubuntu/globus-owner.txt && \
+  chmod 600 /home/ubuntu/globus-owner.txt && \
+  chown ubuntu:ubuntu /home/ubuntu/globus-owner.txt && \
+  echo "- Created owner file" >> /home/ubuntu/install-debug.log || \
+  echo "ERROR: Failed to create owner file" | tee -a /home/ubuntu/install-debug.log
+  
+echo "$GLOBUS_CONTACT_EMAIL" > /home/ubuntu/globus-contact-email.txt && \
+  chmod 600 /home/ubuntu/globus-contact-email.txt && \
+  chown ubuntu:ubuntu /home/ubuntu/globus-contact-email.txt && \
+  echo "- Created contact email file" >> /home/ubuntu/install-debug.log || \
+  echo "ERROR: Failed to create contact email file" | tee -a /home/ubuntu/install-debug.log
 
 # Create a deployment log that can be checked for "scripts-user" errors
 echo "Checking for cloud-init script-user issues..."
