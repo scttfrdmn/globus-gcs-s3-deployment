@@ -377,15 +377,43 @@ echo "- Secret: ${GC_SECRET:0:3}... (truncated)"
 # Use the standard documented format for Globus Connect Server 5.4.61+
 echo "Setting up endpoint using standard parameters format..."
 
-# Use the exact format from the documentation
-globus-connect-server endpoint setup \
-  --client-id "${GC_ID}" \
-  --client-secret "${GC_SECRET}" \
-  --contact-email "admin@example.com" \
-  --owner "admin@example.com" \
-  --organization "${GC_ORG}" \
-  --agree-to-letsencrypt-tos \
-  "${GC_NAME}"
+# Prepare command with required parameters
+SETUP_CMD="globus-connect-server endpoint setup"
+
+# Check Globus version to determine if we need client-id
+GCS_VERSION_MAJOR=$(echo "$GCS_VERSION" | cut -d. -f1)
+GCS_VERSION_MINOR=$(echo "$GCS_VERSION" | cut -d. -f2)
+GCS_VERSION_PATCH=$(echo "$GCS_VERSION" | cut -d. -f3)
+
+# Include client-id and client-secret only if version < 5.4.67
+# See Globus docs: https://docs.globus.org/globus-connect-server/v5.4/reference/cli-reference/#endpoint-setup
+if [ "$GCS_VERSION_MAJOR" -lt "5" ] || 
+   ([ "$GCS_VERSION_MAJOR" -eq "5" ] && [ "$GCS_VERSION_MINOR" -lt "4" ]) || 
+   ([ "$GCS_VERSION_MAJOR" -eq "5" ] && [ "$GCS_VERSION_MINOR" -eq "4" ] && [ "$GCS_VERSION_PATCH" -lt "67" ]); then
+  echo "Using client credentials for Globus Connect Server < 5.4.67"
+  echo "For details, see: https://docs.globus.org/globus-connect-server/v5.4/reference/cli-reference/#endpoint-setup"
+  SETUP_CMD+=" --client-id \"${GC_ID}\" --client-secret \"${GC_SECRET}\""
+fi
+
+# Required parameters
+SETUP_CMD+=" --organization \"${GC_ORG}\""
+
+# Use the owner parameter (required)
+SETUP_CMD+=" --owner \"admin@example.com\""
+
+# Contact email is required
+SETUP_CMD+=" --contact-email \"admin@example.com\""
+
+# Standard options
+SETUP_CMD+=" --agree-to-letsencrypt-tos"
+
+# Finally, add the display name as the positional argument
+SETUP_CMD+=" \"${GC_NAME}\""
+
+echo "Running endpoint setup command: $SETUP_CMD"
+
+# Execute the command
+eval $SETUP_CMD
 
 SETUP_RESULT=$?
 if [ $SETUP_RESULT -eq 0 ]; then
@@ -547,15 +575,69 @@ else
   # Use the standard documented format for Globus Connect Server 5.4.61+
   echo "Setting up endpoint using standard parameters format..." | tee -a $SETUP_LOG
   
-  # Use the exact format from the documentation
-  globus-connect-server endpoint setup \
-    --client-id "${GLOBUS_CLIENT_ID}" \
-    --client-secret "${GLOBUS_CLIENT_SECRET}" \
-    --contact-email "admin@example.com" \
-    --owner "admin@example.com" \
-    --organization "${GLOBUS_ORGANIZATION}" \
-    --agree-to-letsencrypt-tos \
-    "${GLOBUS_DISPLAY_NAME}" >> $SETUP_LOG 2>&1
+  # Prepare command with required parameters
+  SETUP_CMD="globus-connect-server endpoint setup"
+  
+  # Check Globus version to determine if we need client-id
+  GCS_VERSION_MAJOR=$(echo "$GCS_VERSION" | cut -d. -f1)
+  GCS_VERSION_MINOR=$(echo "$GCS_VERSION" | cut -d. -f2)
+  GCS_VERSION_PATCH=$(echo "$GCS_VERSION" | cut -d. -f3)
+  
+  # Include client-id and client-secret only if version < 5.4.67
+  # As per Globus docs: https://docs.globus.org/globus-connect-server/v5.4/reference/cli-reference/#endpoint-setup
+  if [ "$GCS_VERSION_MAJOR" -lt "5" ] || 
+     ([ "$GCS_VERSION_MAJOR" -eq "5" ] && [ "$GCS_VERSION_MINOR" -lt "4" ]) || 
+     ([ "$GCS_VERSION_MAJOR" -eq "5" ] && [ "$GCS_VERSION_MINOR" -eq "4" ] && [ "$GCS_VERSION_PATCH" -lt "67" ]); then
+    echo "Using client credentials for Globus Connect Server < 5.4.67" | tee -a $SETUP_LOG
+    echo "See Globus docs: https://docs.globus.org/globus-connect-server/v5.4/reference/cli-reference/#endpoint-setup" | tee -a $SETUP_LOG
+    SETUP_CMD+=" --client-id \"${GLOBUS_CLIENT_ID}\" --client-secret \"${GLOBUS_CLIENT_SECRET}\""
+  fi
+  
+  # Required parameters
+  SETUP_CMD+=" --organization \"${GLOBUS_ORGANIZATION}\""
+  
+  # Owner is required - use DEFAULT_ADMIN if not provided
+  if [ -n "${GLOBUS_OWNER}" ]; then
+    SETUP_CMD+=" --owner \"${GLOBUS_OWNER}\""
+  elif [ -n "${DEFAULT_ADMIN}" ]; then
+    SETUP_CMD+=" --owner \"${DEFAULT_ADMIN}\""
+  else
+    echo "ERROR: No owner specified. Please provide either GlobusOwner or DefaultAdminIdentity" | tee -a $SETUP_LOG
+    echo "See Globus documentation: https://docs.globus.org/globus-connect-server/v5.4/reference/cli-reference/#endpoint-setup" | tee -a $SETUP_LOG
+    SETUP_STATUS=1
+    exit 1
+  fi
+  
+  # Contact email is required
+  SETUP_CMD+=" --contact-email \"${GLOBUS_CONTACT_EMAIL}\""
+  
+  # Optional project parameters (for GCS 5.4.61+)
+  if [ -n "${GLOBUS_PROJECT_ID}" ]; then
+    SETUP_CMD+=" --project-id \"${GLOBUS_PROJECT_ID}\""
+  fi
+  
+  if [ -n "${GLOBUS_PROJECT_NAME}" ]; then
+    SETUP_CMD+=" --project-name \"${GLOBUS_PROJECT_NAME}\""
+  fi
+  
+  if [ -n "${GLOBUS_PROJECT_ADMIN}" ]; then
+    SETUP_CMD+=" --project-admin \"${GLOBUS_PROJECT_ADMIN}\""
+  fi
+  
+  if [ "${GLOBUS_ALWAYS_CREATE_PROJECT}" = "true" ]; then
+    SETUP_CMD+=" --always-create-project"
+  fi
+  
+  # Standard options
+  SETUP_CMD+=" --agree-to-letsencrypt-tos"
+  
+  # Finally, add the display name as the positional argument
+  SETUP_CMD+=" \"${GLOBUS_DISPLAY_NAME}\""
+  
+  echo "Running endpoint setup command: $SETUP_CMD" | tee -a $SETUP_LOG
+  
+  # Execute the command
+  eval $SETUP_CMD >> $SETUP_LOG 2>&1
     
   SETUP_RESULT=$?
   if [ $SETUP_RESULT -eq 0 ]; then

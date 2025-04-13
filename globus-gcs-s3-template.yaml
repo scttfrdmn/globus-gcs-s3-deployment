@@ -7,7 +7,6 @@ Conditions:
   UseElasticIP: !Or [!Equals [!Ref DeploymentType, "Production"], !Equals [!Ref ForceElasticIP, "true"]]
   HasS3BucketName: !Not [!Equals [!Ref S3BucketName, ""]]
   DeployS3Connector: !And [!Equals [!Ref EnableS3Connector, "true"], !Condition HasSubscription, !Condition HasS3BucketName]
-  UseGlobusAuth: !Equals [!Ref AuthenticationMethod, "Globus"]
   HasDefaultAdmin: !Not [!Equals [!Ref DefaultAdminIdentity, ""]]
 
 Parameters:
@@ -33,14 +32,8 @@ Parameters:
       - "true"
       - "false"
     
-  AuthenticationMethod:
-    Description: Authentication method for the Globus Connect Server
-    Type: String
-    Default: Globus
-    AllowedValues:
-      - Globus
-      - MyProxy
-    ConstraintDescription: Must be either Globus (for identity federation) or MyProxy (for local accounts).
+  # AuthenticationMethod has been removed to simplify and use Globus Auth only
+  # This reduces complexity and focuses on the most modern approach
     
   DefaultAdminIdentity:
     Description: Globus identity to be granted admin access (email@example.org)
@@ -128,6 +121,39 @@ Parameters:
     Default: "AWS"
     AllowedPattern: "[A-Za-z0-9\\-_\\.\\s]+"
     ConstraintDescription: "Organization name can include letters, numbers, spaces, hyphens, underscores, and periods."
+    
+  GlobusOwner:
+    Description: Identity username of the endpoint owner (e.g. user@example.edu)
+    Type: String
+    Default: ""
+    
+  GlobusContactEmail:
+    Description: Email address for the support contact for this endpoint (visible to users)
+    Type: String
+    Default: "admin@example.com"
+    
+  GlobusProjectId:
+    Description: (Optional) Globus Auth project ID where this endpoint will be registered
+    Type: String
+    Default: ""
+    
+  GlobusProjectName:
+    Description: (Optional) Name of the Auth project for the new endpoint client 
+    Type: String
+    Default: ""
+    
+  GlobusProjectAdmin:
+    Description: (Optional) Globus username of the admin of the Auth project
+    Type: String
+    Default: ""
+    
+  GlobusAlwaysCreateProject:
+    Description: Create a new auth project for this endpoint even if you already have one
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
 
 Mappings:
   RegionMap:
@@ -295,9 +321,15 @@ Resources:
           # Use proper escaping and quoting for multi-word values
           export GLOBUS_DISPLAY_NAME='${GlobusDisplayName}'
           export GLOBUS_ORGANIZATION='${GlobusOrganization}'
+          export GLOBUS_OWNER="${GlobusOwner}"
+          export GLOBUS_CONTACT_EMAIL="${GlobusContactEmail}"
+          export GLOBUS_PROJECT_ID="${GlobusProjectId}"
+          export GLOBUS_PROJECT_NAME="${GlobusProjectName}"
+          export GLOBUS_PROJECT_ADMIN="${GlobusProjectAdmin}"
+          export GLOBUS_ALWAYS_CREATE_PROJECT="${GlobusAlwaysCreateProject}"
           export GLOBUS_SUBSCRIPTION_ID="${GlobusSubscriptionId}"
           export DEPLOYMENT_TYPE="${DeploymentType}"
-          export AUTH_METHOD="${AuthenticationMethod}"
+          export AUTH_METHOD="Globus"
           export DEFAULT_ADMIN="${DefaultAdminIdentity}"
           export ENABLE_S3_CONNECTOR="${EnableS3Connector}"
           export S3_BUCKET_NAME="${S3BucketName}"
@@ -385,17 +417,11 @@ Outputs:
       
   AuthenticationConfiguration:
     Description: Authentication method configured for Globus
-    Value: !If 
-      - UseGlobusAuth
-      - "Globus Auth (identity federation)"
-      - "MyProxy (local accounts required)"
+    Value: "Globus Auth (identity federation)"
       
   InitialAccessInfo:
     Description: Initial access configuration
-    Value: !If
-      - UseGlobusAuth
-      - !If 
-        - HasDefaultAdmin
-        - !Join ["", ["Admin access granted to ", !Ref DefaultAdminIdentity]]
-        - "No default admin configured - access policies must be set manually"
-      - "Using MyProxy authentication - local accounts required"
+    Value: !If 
+      - HasDefaultAdmin
+      - !Join ["", ["Admin access granted to ", !Ref DefaultAdminIdentity]]
+      - "No default admin configured - access policies must be set manually"

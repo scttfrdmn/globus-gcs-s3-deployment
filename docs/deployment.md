@@ -33,8 +33,22 @@
 
 ### Authentication
 
-- **Globus**: Federation-based auth (recommended)
-- **MyProxy**: Local account-based auth (legacy)
+- Using **Globus Auth** for identity federation 
+- For details on Globus Auth, see the [official documentation](https://docs.globus.org/globus-connect-server/v5.4/admin-guide/identity-access-management/)
+
+### Globus Registration Parameters
+
+Based on the [Globus endpoint setup CLI documentation](https://docs.globus.org/globus-connect-server/v5.4/reference/cli-reference/#endpoint-setup):
+
+- **GlobusOwner**: (Required) Identity username of the endpoint owner (e.g. user@example.edu)
+- **GlobusContactEmail**: (Required) Email address for the support contact for this endpoint
+- **GlobusClientId/Secret**: For Globus Connect Server < 5.4.67, client credentials are required
+- **GlobusProjectId**: (Optional) The Globus Auth project ID to register the endpoint in
+- **GlobusProjectName**: (Optional) Name for the Auth project if one needs to be created
+- **GlobusProjectAdmin**: (Optional) Admin username for the project if different from owner
+- **GlobusAlwaysCreateProject**: (Optional) Force creation of a new project even if one exists
+
+For more information on Globus Connect Server options, see the [Globus CLI Reference Documentation](https://docs.globus.org/globus-connect-server/v5.4/reference/cli-reference/).
 
 ### Connectors (requires subscription)
 
@@ -81,10 +95,7 @@
     "ParameterKey": "SubnetId",
     "ParameterValue": "subnet-xxxxxxxx"
   },
-  {
-    "ParameterKey": "AuthenticationMethod",
-    "ParameterValue": "Globus"
-  },
+  # AuthenticationMethod parameter has been removed, using Globus Auth by default
   {
     "ParameterKey": "DefaultAdminIdentity",
     "ParameterValue": "your-email@example.org"
@@ -104,6 +115,22 @@
   {
     "ParameterKey": "GlobusOrganization",
     "ParameterValue": "Your Organization Name"
+  },
+  {
+    "ParameterKey": "GlobusOwner",
+    "ParameterValue": "user@example.com"
+  },
+  {
+    "ParameterKey": "GlobusContactEmail",
+    "ParameterValue": "support@example.com"
+  },
+  {
+    "ParameterKey": "GlobusProjectId",
+    "ParameterValue": "12345678-abcd-1234-efgh-1234567890ab"
+  },
+  {
+    "ParameterKey": "GlobusProjectName",
+    "ParameterValue": "My Globus Project"
   },
   {
     "ParameterKey": "GlobusSubscriptionId",
@@ -326,6 +353,37 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
 ```
 
 This manual cleanup step ensures that the Globus endpoint is properly deleted from Globus's systems.
+
+## Version Compatibility Features
+
+This template requires Globus Connect Server version 5.4.61 or higher. The script includes robust version detection and comparison features:
+
+- **Intelligent Version Parsing**: Extracts version from various output formats
+- **Package Version Identification**: Specifically handles the "package X.Y.Z" format
+- **Proper SemVer Comparison**: Correctly compares major.minor.patch components
+- **Detailed Version Diagnostics**: Provides comprehensive debug output for troubleshooting
+- **Modern Command Format**: Uses the positional argument syntax required by newer Globus versions
+- **API Evolution Support**: Handles parameter changes across versions:
+  - For GCS < 5.4.67: Uses client credentials (--client-id, --client-secret)
+  - For GCS 5.4.67+: Uses the updated API without client credentials
+  - For GCS 5.4.61+: Supports project-related features (project-id, project-name, etc.)
+
+The script specifically supports the common version format: `globus-connect-server, package 5.4.83, cli 1.0.58`, correctly extracting the package version for compatibility checks.
+
+For more details on Globus Connect Server CLI options, see the [official CLI reference documentation](https://docs.globus.org/globus-connect-server/v5.4/reference/cli-reference/#endpoint-setup).
+
+## Globus Project Support
+
+As of version 5.4.61+, Globus Connect Server supports organizing endpoints within projects:
+
+- **Project ID**: The Globus Auth project ID where this endpoint will be registered
+- **Project Name**: Name of the Auth project for the new endpoint client
+- **Project Admin**: Globus username of the admin of the Auth project (if different from owner)
+- **Always Create Project**: Forces creation of a new auth project even if you already have one
+
+This template supports all project-related parameters, making it easy to organize endpoints within your Globus environment.
+
+For more information on Globus Auth projects, see the [Globus Auth Management documentation](https://docs.globus.org/globus-connect-server/v5.4/admin-guide/identity-access-management/#auth_management).
 
 ## Deployment with Command Line Parameters
 
