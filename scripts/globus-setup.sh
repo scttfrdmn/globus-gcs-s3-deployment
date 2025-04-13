@@ -308,9 +308,9 @@ echo "- Client ID: $(echo $GC_ID | cut -c1-5)... (truncated)"
 echo "- Display Name: $GC_NAME"
 echo "- Organization: $GC_ORG"
 
-# Note: We intentionally skip endpoint existence check here
-# since the main script already does that check
-# IMPORTANT: When DEBUG_SKIP_DUPLICATE_CHECK=true, both checks are skipped
+# IMPORTANT: We completely skip endpoint existence check in this helper script
+# The main script already does that check if needed, and when 
+# DEBUG_SKIP_DUPLICATE_CHECK=true both checks are skipped
 
 # Check GCS version - print detailed debug info
 echo "=== DEBUG: Globus version check ==="
@@ -406,21 +406,26 @@ else
   if [ $METHOD2_RESULT -eq 0 ]; then
     echo "Endpoint setup succeeded with --secret parameter!"
   else
-    echo "Setup with --secret parameter failed with code $METHOD2_RESULT. Trying minimal parameters..."
+    echo "Setup with --secret parameter failed with code $METHOD2_RESULT. Trying standard required parameters..."
     
-    # Try minimal parameters as last resort
-    echo "Attempting endpoint setup with minimal parameters..."
-    globus-connect-server endpoint setup "${GC_NAME}"
+    # Try with standard required parameters as specified in docs
+    echo "Attempting endpoint setup with required parameters..."
+    globus-connect-server endpoint setup \
+      --contact-email "admin@example.com" \
+      --owner "admin@example.com" \
+      --organization "${GC_ORG}" \
+      --agree-to-letsencrypt-tos \
+      "${GC_NAME}"
     
     METHOD3_RESULT=$?
     if [ $METHOD3_RESULT -eq 0 ]; then
-      echo "Endpoint setup succeeded with minimal parameters!"
+      echo "Endpoint setup succeeded with standard required parameters!"
     else
       echo "All endpoint setup methods failed. Please check your credentials."
       echo "Error details:"
       echo "- Method 1 (--client-secret): $METHOD1_RESULT"
       echo "- Method 2 (--secret): $METHOD2_RESULT"
-      echo "- Method 3 (minimal): $METHOD3_RESULT"
+      echo "- Method 3 (standard required): $METHOD3_RESULT"
       exit 1
     fi
   fi
@@ -537,13 +542,12 @@ SETUP_LOG="/var/log/globus-setup.log"
 echo "Starting Globus Connect Server setup $(date)" > $SETUP_LOG
 
 # Check if endpoint already exists (only once)
-echo "Checking for existing endpoint with the same name..." | tee -a $SETUP_LOG
-
 # Skip duplicate check if debugging flag is set
 if [ "$DEBUG_SKIP_DUPLICATE_CHECK" = "true" ]; then
-  echo "DEBUG: Skipping initial endpoint check due to DEBUG_SKIP_DUPLICATE_CHECK flag" | tee -a $SETUP_LOG
+  echo "DEBUG: Skipping endpoint check due to DEBUG_SKIP_DUPLICATE_CHECK flag" | tee -a $SETUP_LOG
   EXISTING_ENDPOINT=""
 else
+  echo "Checking for existing endpoint with the same name..." | tee -a $SETUP_LOG
   EXISTING_ENDPOINT=$(globus-connect-server endpoint list 2>/dev/null | grep -F "$GLOBUS_DISPLAY_NAME" || echo "")
 fi
 
@@ -609,23 +613,27 @@ else
       echo "Endpoint setup succeeded with --secret parameter!" | tee -a $SETUP_LOG
       SETUP_STATUS=0
     else
-      echo "Setup with --secret parameter failed with code $METHOD2_STATUS. Trying minimal parameters..." | tee -a $SETUP_LOG
+      echo "Setup with --secret parameter failed with code $METHOD2_STATUS. Trying standard required parameters..." | tee -a $SETUP_LOG
       
-      # Method 3: Try with minimal parameters
-      echo "Attempting endpoint setup with minimal parameters..." | tee -a $SETUP_LOG
+      # Method 3: Try the exact format from the documentation with all required parameters
+      echo "Attempting endpoint setup with correct required parameters..." | tee -a $SETUP_LOG
       globus-connect-server endpoint setup \
+        --contact-email "admin@example.com" \
+        --owner "admin@example.com" \
+        --organization "${GLOBUS_ORGANIZATION}" \
+        --agree-to-letsencrypt-tos \
         "${GLOBUS_DISPLAY_NAME}" >> $SETUP_LOG 2>&1
       
       METHOD3_STATUS=$?
       if [ $METHOD3_STATUS -eq 0 ]; then
-        echo "Endpoint setup succeeded with minimal parameters!" | tee -a $SETUP_LOG
+        echo "Endpoint setup succeeded with standard required parameters!" | tee -a $SETUP_LOG
         SETUP_STATUS=0
       else
         echo "All endpoint setup methods failed." | tee -a $SETUP_LOG
         echo "Error details:" | tee -a $SETUP_LOG
         echo "- Method 1 (--client-secret): $METHOD1_STATUS" | tee -a $SETUP_LOG
         echo "- Method 2 (--secret): $METHOD2_STATUS" | tee -a $SETUP_LOG
-        echo "- Method 3 (minimal): $METHOD3_STATUS" | tee -a $SETUP_LOG
+        echo "- Method 3 (standard required): $METHOD3_STATUS" | tee -a $SETUP_LOG
         echo "Please check your client credentials and ensure they are correct." | tee -a $SETUP_LOG
         echo "The client ID and secret must have authorization to create endpoints." | tee -a $SETUP_LOG
         SETUP_STATUS=1
