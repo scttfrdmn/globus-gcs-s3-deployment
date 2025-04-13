@@ -15,8 +15,9 @@
    - Obtain Client ID and Client Secret
    - (Optional) Obtain Subscription ID for connector support
    - **IMPORTANT**: This template requires Globus Connect Server 5.4.61 or higher
-     - The deployment script will automatically verify version compatibility
-     - Clear error messages will be provided if version requirements aren't met
+     - The deployment script will automatically detect and verify version compatibility
+     - Supports various version formats including "package X.Y.Z" format
+     - Provides detailed debug information for version detection and comparison
 
 3. S3 Storage:
 
@@ -173,6 +174,9 @@ Common issues include:
 - Network configuration issues preventing package installation
 - Incorrect parameters such as bucket names or availability zones
 - Incompatible Globus Connect Server version (must be 5.4.61 or higher)
+  - The script now properly handles various version output formats
+  - Provides detailed version detection and comparison debugging
+  - Common version output format "globus-connect-server, package X.Y.Z, cli A.B.C" is specifically supported
 - Parameter handling issues with multi-word values (fixed with proper quoting)
 - Duplicate endpoint names (now handled with check and reuse functionality)
 

@@ -139,12 +139,16 @@ If Globus setup fails, the instance will still be created and kept running for t
 
 #### Version Compatibility
 
-This template requires Globus Connect Server version 5.4.61 or higher. The script will check the installed version and exit with a clear error message if the version is incompatible. Key compatibility features:
+This template requires Globus Connect Server version 5.4.61 or higher. The script includes robust version detection and comparison features:
 
-- **Automatic Version Detection**: Script checks the installed version against the required minimum
-- **Clear Error Messages**: If version requirements aren't met, a specific error message is provided
+- **Intelligent Version Parsing**: Extracts version from various output formats
+- **Package Version Identification**: Specifically handles the "package X.Y.Z" format
+- **Proper SemVer Comparison**: Correctly compares major.minor.patch components
+- **Detailed Version Diagnostics**: Provides comprehensive debug output for troubleshooting
 - **Modern Command Format**: Uses the positional argument syntax required by newer Globus versions
 - **Deployment Key Conversion**: Properly handles credential conversion to deployment keys
+
+The script specifically supports the common version format: `globus-connect-server, package 5.4.83, cli 1.0.58`, correctly extracting the package version for compatibility checks.
 
 #### Multi-word Parameter Values
 
