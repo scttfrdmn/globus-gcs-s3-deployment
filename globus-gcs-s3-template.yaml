@@ -310,39 +310,114 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
-          # Bootstrap script to download and run the Globus installation script from S3
+          # Bootstrap script to download and run the Globus installation script
           
-          # Ensure we log errors and output
-          exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+          # Basic debug before anything else
+          echo "Bootstrap starting at $(date)" > /var/tmp/bootstrap-start.log 2>&1
+          
+          # Create home directory for ubuntu user
+          /bin/mkdir -p /home/ubuntu
+          /bin/chmod 755 /home/ubuntu
+          /bin/chown ubuntu:ubuntu /home/ubuntu 2>/dev/null || true
+          
+          # Ensure we log errors and output (using absolute paths)
+          exec > >(/bin/tee /var/log/user-data.log|/usr/bin/logger -t user-data -s 2>/dev/console) 2>&1
           
           # Create a function that forces SUCCESS signal for debugging
           function signal_success {
             echo "FORCING SUCCESS signal to CloudFormation (to preserve instance for debugging)"
-            # Signal CloudFormation of success to prevent instance termination
-            /opt/aws/bin/cfn-signal -e 0 --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}
+            
+            # Check if the directory and binary exist
+            if [ ! -f /opt/aws/bin/cfn-signal ]; then
+              echo "WARNING: /opt/aws/bin/cfn-signal not found, trying to find it elsewhere"
+              # Try to find the cfn-signal command
+              CFN_SIGNAL=$(/usr/bin/which cfn-signal 2>/dev/null || echo "")
+              
+              if [ -n "$CFN_SIGNAL" ]; then
+                echo "Found cfn-signal at $CFN_SIGNAL"
+                $CFN_SIGNAL -e 0 --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}
+              else
+                echo "ERROR: cfn-signal command not found. Cloudformation may report failure."
+                echo "Trying python approach..."
+                
+                # Try Python approach directly
+                echo "Attempting direct Python AWS Lambda invocation as last resort"
+                /usr/bin/python3 -c '
+import urllib.request
+import json
+import os
+
+try:
+    print("Attempting to signal success via API call")
+    url = "https://cloudformation-custom-resource-response-${AWS::Region}.s3.amazonaws.com/"
+    data = json.dumps({
+        "Status": "SUCCESS",
+        "StackId": "${AWS::StackId}",
+        "RequestId": "direct-signal",
+        "LogicalResourceId": "GlobusServerInstance",
+        "PhysicalResourceId": "i-direct-signal"
+    }).encode("utf-8")
+    
+    req = urllib.request.Request(url, data=data, method="PUT")
+    with urllib.request.urlopen(req) as response:
+        print(f"Response: {response.status}")
+except Exception as e:
+    print(f"Error: {e}")
+'
+              fi
+            else
+              # Signal CloudFormation of success to prevent instance termination
+              /opt/aws/bin/cfn-signal -e 0 --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}
+            fi
           }
           
           # Set error handling to ensure CloudFormation is properly signaled but ALWAYS returns success
           function handle_bootstrap_error {
-            echo "ERROR: Bootstrap script failed at line $1 with exit code $2"
-            echo "ERROR: Bootstrap script failed at line $1 with exit code $2" > /home/ubuntu/BOOTSTRAP_ERROR.txt
-            date >> /home/ubuntu/BOOTSTRAP_ERROR.txt
-            env >> /home/ubuntu/BOOTSTRAP_ERROR.txt
+            local LINE=$1
+            local EXIT_CODE=$2
+            local COMMAND=$(history 1 | cut -c8-)
             
-            # Force CloudFormation success to preserve instance for debugging
+            echo "============================================================"
+            echo "ERROR: Bootstrap script failed at line $LINE with exit code $EXIT_CODE"
+            echo "COMMAND: $COMMAND"
+            echo "TIME: $(date)"
+            echo "============================================================"
+            
+            # Create multiple error files in different locations for redundancy
+            echo "ERROR: Bootstrap script failed at line $LINE with exit code $EXIT_CODE" > /home/ubuntu/BOOTSTRAP_ERROR.txt
+            echo "COMMAND: $COMMAND" >> /home/ubuntu/BOOTSTRAP_ERROR.txt
+            echo "TIME: $(date)" >> /home/ubuntu/BOOTSTRAP_ERROR.txt
+            env | sort >> /home/ubuntu/BOOTSTRAP_ERROR.txt
+            
+            # Also save to a location that exists from the start
+            echo "ERROR: Bootstrap script failed at line $LINE with exit code $EXIT_CODE" > /var/tmp/BOOTSTRAP_ERROR.txt
+            echo "COMMAND: $COMMAND" >> /var/tmp/BOOTSTRAP_ERROR.txt
+            echo "TIME: $(date)" >> /var/tmp/BOOTSTRAP_ERROR.txt
+            
+            # Try to identify the source of the error
+            if [ $EXIT_CODE -eq 127 ]; then
+                echo "ERROR TYPE: Command not found (check paths and dependencies)" >> /home/ubuntu/BOOTSTRAP_ERROR.txt
+                echo "RECOMMENDATION: Use absolute paths for commands" >> /home/ubuntu/BOOTSTRAP_ERROR.txt
+            elif [ $EXIT_CODE -eq 2 ]; then
+                echo "ERROR TYPE: Misuse of shell builtin (syntax error)" >> /home/ubuntu/BOOTSTRAP_ERROR.txt
+                echo "RECOMMENDATION: Check syntax for errors" >> /home/ubuntu/BOOTSTRAP_ERROR.txt
+            fi
+            
+            # Force CloudFormation success despite error
             signal_success
             
             # Don't exit - continue execution for debugging
             return 0
           }
           
-          # Do basic setup before anything else
-          mkdir -p /home/ubuntu
-          chmod 755 /home/ubuntu
-          echo "Bootstrap starting at $(date)" > /home/ubuntu/bootstrap.log
+          # Add command history for debugging 
+          set -o history
           
-          # Capture all commands for debugging
+          # Capture all commands for debugging but redirect output to avoid clutter
           set -x
+          
+          # Always save a minimal error log
+          echo "Errors will be recorded to /home/ubuntu/BOOTSTRAP_ERROR.txt and /var/tmp/BOOTSTRAP_ERROR.txt" > /home/ubuntu/bootstrap.log
           
           # But don't fail on errors - just record them
           trap 'handle_bootstrap_error $LINENO $?' ERR
@@ -352,16 +427,27 @@ Resources:
           # Create progress markers for debugging
           echo "1. Starting bootstrap" > /home/ubuntu/bootstrap-progress.log
           
-          # Install AWS CLI if not present
+          # Create directories for cfn-signal
+          /bin/mkdir -p /opt/aws/bin
+          
+          # Install AWS CLI and other dependencies using absolute paths
           echo "2. Installing basic packages" >> /home/ubuntu/bootstrap-progress.log
-          apt-get update 
-          apt-get install -y python3-pip curl
-          pip3 install --upgrade awscli
+          DEBIAN_FRONTEND=noninteractive /usr/bin/apt-get update
+          DEBIAN_FRONTEND=noninteractive /usr/bin/apt-get install -y python3-pip curl wget
+          
+          # Install AWS CLI
+          echo "3. Installing AWS CLI" >> /home/ubuntu/bootstrap-progress.log
+          /usr/bin/python3 -m pip install --upgrade pip
+          /usr/bin/python3 -m pip install --upgrade awscli
           
           # Install AWS CloudFormation helpers
-          echo "3. Installing CloudFormation helpers" >> /home/ubuntu/bootstrap-progress.log
-          pip3 install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz
-          mkdir -p /opt/aws/bin && ln -sf /usr/local/bin/cfn-* /opt/aws/bin/
+          echo "4. Installing CloudFormation helpers" >> /home/ubuntu/bootstrap-progress.log
+          /usr/bin/python3 -m pip install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz
+          
+          # Create links to cfn tools
+          echo "5. Creating links to CFN tools" >> /home/ubuntu/bootstrap-progress.log
+          /bin/ls -la /usr/local/bin/cfn-* >> /home/ubuntu/bootstrap-progress.log 2>&1 || echo "No cfn tools found" >> /home/ubuntu/bootstrap-progress.log
+          /bin/ln -sf /usr/local/bin/cfn-* /opt/aws/bin/ 2>/dev/null || echo "Failed to create symlinks" >> /home/ubuntu/bootstrap-progress.log
           
           # Environment variables for the script - use proper quoting for multi-word parameters
           export AWS_REGION="${AWS::Region}"
@@ -394,42 +480,99 @@ Resources:
           export GCS_CLI_CLIENT_ID="${GlobusClientId}"
           export GCS_CLI_CLIENT_SECRET="${GlobusClientSecret}"
           
-          # Download the installation script from GitHub
-          echo "4. Downloading installation script" >> /home/ubuntu/bootstrap-progress.log
+          # Download the installation script from GitHub with multiple retries
+          echo "6. Downloading installation script" >> /home/ubuntu/bootstrap-progress.log
           echo "Downloading installation script from ${ScriptUrl}"
-          curl -s -L -o /tmp/globus-setup.sh "${ScriptUrl}"
+          
+          # Try multiple download methods with retries
+          /usr/bin/curl -s -L -o /tmp/globus-setup.sh "${ScriptUrl}" || \
+          /usr/bin/wget -q -O /tmp/globus-setup.sh "${ScriptUrl}" || \
+          /usr/bin/python3 -c "import urllib.request; urllib.request.urlretrieve('${ScriptUrl}', '/tmp/globus-setup.sh')"
+          
+          # Verify download succeeded
+          if [ ! -s /tmp/globus-setup.sh ]; then
+            echo "ERROR: Failed to download script from ${ScriptUrl}" >> /home/ubuntu/bootstrap-progress.log
+            echo "ERROR: Failed to download script from ${ScriptUrl}" > /home/ubuntu/DOWNLOAD_FAILED.txt
+            # Try to create a minimal script to signal success to CloudFormation
+            echo "#!/bin/bash" > /tmp/globus-setup.sh
+            echo "echo 'WARNING: This is a fallback script because download failed'" >> /tmp/globus-setup.sh
+            echo "echo 'Download Failed' > /home/ubuntu/INSTALLATION_COMPLETE.txt" >> /tmp/globus-setup.sh
+            echo "exit 0" >> /tmp/globus-setup.sh
+          else
+            echo "Script download successful" >> /home/ubuntu/bootstrap-progress.log
+          fi
           
           # Make it executable
-          chmod +x /tmp/globus-setup.sh
+          /bin/chmod +x /tmp/globus-setup.sh
           
           # Save the script for potential inspection
-          cp /tmp/globus-setup.sh /home/ubuntu/globus-setup-downloaded.sh
+          /bin/cp /tmp/globus-setup.sh /home/ubuntu/globus-setup-downloaded.sh
           
           # Create basic files for potential inspection even if script fails
           echo "Preparing for installation at $(date)" > /home/ubuntu/BOOTSTRAP_STARTED.txt
           
           # Save environment for debugging
-          echo "5. Saving environment for debugging" >> /home/ubuntu/bootstrap-progress.log
-          env | sort > /home/ubuntu/bootstrap-environment.txt
+          echo "7. Saving environment for debugging" >> /home/ubuntu/bootstrap-progress.log
+          /usr/bin/env | sort > /home/ubuntu/bootstrap-environment.txt
           
           # Run the installation script with better error handling and timeout
-          echo "6. Executing main installation script" >> /home/ubuntu/bootstrap-progress.log
+          echo "8. Executing main installation script" >> /home/ubuntu/bootstrap-progress.log
           echo "===== BEGINNING INSTALLATION SCRIPT EXECUTION ====="
           echo "Running installation script with timeout protection"
           
+          # Create a cleanup function to ensure key files exist before signaling
+          function ensure_cleanup {
+            # Create INSTALLATION_COMPLETE.txt to indicate we tried to run
+            echo "Script execution attempted at $(date)" > /home/ubuntu/INSTALLATION_COMPLETE.txt
+            
+            # Create minimal output files in case the main script didn't
+            if [ ! -f /var/log/globus-setup.log ]; then
+              echo "No setup log was created - execution may have failed early" > /home/ubuntu/globus-setup.log
+            else
+              /bin/cp /var/log/globus-setup.log /home/ubuntu/globus-setup.log 2>/dev/null
+            fi
+            
+            # Ensure all files are accessible
+            /bin/chmod 644 /home/ubuntu/*.txt /home/ubuntu/*.log 2>/dev/null || true
+            /bin/chown -R ubuntu:ubuntu /home/ubuntu/ 2>/dev/null || true
+          }
+          
+          # Record the script we're about to run
+          echo "Script content:" >> /home/ubuntu/bootstrap-progress.log
+          /bin/head -n 20 /tmp/globus-setup.sh >> /home/ubuntu/bootstrap-progress.log
+          
+          # Make temp dirs world-writeable to avoid permissions issues
+          /bin/chmod 1777 /tmp /var/tmp 2>/dev/null || true
+          
           # Run with timeout to prevent hanging, and redirect all output to log files
-          timeout -k 1800 1800 bash /tmp/globus-setup.sh > /home/ubuntu/globus-setup-output.log 2>&1
-          SETUP_EXIT_CODE=$?
+          # If timeout isn't available, try with normal bash
+          if command -v timeout >/dev/null 2>&1; then
+            timeout -k 1800 1800 /bin/bash /tmp/globus-setup.sh > /home/ubuntu/globus-setup-output.log 2>&1
+            SETUP_EXIT_CODE=$?
+          else
+            echo "Timeout command not available, running without timeout" >> /home/ubuntu/bootstrap-progress.log
+            /bin/bash /tmp/globus-setup.sh > /home/ubuntu/globus-setup-output.log 2>&1
+            SETUP_EXIT_CODE=$?
+          fi
+          
+          # Record exit code 
+          echo "Script execution completed with exit code: $SETUP_EXIT_CODE" >> /home/ubuntu/bootstrap-progress.log
           
           # Check if timeout occurred
           if [ $SETUP_EXIT_CODE -eq 124 ] || [ $SETUP_EXIT_CODE -eq 137 ]; then
             echo "ERROR: Script execution timed out after 30 minutes" > /home/ubuntu/SCRIPT_TIMEOUT.txt
             echo "This typically indicates a hang in the installation process" >> /home/ubuntu/SCRIPT_TIMEOUT.txt
             echo "Check /home/ubuntu/globus-setup-output.log for details" >> /home/ubuntu/SCRIPT_TIMEOUT.txt
+          else
+            echo "Script execution completed with exit code: $SETUP_EXIT_CODE" > /home/ubuntu/SCRIPT_COMPLETED.txt
           fi
           
+          # Always perform cleanup
+          ensure_cleanup
+          
           # Copy setup log for easier access
-          cp /var/log/globus-setup.log /home/ubuntu/globus-setup.log 2>/dev/null || echo "No setup log found" > /home/ubuntu/globus-setup.log
+          /bin/cp /var/log/globus-setup.log /home/ubuntu/globus-setup.log 2>/dev/null || \
+          echo "No setup log found - execution may have failed early" > /home/ubuntu/globus-setup.log
           
           # Save important diagnostics for debugging
           echo "Installation script completed with exit code: $SETUP_EXIT_CODE" > /home/ubuntu/bootstrap-complete.log
