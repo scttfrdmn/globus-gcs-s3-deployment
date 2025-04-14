@@ -452,11 +452,17 @@ if [ "${RESET_ENDPOINT_OWNER}" = "true" ]; then
   echo "Will reset endpoint owner after setup for better visibility"
 fi
 
-# Execute the command - passing the display name as a direct positional argument
-# to ensure proper quoting
-eval $SETUP_CMD '"${GC_NAME}"'
-
+# Execute the command and capture the output
+echo "Running command and capturing output..."
+SETUP_OUTPUT=$(eval $SETUP_CMD '"${GC_NAME}"' 2>&1)
 SETUP_RESULT=$?
+
+# Save the full output to a file for debugging
+echo "$SETUP_OUTPUT" > /home/ubuntu/endpoint-setup-output.txt
+
+# Display the output to the user
+echo "$SETUP_OUTPUT"
+
 if [ $SETUP_RESULT -eq 0 ]; then
   echo "Endpoint setup succeeded!"
 else
@@ -472,32 +478,91 @@ else
   exit 1
 fi
 
-# Extract endpoint ID from the output and save it
-echo "Extracting endpoint UUID from setup result..."
-# Try multiple patterns to extract the UUID
-SETUP_OUTPUT=$(globus-connect-server endpoint show 2>&1)
-echo "$SETUP_OUTPUT" > /home/ubuntu/endpoint-details.txt
+# Extract endpoint ID from the setup output
+echo "Extracting endpoint UUID directly from command output..."
+# The UUID is printed in the output as "Created endpoint <UUID>"
 
-# Look for UUID pattern in the output
-ENDPOINT_UUID=$(echo "$SETUP_OUTPUT" | grep -o -E "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
+# Extract it directly from our captured SETUP_OUTPUT variable
+ENDPOINT_UUID=$(echo "$SETUP_OUTPUT" | grep -o -E "Created endpoint [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | grep -o -E "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
+
+# If that fails, try to find any UUID in the output
+if [ -z "$ENDPOINT_UUID" ]; then
+  echo "Created endpoint pattern not found, trying direct UUID pattern..."
+  ENDPOINT_UUID=$(echo "$SETUP_OUTPUT" | grep -o -E "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
+fi
+
+# If still not found, try a different approach with endpoint show
+if [ -z "$ENDPOINT_UUID" ]; then
+  echo "UUID not found in direct output, trying endpoint show command..."
+  # Try to run endpoint show to get UUID
+  SHOW_OUTPUT=$(globus-connect-server endpoint show 2>&1)
+  echo "$SHOW_OUTPUT" > /home/ubuntu/endpoint-details.txt
+  
+  # Look for UUID pattern in the output
+  ENDPOINT_UUID=$(echo "$SHOW_OUTPUT" | grep -o -E "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
+  
+  if [ -z "$ENDPOINT_UUID" ]; then
+    echo "Still couldn't find UUID, checking for domain_name pattern..."
+    # Try to extract from domain name line if present
+    DOMAIN_NAME=$(echo "$SETUP_OUTPUT" | grep -o "domain_name [a-zA-Z0-9]\+\.[a-zA-Z0-9]\+\.data\.globus\.org" | head -1)
+    if [ -n "$DOMAIN_NAME" ]; then
+      echo "Found domain name: $DOMAIN_NAME - will save this instead"
+      echo "$DOMAIN_NAME" > /home/ubuntu/endpoint-domain.txt
+    fi
+  fi
+fi
 
 if [ -n "$ENDPOINT_UUID" ]; then
   echo "Successfully extracted endpoint UUID: $ENDPOINT_UUID"
-  # Save to file
+  # Save to multiple locations for robustness
   echo "$ENDPOINT_UUID" > /home/ubuntu/endpoint-uuid.txt
   # Make it extremely visible as a standalone file
-  echo "$ENDPOINT_UUID" > /home/ubuntu/ENDPOINT_UUID.txt
+  echo "ENDPOINT UUID: $ENDPOINT_UUID" > /home/ubuntu/ENDPOINT_UUID.txt
+  
   # Set environment variables for future commands
   export GCS_CLI_ENDPOINT_ID="$ENDPOINT_UUID"
-  # Add to profile for persistence across sessions
+  
+  # Create environment file for sourcing in different ways
   echo "export GCS_CLI_ENDPOINT_ID=$ENDPOINT_UUID" > /home/ubuntu/globus-env.sh
   chmod +x /home/ubuntu/globus-env.sh
   
+  # Also add to .bashrc for ubuntu user to automate future sessions
+  echo "# Added by Globus setup script" >> /home/ubuntu/.bashrc
+  echo "export GCS_CLI_ENDPOINT_ID=$ENDPOINT_UUID" >> /home/ubuntu/.bashrc
+  echo "# If you need the other variables:" >> /home/ubuntu/.bashrc
+  echo "# export GCS_CLI_CLIENT_ID=$(cat /home/ubuntu/globus-client-id.txt 2>/dev/null)" >> /home/ubuntu/.bashrc
+  echo "# export GCS_CLI_CLIENT_SECRET=$(cat /home/ubuntu/globus-client-secret.txt 2>/dev/null)" >> /home/ubuntu/.bashrc
+  
   echo "Endpoint UUID has been saved to /home/ubuntu/endpoint-uuid.txt"
-  echo "To use this UUID in future commands, run: source /home/ubuntu/globus-env.sh"
+  echo "Environment variables have been set for the current session"
+  echo "For future sessions, the variables will be loaded automatically from .bashrc"
+  echo "If needed, you can also run: source /home/ubuntu/globus-env.sh"
 else
   echo "WARNING: Could not extract endpoint UUID from output"
-  echo "Manual steps may be required to set the GCS_CLI_ENDPOINT_ID environment variable"
+  echo ""
+  echo "=============================================================="
+  echo "IMPORTANT: To use endpoint commands, you need to manually set the ID"
+  echo "When you see the UUID in the output above (after 'Created endpoint'), run:"
+  echo "export GCS_CLI_ENDPOINT_ID=THE_UUID_YOU_SEE_IN_THE_OUTPUT"
+  echo "=============================================================="
+  echo ""
+  
+  # Create a prominent error file
+  cat > /home/ubuntu/MISSING_UUID.txt << 'EOF'
+=================================================================
+ENDPOINT UUID NOT FOUND AUTOMATICALLY
+
+To use Globus commands, you need to set the endpoint UUID manually.
+
+Find the line in the output above that looks like:
+"Created endpoint 943183de-bd5b-4920-a64d-c63ee600d4a2"
+
+Then run this command with that UUID:
+export GCS_CLI_ENDPOINT_ID=943183de-bd5b-4920-a64d-c63ee600d4a2
+
+You can add this to your .bashrc file for persistence.
+=================================================================
+EOF
 fi
 
 # Show result

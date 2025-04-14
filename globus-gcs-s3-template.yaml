@@ -374,7 +374,11 @@ Resources:
           # Make it executable
           chmod +x /tmp/globus-setup.sh
           
+          # Create basic files for potential inspection even if script fails
+          echo "Preparing for installation at $(date)" > /home/ubuntu/BOOTSTRAP_STARTED.txt
+          
           # Run the installation script
+          echo "===== BEGINNING INSTALLATION SCRIPT EXECUTION ====="
           echo "Running installation script"
           bash /tmp/globus-setup.sh
           SETUP_EXIT_CODE=$?
@@ -399,9 +403,19 @@ Resources:
             echo "WARNING: endpoint-uuid.txt not found" >> /home/ubuntu/bootstrap-complete.log
           fi
           
-          # Signal CloudFormation of completion
-          echo "Signaling CloudFormation with exit code: $SETUP_EXIT_CODE"
-          /opt/aws/bin/cfn-signal -e $SETUP_EXIT_CODE --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}
+          # Force a success signal to CloudFormation - we want to keep the instance for debugging
+          # Even if something failed
+          echo "Marking bootstrap as complete even if there were errors"
+          echo "This ensures we can debug the instance instead of losing it to rollback"
+          echo "Final CloudFormation signal will indicate success but check logs for actual status"
+          
+          # Create a file to indicate bootstrap completion for debugging
+          echo "Bootstrap script completed at $(date) with exit code: $SETUP_EXIT_CODE" > /home/ubuntu/BOOTSTRAP_COMPLETED.txt
+          echo "Signaling CloudFormation of completion (forcing success for debugging)" >> /home/ubuntu/BOOTSTRAP_COMPLETED.txt
+          
+          # Signal CloudFormation - force 0 exit code to prevent rollback 
+          # This allows us to preserve the instance for debugging
+          /opt/aws/bin/cfn-signal -e 0 --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}
           
           echo "=== GLOBUS-CONNECT-SERVER-BOOTSTRAP-COMPLETE ==="
           
