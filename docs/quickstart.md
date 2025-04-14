@@ -1,0 +1,78 @@
+# Quick Start Guide
+
+This guide provides concise steps to set up and deploy the Globus Connect Server S3 template.
+
+## Prerequisites
+
+1. **AWS Account Setup**:
+   - AWS account with EC2, CloudFormation, IAM permissions
+   - VPC with public subnet
+   - EC2 key pair
+
+2. **Globus Account Setup**:
+   - Create account at [globus.org](https://www.globus.org/)
+   - Get subscription ID (required for S3 connector)
+   - Create S3 bucket
+
+3. **Globus Service Identity Setup**:
+   - Go to [Globus Developer Console](https://app.globus.org/settings/developers)
+   - Create a project, register an application
+   - Record Client UUID and Client Secret
+   - Add service identity as project admin: `CLIENT_UUID@clients.auth.globus.org`
+   - Record Project ID
+
+## Deployment Steps
+
+1. **Prepare parameters.json**:
+   ```json
+   [
+     {"ParameterKey": "KeyName", "ParameterValue": "your-key-pair"},
+     {"ParameterKey": "VpcId", "ParameterValue": "vpc-xxxxxxxx"},
+     {"ParameterKey": "SubnetId", "ParameterValue": "subnet-xxxxxxxx"},
+     {"ParameterKey": "AvailabilityZone", "ParameterValue": "us-east-1a"},
+     {"ParameterKey": "GlobusClientId", "ParameterValue": "your-client-uuid"},
+     {"ParameterKey": "GlobusClientSecret", "ParameterValue": "your-client-secret"},
+     {"ParameterKey": "GlobusProjectId", "ParameterValue": "your-project-id"},
+     {"ParameterKey": "GlobusOwner", "ParameterValue": "owner@example.com"},
+     {"ParameterKey": "GlobusContactEmail", "ParameterValue": "support@example.com"},
+     {"ParameterKey": "GlobusDisplayName", "ParameterValue": "Your Unique Endpoint Name"},
+     {"ParameterKey": "GlobusOrganization", "ParameterValue": "Your Organization"},
+     {"ParameterKey": "GlobusSubscriptionId", "ParameterValue": "your-subscription-id"},
+     {"ParameterKey": "S3BucketName", "ParameterValue": "your-s3-bucket"}
+   ]
+   ```
+
+2. **Deploy CloudFormation Stack**:
+   ```bash
+   aws cloudformation create-stack \
+     --stack-name globus-gcs \
+     --template-body file://globus-gcs-s3-template.yaml \
+     --parameters file://parameters.json \
+     --capabilities CAPABILITY_IAM
+   ```
+
+3. **Monitor deployment**:
+   ```bash
+   aws cloudformation describe-stacks --stack-name globus-gcs --query "Stacks[0].StackStatus" --output text
+   ```
+
+4. **Post-Deployment Configuration**:
+   - SSH into the instance: `ssh -i your-key.pem ubuntu@<instance-ip>`
+   - If S3 collection wasn't created automatically:
+     ```bash
+     /home/ubuntu/create-s3-collection.sh your-s3-bucket
+     ```
+   - The collection URL will appear in the output
+
+5. **Access your endpoint**:
+   - Go to [app.globus.org/file-manager](https://app.globus.org/file-manager)
+   - Search for your endpoint by name
+   - Or use the collection URL from the deployment output
+
+## Troubleshooting
+
+- Run diagnostic script: `/home/ubuntu/diagnose-endpoint.sh`
+- Check logs: `cat /home/ubuntu/globus-setup-complete.log`
+- If endpoint is not visible in web interface, ensure a collection was created
+
+For more detailed instructions, see [deployment.md](deployment.md).

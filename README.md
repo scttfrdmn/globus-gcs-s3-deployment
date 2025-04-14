@@ -49,7 +49,8 @@ This repository contains a CloudFormation template for deploying Globus Connect 
 
 The repository includes detailed documentation on deploying and using Globus Connect Server with S3:
 
-- [Deployment Guide](./docs/deployment.md) - Step-by-step instructions for deploying the solution
+- [Quick Start Guide](./docs/quickstart.md) - Concise steps for deployment (start here!)
+- [Deployment Guide](./docs/deployment.md) - Comprehensive instructions for deploying the solution
 - [CLI Operations](./docs/cli-operations.md) - How to use the Globus CLI for file transfers
 - [Globus Groups](./docs/groups.md) - Managing access through Globus Groups
 - [Collection Types](./docs/collections.md) - Understanding Globus collections and S3 integration
