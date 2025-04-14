@@ -563,16 +563,25 @@ Resources:
             echo "Script syntax check passed, executing..." >> /home/ubuntu/bootstrap-progress.log
           fi
 
+          # Use individual echo commands instead of a problematic heredoc
+          echo '#!/bin/bash' > /tmp/run-script.sh
+          echo '# Simple script runner that captures output' >> /tmp/run-script.sh
+          echo '/bin/bash "$1" > /home/ubuntu/globus-setup-output.log 2>&1' >> /tmp/run-script.sh
+          echo 'RESULT_CODE=$?' >> /tmp/run-script.sh
+          echo 'echo "Script exited with code: $RESULT_CODE" >> /home/ubuntu/globus-setup-output.log' >> /tmp/run-script.sh
+          echo 'exit $RESULT_CODE' >> /tmp/run-script.sh
+          chmod +x /tmp/run-script.sh
+          
           # Execute script with improved error capture
           if command -v timeout >/dev/null 2>&1; then
-            # Use tee to capture output in real-time while also saving to a file
+            # Use timeout with our wrapper
             echo "Running with timeout protection (30 minutes)..." >> /home/ubuntu/bootstrap-progress.log
-            timeout -k 1800 1800 /bin/bash /tmp/globus-setup.sh 2>&1 | tee /home/ubuntu/globus-setup-output.log
-            SETUP_EXIT_CODE=${PIPESTATUS[0]}  # Capture the exit code from the first command in the pipe
+            timeout -k 1800 1800 /tmp/run-script.sh /tmp/globus-setup.sh
+            SETUP_EXIT_CODE=$?  # This now correctly captures the exit code
           else
             echo "Timeout command not available, running without timeout" >> /home/ubuntu/bootstrap-progress.log
-            /bin/bash /tmp/globus-setup.sh 2>&1 | tee /home/ubuntu/globus-setup-output.log
-            SETUP_EXIT_CODE=${PIPESTATUS[0]}
+            /tmp/run-script.sh /tmp/globus-setup.sh
+            SETUP_EXIT_CODE=$?  # This now correctly captures the exit code
           fi
           
           # Save a copy of all environment variables for debugging
