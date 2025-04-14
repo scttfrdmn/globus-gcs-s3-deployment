@@ -32,15 +32,17 @@ This guide provides concise steps to set up and deploy the Globus Connect Server
 
 ## Deployment
 
-### Option 1: CloudFormation Console (Quick Launch)
+### Option 1: CloudFormation Console
 
-Click on a region-specific launch button to deploy the template directly through the AWS CloudFormation console:
+> **Note:** Quick Launch buttons have been temporarily removed while the template is being updated.
+> Please use the AWS CLI deployment method (Option 2) below.
 
-| Region | Launch Button |
-|--------|--------------|
-| **US East (N. Virginia)** | [![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/review?templateURL=https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/globus-gcs-s3-template.yaml&stackName=globus-gcs) |
-| **US East (Ohio)** | [![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=us-east-2#/stacks/create/review?templateURL=https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/globus-gcs-s3-template.yaml&stackName=globus-gcs) |
-| **US West (Oregon)** | [![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=us-west-2#/stacks/create/review?templateURL=https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/globus-gcs-s3-template.yaml&stackName=globus-gcs) |
+To deploy using the CloudFormation console:
+
+1. Open the AWS CloudFormation console in your desired region
+2. Choose "Create stack" > "With new resources (standard)" 
+3. Select "Upload a template file" and upload the `globus-gcs-s3-template.yaml` file
+4. Follow the prompts to fill in the parameters and create the stack
 
 * Make sure to complete the prerequisites first and have all required parameters ready
 * Fill in the parameter form with your specific Globus credentials and AWS resources
