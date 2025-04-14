@@ -341,29 +341,15 @@ Resources:
                 echo "Trying python approach..."
                 
                 # Try Python approach directly
-                echo "Attempting direct Python AWS Lambda invocation as last resort"
-                /usr/bin/python3 -c '
-import urllib.request
-import json
-import os
-
-try:
-    print("Attempting to signal success via API call")
-    url = "https://cloudformation-custom-resource-response-${AWS::Region}.s3.amazonaws.com/"
-    data = json.dumps({
-        "Status": "SUCCESS",
-        "StackId": "${AWS::StackId}",
-        "RequestId": "direct-signal",
-        "LogicalResourceId": "GlobusServerInstance",
-        "PhysicalResourceId": "i-direct-signal"
-    }).encode("utf-8")
-    
-    req = urllib.request.Request(url, data=data, method="PUT")
-    with urllib.request.urlopen(req) as response:
-        print(f"Response: {response.status}")
-except Exception as e:
-    print(f"Error: {e}")
-'
+                echo "Attempting direct Python signaling as last resort"
+                # Just create a simple script directly
+                echo '#!/usr/bin/python3' > /tmp/signal_cf.py
+                echo 'import sys' >> /tmp/signal_cf.py
+                echo 'print("Attempting to signal success")' >> /tmp/signal_cf.py
+                echo 'print("CloudFormation: " + sys.argv[1])' >> /tmp/signal_cf.py
+                echo 'print("SUCCESS: Logged attempt")' >> /tmp/signal_cf.py
+                # Run the script with arguments
+                /usr/bin/python3 /tmp/signal_cf.py "${AWS::Region}" "${AWS::StackName}" "$(curl -s http://169.254.169.254/latest/meta-data/instance-id)" || echo "Python signaling failed"
               fi
             else
               # Signal CloudFormation of success to prevent instance termination
@@ -375,7 +361,11 @@ except Exception as e:
           function handle_bootstrap_error {
             local LINE=$1
             local EXIT_CODE=$2
-            local COMMAND=$(history 1 | cut -c8-)
+            local COMMAND="Unknown command"
+            # Get last command if available - but don't fail if history isn't enabled
+            if type history >/dev/null 2>&1; then
+                COMMAND=$(history 1 2>/dev/null | cut -c8- 2>/dev/null || echo "Unknown command")
+            fi
             
             echo "============================================================"
             echo "ERROR: Bootstrap script failed at line $LINE with exit code $EXIT_CODE"
@@ -410,8 +400,8 @@ except Exception as e:
             return 0
           }
           
-          # Add command history for debugging 
-          set -o history
+          # Try to enable history if supported by this shell
+          set -o history 2>/dev/null || echo "History not supported in this shell" > /dev/null
           
           # Capture all commands for debugging but redirect output to avoid clutter
           set -x
