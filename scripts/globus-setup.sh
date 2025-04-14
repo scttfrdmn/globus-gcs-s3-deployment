@@ -4,8 +4,18 @@
 # Will use environment variables passed from the CloudFormation bootstrap script
 # REQUIRES: Globus Connect Server 5.4.61 or higher
 
+# Bash strict mode but with controlled error handling
+set -o pipefail
+
+# Output all commands for debugging
+set -x
+
+# Log the entire script execution
+echo "DEBUG: Script started with args: $@" > /tmp/globus-debug.log
+env | sort >> /tmp/globus-debug.log
+
 # Setup proper logging - using both file and console output
-exec > >(tee /var/log/globus-setup.log|logger -t globus-setup -s 2>/dev/console) 2>&1
+exec > >(tee /var/log/globus-setup.log | logger -t globus-setup -s 2>/dev/console) 2>&1
 
 # Mark the beginning of our script for tracking
 echo "=== GLOBUS-CONNECT-SERVER-INSTALLATION-SCRIPT ==="
@@ -142,35 +152,57 @@ function check_gcs_version() {
   return 0
 }
 
-# Improved error handling - log errors but don't terminate script
+# Create error log file immediately
+ERROR_LOG="/home/ubuntu/deployment-error.txt"
+touch $ERROR_LOG
+chmod 644 $ERROR_LOG
+
+# Create immediate debug marker
+echo "Script started at $(date)" > /home/ubuntu/script-progress.log
+chmod 644 /home/ubuntu/script-progress.log
+
+# Improved error handling with better file output
 function handle_error {
   local exit_code=$1
   local error_message=$2
   local stage=$3
   
+  # Always create these files for debugging
   echo "ERROR: $error_message (Exit code: $exit_code)" | tee -a /home/ubuntu/deployment-error.txt
   echo "$(date) - Error in stage: $stage" >> /home/ubuntu/deployment-error.txt
+  
+  # Signal stage at which the error occurred
+  echo "FAILED_STAGE: $stage" > /home/ubuntu/SCRIPT_FAILED.txt
+  echo "ERROR: $error_message (Exit code: $exit_code)" >> /home/ubuntu/SCRIPT_FAILED.txt
+  echo "TIME: $(date)" >> /home/ubuntu/SCRIPT_FAILED.txt
+  chmod 644 /home/ubuntu/SCRIPT_FAILED.txt
   
   # Log to CloudWatch if possible
   logger -t "globus-deploy" "ERROR in $stage: $error_message (code: $exit_code)"
   
-  # Only fail the stack if explicitly requested
-  if [ "$SHOULD_FAIL" = "yes" ]; then
-    /opt/aws/bin/cfn-signal -e $exit_code --stack $AWS_STACK_NAME --resource GlobusServerInstance --region $AWS_REGION
-    exit $exit_code
-  else
-    # Continue execution despite error
-    return 0
-  fi
+  # Force continue for CloudFormation debug
+  echo "NOT FAILING despite error - preserving instance for debugging" | tee -a /home/ubuntu/deployment-error.txt
+  
+  # Continue execution despite error (FORCE CONTINUE)
+  return 0
 }
-SHOULD_FAIL="yes"
+# Force continue on errors
+SHOULD_FAIL="no"
+
+# Mark end of any previous log file
+echo "====== NEW EXECUTION AT $(date) =======" >> /home/ubuntu/deployment-error.txt
 
 # Create a debug file to make it easier to diagnose cloud-init issues
 echo "Installation script started at $(date)" > /home/ubuntu/install-debug.log
 echo "Script running as: $(id)" >> /home/ubuntu/install-debug.log
 
+# Create additional debug files to track progress
+mkdir -p /home/ubuntu/debug
+echo "Stage 0: Starting script" > /home/ubuntu/debug/stage0.log
+
 # Install packages with retry mechanism for robustness
 echo "===== [1/10] Updating package lists =====" | tee -a /home/ubuntu/install-debug.log
+echo "Stage 1: Updating package lists" > /home/ubuntu/debug/stage1.log
 for i in {1..3}; do
   echo "Attempt $i: apt-get update" >> /home/ubuntu/install-debug.log
   apt-get update && break
@@ -178,6 +210,7 @@ for i in {1..3}; do
 done
 
 echo "===== [2/10] Installing base packages =====" | tee -a /home/ubuntu/install-debug.log
+echo "Stage 2: Installing base packages" > /home/ubuntu/debug/stage2.log
 for i in {1..3}; do
   echo "Attempt $i: Installing packages" >> /home/ubuntu/install-debug.log
   apt-get install -y python3-pip jq curl wget gnupg gnupg2 gpg software-properties-common dnsutils apt-transport-https ca-certificates && break
