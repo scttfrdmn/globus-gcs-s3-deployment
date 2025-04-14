@@ -581,8 +581,42 @@ if [ "$DEBUG_SKIP_DUPLICATE_CHECK" = "true" ]; then
   echo "DEBUG: Skipping endpoint check due to DEBUG_SKIP_DUPLICATE_CHECK flag" | tee -a $SETUP_LOG
   EXISTING_ENDPOINT=""
 else
-  echo "Checking for existing endpoint with the same name..." | tee -a $SETUP_LOG
+  echo "Checking for existing endpoint with the same name: '$GLOBUS_DISPLAY_NAME'..." | tee -a $SETUP_LOG
+  
+  # Setup Globus CLI for more reliable endpoint listing - use same auth as for the setup
+  pip3 install -q globus-cli
+  mkdir -p ~/.globus
+  
+  # Ensure Globus CLI is properly configured with the same credentials
+  cat > ~/.globus/globus.cfg << EOF
+[cli]
+default_client_id = ${GLOBUS_CLIENT_ID}
+default_client_secret = ${GLOBUS_CLIENT_SECRET}
+EOF
+  
+  # First try globus-connect-server endpoint list
   EXISTING_ENDPOINT=$(globus-connect-server endpoint list 2>/dev/null | grep -F "$GLOBUS_DISPLAY_NAME" || echo "")
+  
+  # Fallback to globus CLI if first method doesn't work
+  if [ -z "$EXISTING_ENDPOINT" ]; then
+    echo "Trying alternate endpoint search method..." | tee -a $SETUP_LOG
+    # The globus CLI works differently and requires the user to be logged in
+    if command -v globus &>/dev/null; then
+      GLOBUS_SEARCH=$(globus endpoint search --filter-scope all "$GLOBUS_DISPLAY_NAME" 2>/dev/null || echo "")
+      if [ -n "$GLOBUS_SEARCH" ] && echo "$GLOBUS_SEARCH" | grep -q "$GLOBUS_DISPLAY_NAME"; then
+        echo "Found endpoint using globus CLI:" | tee -a $SETUP_LOG
+        echo "$GLOBUS_SEARCH" | tee -a $SETUP_LOG
+        
+        # Parse UUID from search result
+        UUID_PATTERN="[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}"
+        ENDPOINT_UUID=$(echo "$GLOBUS_SEARCH" | grep -o "$UUID_PATTERN" | head -1)
+        
+        if [ -n "$ENDPOINT_UUID" ]; then
+          EXISTING_ENDPOINT="$ENDPOINT_UUID $GLOBUS_DISPLAY_NAME"
+        fi
+      fi
+    fi
+  fi
 fi
 
 if [ -n "$EXISTING_ENDPOINT" ]; then
@@ -590,8 +624,13 @@ if [ -n "$EXISTING_ENDPOINT" ]; then
   echo "Existing endpoint details:" | tee -a $SETUP_LOG
   echo "$EXISTING_ENDPOINT" | tee -a $SETUP_LOG
   
-  # Extract endpoint ID if possible to use existing endpoint
-  ENDPOINT_ID=$(echo "$EXISTING_ENDPOINT" | awk '{print $1}')
+  # Extract endpoint ID if possible to use existing endpoint - try UUID pattern first
+  ENDPOINT_ID=$(echo "$EXISTING_ENDPOINT" | grep -o "[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}" | head -1)
+  
+  # Fallback to first field if UUID pattern doesn't match
+  if [ -z "$ENDPOINT_ID" ]; then
+    ENDPOINT_ID=$(echo "$EXISTING_ENDPOINT" | awk '{print $1}')
+  fi
   if [ -n "$ENDPOINT_ID" ]; then
     echo "Using existing endpoint ID: $ENDPOINT_ID" | tee -a $SETUP_LOG
     echo "$ENDPOINT_ID" > /home/ubuntu/existing-endpoint-id.txt

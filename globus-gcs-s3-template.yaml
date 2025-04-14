@@ -335,7 +335,7 @@ Resources:
           export S3_BUCKET_NAME="${S3BucketName}"
           # IMPORTANT: Environment variables for service authentication and debugging
           export DEBUG_SKIP_VERSION_CHECK="true" # Skip version compatibility check
-          export DEBUG_SKIP_DUPLICATE_CHECK="true" # Skip duplicate endpoint check in helper script
+          export DEBUG_SKIP_DUPLICATE_CHECK="false" # Allow duplicate endpoint check to run
           
           # Use service credential environment variables for automated deployment
           # See: https://docs.globus.org/globus-connect-server/v5/automated-deployment/
