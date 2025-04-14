@@ -311,7 +311,8 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
-          # Optimized bootstrap script for Globus Connect Server deployment
+          # Bootstrap script for Globus Connect Server deployment
+          # First make sure logs are captured properly
           exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
           set -e
           
@@ -320,39 +321,50 @@ Resources:
           
           # CloudFormation signaling function
           signal_cf() {
+            local exit_code=$1
+            echo "Signaling CloudFormation with status code: $exit_code"
+            
             if [ -f /opt/aws/bin/cfn-signal ]; then
-              /opt/aws/bin/cfn-signal -e $1 --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}
+              /opt/aws/bin/cfn-signal -e $exit_code --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}
             elif command -v cfn-signal >/dev/null 2>&1; then
-              cfn-signal -e $1 --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}
+              cfn-signal -e $exit_code --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}
             else
-              echo "No cfn-signal found, trying to install AWS CFN tools"
+              echo "No cfn-signal found, installing AWS CFN tools..."
               apt-get update -qq && apt-get install -y python3-pip
               pip3 install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz
-              /usr/local/bin/cfn-signal -e $1 --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region} || echo "Failed to signal CloudFormation"
+              echo "Signaling with installed tools..."
+              /usr/local/bin/cfn-signal -e $exit_code --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region} || echo "Failed to signal CloudFormation"
             fi
           }
           
-          # Error handler - always signals success to preserve the instance
+          # Error handler - always preserve the instance even on error
           handle_error() {
-            echo "ERROR: Bootstrap failed at line $1 with exit code $2" | tee /home/ubuntu/BOOTSTRAP_ERROR.txt
+            echo "=============================================================" | tee /home/ubuntu/BOOTSTRAP_ERROR.txt
+            echo "ERROR: Bootstrap failed at line $1 with exit code $2" | tee -a /home/ubuntu/BOOTSTRAP_ERROR.txt
             echo "Command: $BASH_COMMAND" >> /home/ubuntu/BOOTSTRAP_ERROR.txt
             echo "Time: $(date)" >> /home/ubuntu/BOOTSTRAP_ERROR.txt
+            echo "=============================================================" | tee -a /home/ubuntu/BOOTSTRAP_ERROR.txt
             
             # Always signal success to CloudFormation to preserve the instance
+            echo "Signaling success despite error to preserve instance for troubleshooting"
             signal_cf 0
             exit 0
           }
           trap 'handle_error $LINENO $?' ERR
           
           # Install dependencies
-          apt-get update -qq
-          apt-get install -y python3-pip curl wget
-          pip3 install awscli
+          echo "Installing dependencies..."
+          apt-get update
+          apt-get install -y python3-pip curl wget awscli jq
+          
+          # Setup CFN tools
+          echo "Setting up CloudFormation tools..."
           pip3 install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz
           mkdir -p /opt/aws/bin
           ln -sf /usr/local/bin/cfn-* /opt/aws/bin/ 2>/dev/null || true
           
           # Set environment variables
+          echo "Setting environment variables..."
           export AWS_REGION="${AWS::Region}"
           export AWS_STACK_NAME="${AWS::StackName}"
           export GLOBUS_CLIENT_ID="${GlobusClientId}" 
@@ -360,10 +372,6 @@ Resources:
           export GLOBUS_DISPLAY_NAME="${GlobusDisplayName}"
           export GLOBUS_ORGANIZATION="${GlobusOrganization}"
           export GLOBUS_OWNER="${GlobusOwner}"
-          # Check if owner is a client ID and use fallback if needed
-          if [[ "${GlobusOwner}" == *"@clients.auth.globus.org" ]]; then
-            [ -n "${GlobusContactEmail}" ] && export GLOBUS_OWNER="${GlobusContactEmail}"
-          fi
           export GLOBUS_CONTACT_EMAIL="${GlobusContactEmail}"
           export GLOBUS_PROJECT_ID="${GlobusProjectId}"
           export GLOBUS_PROJECT_NAME="${GlobusProjectName}"
@@ -372,15 +380,9 @@ Resources:
           export RESET_ENDPOINT_OWNER="${ResetEndpointOwner}"
           export ENDPOINT_RESET_OWNER_TARGET="${EndpointResetOwnerTarget}"
           export GLOBUS_SUBSCRIPTION_ID="${GlobusSubscriptionId}"
-          export DEPLOYMENT_TYPE="${DeploymentType}"
-          export AUTH_METHOD="Globus"
-          export DEFAULT_ADMIN="${DefaultAdminIdentity}"
           export ENABLE_S3_CONNECTOR="${EnableS3Connector}"
           export S3_BUCKET_NAME="${S3BucketName}"
-          export DEBUG_SKIP_VERSION_CHECK="false"
-          export DEBUG_SKIP_DUPLICATE_CHECK="false"
-          export GCS_CLI_CLIENT_ID="${GlobusClientId}"
-          export GCS_CLI_CLIENT_SECRET="${GlobusClientSecret}"
+          export DEFAULT_ADMIN="${DefaultAdminIdentity}"
           
           # Download the installation script
           echo "Downloading Globus setup script from ${ScriptUrl}"
@@ -392,30 +394,43 @@ Resources:
             exit 1
           fi
           
+          # Check script syntax before running
+          echo "Validating script syntax..."
+          if ! bash -n /tmp/globus-setup.sh; then
+            echo "ERROR: Script contains syntax errors" > /home/ubuntu/SYNTAX_ERROR.txt
+            signal_cf 0  # Signal success to preserve instance for troubleshooting
+            exit 0
+          fi
+          
+          # Prepare for execution
           chmod +x /tmp/globus-setup.sh
           cp /tmp/globus-setup.sh /home/ubuntu/globus-setup.sh
           echo "Starting Globus setup: $(date)" > /home/ubuntu/BOOTSTRAP_STARTED.txt
           
-          # Run the setup script
-          echo "Running Globus setup script"
-          /bin/bash /tmp/globus-setup.sh > /home/ubuntu/globus-setup-output.log 2>&1
+          # Run the setup script with careful error handling
+          echo "Running Globus setup script..."
+          bash /tmp/globus-setup.sh > >(tee /home/ubuntu/globus-setup-output.log) 2>&1
           SETUP_EXIT_CODE=$?
           
           # Capture and record script results
-          echo "Script completed with code: $SETUP_EXIT_CODE" > /home/ubuntu/SCRIPT_COMPLETED.txt
-          cp /var/log/globus-setup.log /home/ubuntu/globus-setup.log 2>/dev/null || echo "No log found" > /home/ubuntu/globus-setup.log
+          echo "Script completed with exit code: $SETUP_EXIT_CODE" > /home/ubuntu/SCRIPT_COMPLETED.txt
           
-          # Record endpoint URL if available
+          # Copy log files for troubleshooting
+          cp /var/log/globus-setup.log /home/ubuntu/globus-setup.log 2>/dev/null || echo "No setup log found" > /home/ubuntu/globus-setup.log
+          
+          # Create URL files if endpoint was created successfully
           if [ -f /home/ubuntu/endpoint-uuid.txt ]; then
             ENDPOINT_UUID=$(cat /home/ubuntu/endpoint-uuid.txt)
             echo "Endpoint URL: https://app.globus.org/file-manager?origin_id=$ENDPOINT_UUID" > /home/ubuntu/endpoint-url.txt
           fi
           
-          # Mark bootstrap completion and set file ownership
+          # Mark bootstrap completion
           echo "Bootstrap completed at $(date)" > /home/ubuntu/BOOTSTRAP_COMPLETED.txt
+          
+          # Set file permissions
           chown -R ubuntu:ubuntu /home/ubuntu/
           
-          # Signal success to CloudFormation
+          # Always signal success to CloudFormation to preserve the instance
           echo "=== BOOTSTRAP COMPLETE: $(date) ==="
           signal_cf 0
       Tags:
