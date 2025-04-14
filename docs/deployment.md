@@ -119,9 +119,14 @@ Based on the [Globus endpoint setup CLI documentation](https://docs.globus.org/g
 - **ForceElasticIP**: Force allocation of Elastic IP even for Integration deployment
 - **InstanceType**: EC2 instance type (defaults to m6i.xlarge)
 - **DefaultAdminIdentity**: Globus identity to be granted admin access
-- **GlobusSubscriptionId**: Subscription ID to join this endpoint to your subscription
-- **EnableS3Connector**: Enable S3 Connector (requires subscription)
-- **S3BucketName**: Name of S3 bucket to connect (if S3 Connector is enabled)
+#### Required S3 Connector Parameters
+
+- **GlobusSubscriptionId**: Subscription ID to join this endpoint to your subscription (REQUIRED for S3 connector)
+- **S3BucketName**: Name of S3 bucket to connect (required when S3 Connector is enabled)
+
+#### Optional S3 Connector Parameters
+
+- **EnableS3Connector**: Whether to enable S3 Connector (defaults to true for this template)
 - **GlobusDisplayName**: Display name for the Globus endpoint (defaults to "AWS GCS S3 Endpoint")
 - **GlobusOrganization**: Organization name for the endpoint (defaults to "AWS")
 
@@ -263,17 +268,22 @@ For more information on Globus Connect Server options, see the [Globus CLI Refer
   },
   
   // Optional connector parameters (requires subscription)
+  // === REQUIRED S3 CONNECTOR PARAMETERS ===
+  
   {
-    "ParameterKey": "GlobusSubscriptionId",    // Optional: Required for S3 connector
+    "ParameterKey": "GlobusSubscriptionId",    // REQUIRED: Subscription ID for S3 connector
     "ParameterValue": "xxxxxxxxxxxx"
   },
   {
-    "ParameterKey": "EnableS3Connector",       // Optional: Defaults to "true"
-    "ParameterValue": "true"
-  },
-  {
-    "ParameterKey": "S3BucketName",            // Optional: Required if S3Connector is enabled
+    "ParameterKey": "S3BucketName",            // REQUIRED: Bucket for S3 connector
     "ParameterValue": "your-globus-bucket"
+  },
+  
+  // === OPTIONAL S3 CONNECTOR PARAMETERS ===
+  
+  {
+    "ParameterKey": "EnableS3Connector",       // Optional: Defaults to "true" in this template
+    "ParameterValue": "true"
   }
 ]
 ```

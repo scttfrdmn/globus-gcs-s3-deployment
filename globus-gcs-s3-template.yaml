@@ -87,13 +87,12 @@ Parameters:
     NoEcho: true
 
   GlobusSubscriptionId:
-    Description: (Optional) Globus Subscription ID to join this endpoint to your subscription
+    Description: Globus Subscription ID to join this endpoint to your subscription (REQUIRED for S3 connector)
     Type: String
-    Default: ""
     
-  # Connector options
+  # Connector options (always enabled in this template)
   EnableS3Connector:
-    Description: Enable S3 Connector (requires subscription)
+    Description: Whether to enable S3 Connector (defaults to true for this template)
     Type: String
     Default: "true"
     AllowedValues:
@@ -102,10 +101,9 @@ Parameters:
     
   # Connector specific parameters
   S3BucketName:
-    Description: Name of S3 bucket to connect (if S3 Connector is enabled)
+    Description: Name of S3 bucket to connect (required when EnableS3Connector is true)
     Type: String
-    Default: ""
-    AllowedPattern: "^$|[a-zA-Z0-9\\-\\.]{3,63}"
+    AllowedPattern: "[a-zA-Z0-9\\-\\.]{3,63}"
     ConstraintDescription: Bucket name must be between 3 and 63 characters, contain only letters, numbers, hyphens, and periods.
     
   GlobusDisplayName:
