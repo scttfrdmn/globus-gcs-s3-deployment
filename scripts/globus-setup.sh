@@ -807,22 +807,35 @@ EOF
   fi
   
   # Execute the command - passing the display name as a direct positional argument
-  # rather than as part of the command string to ensure proper quoting
+  # and capture output directly to parse the endpoint UUID
   echo "Running command with environment-based authentication: ${SETUP_CMD} \"${GLOBUS_DISPLAY_NAME}\"" | tee -a $SETUP_LOG
-  eval $SETUP_CMD '"${GLOBUS_DISPLAY_NAME}"' >> $SETUP_LOG 2>&1
-    
+  SETUP_OUTPUT=$(eval $SETUP_CMD '"${GLOBUS_DISPLAY_NAME}"' 2>&1)
   SETUP_RESULT=$?
+  
+  # Save the raw output to a file for debugging
+  echo "$SETUP_OUTPUT" > /home/ubuntu/endpoint-setup-output.txt
+  # Also append to setup log
+  echo "$SETUP_OUTPUT" >> $SETUP_LOG
+  
   if [ $SETUP_RESULT -eq 0 ]; then
     echo "Endpoint setup succeeded!" | tee -a $SETUP_LOG
     SETUP_STATUS=0
     
-    # Capture and save the full endpoint UUID reliably
-    echo "Extracting endpoint UUID..." | tee -a $SETUP_LOG
-    # Run a command to get endpoint ID directly - more reliable than parsing output
-    echo "Retrieving endpoint UUID using direct command..." | tee -a $SETUP_LOG
+    # Extract endpoint UUID directly from the setup output
+    # Look for the line "Created endpoint UUID" or similar patterns
+    ENDPOINT_UUID=$(echo "$SETUP_OUTPUT" | grep -o -E "Created endpoint [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | grep -o -E "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" || echo "")
     
-    # Save the command output
-    ENDPOINT_CMD_OUTPUT=$(globus-connect-server endpoint show 2>/dev/null)
+    if [ -n "$ENDPOINT_UUID" ]; then
+      echo "Successfully extracted endpoint UUID directly from setup output: $ENDPOINT_UUID" | tee -a $SETUP_LOG
+      echo "$ENDPOINT_UUID" > /home/ubuntu/endpoint-uuid.txt
+      chmod 644 /home/ubuntu/endpoint-uuid.txt
+      export GCS_CLI_ENDPOINT_ID="$ENDPOINT_UUID"
+    else
+      echo "UUID not found in direct output, trying alternate methods..." | tee -a $SETUP_LOG
+      
+      # Fall back to the endpoint show command if direct extraction failed
+      echo "Falling back to endpoint show command..." | tee -a $SETUP_LOG
+      ENDPOINT_CMD_OUTPUT=$(globus-connect-server endpoint show 2>/dev/null)
     
     # Save the full output to a file for debugging
     echo "$ENDPOINT_CMD_OUTPUT" > /home/ubuntu/endpoint-details.txt
