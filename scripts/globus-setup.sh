@@ -291,32 +291,78 @@ if [ -z "$EXISTING_ENDPOINT" ]; then
   # Write the exact command to a file for debugging
   echo "$SETUP_CMD \"$GLOBUS_DISPLAY_NAME\"" > /home/ubuntu/endpoint-setup-command.txt
   
-  # Run the command with careful error capturing
-  # First try with eval
-  set +e  # Temporarily disable exit on error
-  eval $SETUP_CMD "\"$GLOBUS_DISPLAY_NAME\"" > /home/ubuntu/endpoint-setup-output.raw 2>&1
-  SETUP_EXIT_CODE=$?
-  set -e  # Re-enable exit on error
+  # Try a simpler direct approach first (more likely to succeed)
+  log "Executing globus-connect-server directly without eval..."
   
-  # If we got exit code 100, it might be a command execution issue, try alternate method
-  if [ $SETUP_EXIT_CODE -eq 100 ]; then
-    log "Got exit code 100, trying alternate command execution method..."
-    # Try a more direct approach without eval
-    DIRECT_CMD="${SETUP_CMD} \"${GLOBUS_DISPLAY_NAME}\""
-    run_command "$DIRECT_CMD" "Direct globus-connect-server endpoint setup" > /home/ubuntu/endpoint-setup-direct.raw 2>&1
-    DIRECT_EXIT_CODE=$?
+  # Build arguments array to avoid quoting/eval issues
+  DIRECT_ARGS=("endpoint" "setup" 
+              "--organization" "$GLOBUS_ORGANIZATION"
+              "--contact-email" "$GLOBUS_CONTACT_EMAIL"
+              "--owner" "$GLOBUS_OWNER"
+              "--dont-set-advertised-owner"
+              "--agree-to-letsencrypt-tos")
+  
+  # Add project ID if specified
+  if [ -n "$GLOBUS_PROJECT_ID" ]; then
+    DIRECT_ARGS+=("--project-id" "$GLOBUS_PROJECT_ID")
+  fi
+  
+  # Add display name (positional argument)
+  DIRECT_ARGS+=("$GLOBUS_DISPLAY_NAME")
+  
+  # Save command for debugging
+  echo "globus-connect-server ${DIRECT_ARGS[@]}" > /home/ubuntu/endpoint-setup-direct-command.txt
+  
+  # Run the command and capture output
+  set +e
+  DIRECT_OUTPUT=$(globus-connect-server "${DIRECT_ARGS[@]}" 2>&1)
+  DIRECT_EXIT_CODE=$?
+  set -e
+  
+  # Save output for debugging
+  echo "$DIRECT_OUTPUT" > /home/ubuntu/endpoint-setup-direct.txt
+  
+  if [ $DIRECT_EXIT_CODE -eq 0 ]; then
+    log "✅ Direct command execution succeeded!"
+    SETUP_OUTPUT="$DIRECT_OUTPUT"
+    SETUP_EXIT_CODE=0
+  else
+    log "Direct command failed with exit code $DIRECT_EXIT_CODE, trying alternative methods..."
     
-    # If direct method worked better, use its output
-    if [ $DIRECT_EXIT_CODE -ne 100 ]; then
-      log "Direct method returned code $DIRECT_EXIT_CODE, using this instead"
-      cp /home/ubuntu/endpoint-setup-direct.raw /home/ubuntu/endpoint-setup-output.raw
-      SETUP_EXIT_CODE=$DIRECT_EXIT_CODE
+    # Try the original eval approach as fallback
+    set +e
+    eval $SETUP_CMD "\"$GLOBUS_DISPLAY_NAME\"" > /home/ubuntu/endpoint-setup-output.raw 2>&1
+    SETUP_EXIT_CODE=$?
+    set -e
+    
+    # If both failed, try one more approach with explicit globus-connect-server path
+    if [ $SETUP_EXIT_CODE -ne 0 ]; then
+      log "Both methods failed, trying with full path to globus-connect-server..."
+      GLOB_CMD=$(which globus-connect-server)
+      
+      if [ -n "$GLOB_CMD" ]; then
+        set +e
+        "$GLOB_CMD" "${DIRECT_ARGS[@]}" > /home/ubuntu/endpoint-setup-fullpath.txt 2>&1
+        FULL_PATH_EXIT_CODE=$?
+        set -e
+        
+        if [ $FULL_PATH_EXIT_CODE -eq 0 ]; then
+          log "✅ Full path command execution succeeded!"
+          SETUP_OUTPUT=$(cat /home/ubuntu/endpoint-setup-fullpath.txt)
+          SETUP_EXIT_CODE=0
+        else
+          # If all methods failed, use the direct output for error reporting
+          SETUP_OUTPUT="$DIRECT_OUTPUT"
+        fi
+      fi
+    else
+      # If eval method worked, use its output
+      SETUP_OUTPUT=$(cat /home/ubuntu/endpoint-setup-output.raw)
     fi
   fi
   
-  # Save full output to a file
-  cat /home/ubuntu/endpoint-setup-output.raw | tee /home/ubuntu/endpoint-setup-output.txt
-  SETUP_OUTPUT=$(cat /home/ubuntu/endpoint-setup-output.raw)
+  # Save the final output regardless of which method was used
+  echo "$SETUP_OUTPUT" > /home/ubuntu/endpoint-setup-output.txt
   
   # Display the output
   log "Command completed with exit code: $SETUP_EXIT_CODE"
@@ -356,9 +402,16 @@ if [ -z "$EXISTING_ENDPOINT" ]; then
   
   if [ -n "$ENDPOINT_UUID" ]; then
     log "Successfully extracted endpoint UUID: $ENDPOINT_UUID"
+    # Ensure directory exists with proper permissions
+    mkdir -p /home/ubuntu
+    # Write the UUID to files with explicit permissions
     echo "$ENDPOINT_UUID" > /home/ubuntu/endpoint-uuid.txt
     echo "ENDPOINT UUID: $ENDPOINT_UUID" > /home/ubuntu/ENDPOINT_UUID.txt
+    chown ubuntu:ubuntu /home/ubuntu/endpoint-uuid.txt /home/ubuntu/ENDPOINT_UUID.txt
+    chmod 644 /home/ubuntu/endpoint-uuid.txt /home/ubuntu/ENDPOINT_UUID.txt
     export GCS_CLI_ENDPOINT_ID="$ENDPOINT_UUID"
+    # Log verification that the file was created
+    ls -la /home/ubuntu/endpoint-uuid.txt | tee -a "$LOG_FILE"
     
     # Verify the endpoint was actually created by trying to get its details
     log "Verifying endpoint creation..."
@@ -388,24 +441,105 @@ if [ -z "$EXISTING_ENDPOINT" ]; then
     echo "WARNING: Could not extract endpoint UUID from output" > /home/ubuntu/MISSING_UUID.txt
     echo "Check endpoint-setup-output.txt for the full output and look for the UUID manually." >> /home/ubuntu/MISSING_UUID.txt
     
+    # Save the full command output for detailed inspection
+    echo "======== FULL COMMAND OUTPUT ========" >> /home/ubuntu/endpoint-setup-detailed.txt
+    echo "$SETUP_OUTPUT" >> /home/ubuntu/endpoint-setup-detailed.txt
+    
     # Try alternative methods to find the endpoint
     log "Trying alternative methods to find the endpoint..."
     
-    # Check if the endpoint was created despite not finding the UUID
-    ENDPOINT_LIST=$(globus-connect-server endpoint list 2>/dev/null | grep -F "$GLOBUS_DISPLAY_NAME" || echo "")
-    if [ -n "$ENDPOINT_LIST" ]; then
-      log "Found endpoint in list despite missing UUID in setup output!"
-      echo "$ENDPOINT_LIST" > /home/ubuntu/found-endpoint-in-list.txt
-      
-      # Try to extract the UUID again
-      ALT_UUID=$(echo "$ENDPOINT_LIST" | grep -o -E "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
-      
-      if [ -n "$ALT_UUID" ]; then
-        log "Successfully extracted endpoint UUID from list: $ALT_UUID"
-        ENDPOINT_UUID="$ALT_UUID"
+    # Try to extract the UUID using additional patterns that might appear in the output
+    log "Attempting alternative extraction patterns..."
+    ALT_PATTERNS=(
+      "endpoint id: ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
+      "endpoint ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
+      "id: ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
+      "id ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
+      "([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
+    )
+    
+    for pattern in "${ALT_PATTERNS[@]}"; do
+      log "Trying pattern: $pattern"
+      PATTERN_UUID=$(echo "$SETUP_OUTPUT" | grep -oE "$pattern" | grep -oE "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
+      if [ -n "$PATTERN_UUID" ]; then
+        log "Found UUID with alternative pattern: $PATTERN_UUID"
+        ENDPOINT_UUID="$PATTERN_UUID"
         echo "$ENDPOINT_UUID" > /home/ubuntu/endpoint-uuid.txt
-        echo "ENDPOINT UUID: $ENDPOINT_UUID" > /home/ubuntu/ENDPOINT_UUID.txt
+        echo "ENDPOINT UUID: $ENDPOINT_UUID (from pattern extraction)" > /home/ubuntu/ENDPOINT_UUID.txt
+        chown ubuntu:ubuntu /home/ubuntu/endpoint-uuid.txt /home/ubuntu/ENDPOINT_UUID.txt
+        chmod 644 /home/ubuntu/endpoint-uuid.txt /home/ubuntu/ENDPOINT_UUID.txt
         export GCS_CLI_ENDPOINT_ID="$ENDPOINT_UUID"
+        ls -la /home/ubuntu/endpoint-uuid.txt | tee -a "$LOG_FILE"
+        break
+      fi
+    done
+    
+    # If still not found, check endpoint list as last resort
+    if [ -z "$ENDPOINT_UUID" ]; then
+      log "No UUID found with pattern extraction, checking endpoint list..."
+      
+      # Try the endpoint list command
+      set +e
+      ENDPOINT_LIST=$(globus-connect-server endpoint list 2>&1)
+      ENDPOINT_LIST_EXIT_CODE=$?
+      set -e
+      
+      echo "======== ENDPOINT LIST OUTPUT ========" >> /home/ubuntu/endpoint-list-detailed.txt
+      echo "$ENDPOINT_LIST" >> /home/ubuntu/endpoint-list-detailed.txt
+      
+      if [ $ENDPOINT_LIST_EXIT_CODE -eq 0 ]; then
+        # Filter for our endpoint name
+        FOUND_ENDPOINT=$(echo "$ENDPOINT_LIST" | grep -F "$GLOBUS_DISPLAY_NAME" || echo "")
+        if [ -n "$FOUND_ENDPOINT" ]; then
+          log "Found endpoint in list despite missing UUID in setup output!"
+          echo "$FOUND_ENDPOINT" > /home/ubuntu/found-endpoint-in-list.txt
+          
+          # Try to extract the UUID
+          ALT_UUID=$(echo "$FOUND_ENDPOINT" | grep -oE "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
+          
+          if [ -n "$ALT_UUID" ]; then
+            log "Successfully extracted endpoint UUID from list: $ALT_UUID"
+            ENDPOINT_UUID="$ALT_UUID"
+            echo "$ENDPOINT_UUID" > /home/ubuntu/endpoint-uuid.txt
+            echo "ENDPOINT UUID: $ENDPOINT_UUID (from endpoint list)" > /home/ubuntu/ENDPOINT_UUID.txt
+            chown ubuntu:ubuntu /home/ubuntu/endpoint-uuid.txt /home/ubuntu/ENDPOINT_UUID.txt
+            chmod 644 /home/ubuntu/endpoint-uuid.txt /home/ubuntu/ENDPOINT_UUID.txt
+            export GCS_CLI_ENDPOINT_ID="$ENDPOINT_UUID"
+            ls -la /home/ubuntu/endpoint-uuid.txt | tee -a "$LOG_FILE"
+          else
+            log "Found endpoint but couldn't extract UUID from list"
+          fi
+        else
+          log "Did not find endpoint with name '$GLOBUS_DISPLAY_NAME' in endpoint list"
+        fi
+      else
+        log "Endpoint list command failed with exit code $ENDPOINT_LIST_EXIT_CODE"
+      fi
+    fi
+    
+    # Still no UUID? Try a desperate approach with endpoint show
+    if [ -z "$ENDPOINT_UUID" ]; then
+      log "Last resort: trying endpoint show command..."
+      set +e
+      SHOW_OUTPUT=$(globus-connect-server endpoint show 2>&1)
+      SHOW_EXIT_CODE=$?
+      set -e
+      
+      echo "======== ENDPOINT SHOW OUTPUT ========" >> /home/ubuntu/endpoint-show-desperate.txt
+      echo "$SHOW_OUTPUT" >> /home/ubuntu/endpoint-show-desperate.txt
+      
+      if [ $SHOW_EXIT_CODE -eq 0 ]; then
+        LAST_UUID=$(echo "$SHOW_OUTPUT" | grep -oE "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
+        if [ -n "$LAST_UUID" ]; then
+          log "Found UUID via show command as last resort: $LAST_UUID"
+          ENDPOINT_UUID="$LAST_UUID"
+          echo "$ENDPOINT_UUID" > /home/ubuntu/endpoint-uuid.txt
+          echo "ENDPOINT UUID: $ENDPOINT_UUID (from show command)" > /home/ubuntu/ENDPOINT_UUID.txt
+          chown ubuntu:ubuntu /home/ubuntu/endpoint-uuid.txt /home/ubuntu/ENDPOINT_UUID.txt
+          chmod 644 /home/ubuntu/endpoint-uuid.txt /home/ubuntu/ENDPOINT_UUID.txt
+          export GCS_CLI_ENDPOINT_ID="$ENDPOINT_UUID"
+          ls -la /home/ubuntu/endpoint-uuid.txt | tee -a "$LOG_FILE"
+        fi
       fi
     fi
   fi
@@ -554,13 +688,72 @@ if [ -z "$1" ]; then
 fi
 
 S3_BUCKET_NAME="$1"
-ENDPOINT_UUID=$(cat /home/ubuntu/endpoint-uuid.txt 2>/dev/null)
+
+# Try multiple methods to retrieve the endpoint UUID
+find_endpoint_uuid() {
+  # Try the endpoint-uuid.txt file first
+  if [ -f /home/ubuntu/endpoint-uuid.txt ]; then
+    local uuid=$(cat /home/ubuntu/endpoint-uuid.txt 2>/dev/null | grep -o -E "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
+    if [ -n "$uuid" ]; then
+      echo "$uuid"
+      return 0
+    fi
+  fi
+  
+  # Try ENDPOINT_UUID.txt next
+  if [ -f /home/ubuntu/ENDPOINT_UUID.txt ]; then
+    local uuid=$(cat /home/ubuntu/ENDPOINT_UUID.txt 2>/dev/null | grep -o -E "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
+    if [ -n "$uuid" ]; then
+      echo "$uuid"
+      return 0
+    fi
+  fi
+  
+  # Try to get UUID from endpoint show command
+  if command -v globus-connect-server >/dev/null 2>&1; then
+    if [ -f /home/ubuntu/globus-client-id.txt ] && [ -f /home/ubuntu/globus-client-secret.txt ]; then
+      export GCS_CLI_CLIENT_ID=$(cat /home/ubuntu/globus-client-id.txt)
+      export GCS_CLI_CLIENT_SECRET=$(cat /home/ubuntu/globus-client-secret.txt)
+      
+      local show_output=$(globus-connect-server endpoint show 2>/dev/null)
+      local uuid=$(echo "$show_output" | grep -o -E "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
+      if [ -n "$uuid" ]; then
+        # Save it for future use
+        echo "$uuid" > /home/ubuntu/endpoint-uuid.txt
+        echo "$uuid"
+        return 0
+      fi
+    fi
+  fi
+  
+  # Last resort: search in any files that might contain the UUID
+  local search_result=$(grep -r -o -E "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" /home/ubuntu/ 2>/dev/null | head -1)
+  if [ -n "$search_result" ]; then
+    local uuid=$(echo "$search_result" | grep -o -E "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
+    if [ -n "$uuid" ]; then
+      # Save it for future use
+      echo "$uuid" > /home/ubuntu/endpoint-uuid.txt
+      echo "$uuid"
+      return 0
+    fi
+  fi
+  
+  return 1
+}
+
+ENDPOINT_UUID=$(find_endpoint_uuid)
 
 # Check if endpoint UUID is available
 if [ -z "$ENDPOINT_UUID" ]; then
   echo "ERROR: Endpoint UUID not found. Please ensure the endpoint was created successfully."
+  echo "Troubleshooting steps:"
+  echo "1. Check if the endpoint was created by running: globus-connect-server endpoint list"
+  echo "2. Look in log files: /home/ubuntu/globus-setup.log and /var/log/globus-setup.log"
+  echo "3. If you find the UUID manually, save it to /home/ubuntu/endpoint-uuid.txt"
   exit 1
 fi
+
+echo "Using endpoint UUID: $ENDPOINT_UUID"
 
 # Set up environment
 if [ -f /home/ubuntu/globus-client-id.txt ] && [ -f /home/ubuntu/globus-client-secret.txt ]; then
@@ -620,6 +813,71 @@ EOF
 chmod +x /home/ubuntu/create-s3-collection.sh
 chown -R ubuntu:ubuntu /home/ubuntu/
 
+# Final verification step: ensure endpoint UUID was found and written
+log "Performing final verification of endpoint UUID..."
+
+# Function to extract the endpoint UUID from various sources
+find_endpoint_uuid() {
+  # Try the endpoint-uuid.txt file first
+  if [ -f /home/ubuntu/endpoint-uuid.txt ]; then
+    local uuid=$(cat /home/ubuntu/endpoint-uuid.txt 2>/dev/null | grep -o -E "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
+    if [ -n "$uuid" ]; then
+      echo "$uuid"
+      return 0
+    fi
+  fi
+  
+  # Try ENDPOINT_UUID.txt next
+  if [ -f /home/ubuntu/ENDPOINT_UUID.txt ]; then
+    local uuid=$(cat /home/ubuntu/ENDPOINT_UUID.txt 2>/dev/null | grep -o -E "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
+    if [ -n "$uuid" ]; then
+      echo "$uuid"
+      return 0
+    fi
+  fi
+  
+  # Try to get UUID from endpoint show command
+  if command -v globus-connect-server >/dev/null 2>&1; then
+    local show_output=$(globus-connect-server endpoint show 2>/dev/null)
+    local uuid=$(echo "$show_output" | grep -o -E "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
+    if [ -n "$uuid" ]; then
+      # Save it for future use
+      echo "$uuid" > /home/ubuntu/endpoint-uuid.txt
+      echo "$uuid"
+      return 0
+    fi
+  fi
+  
+  # Last resort: search in log files that might contain the UUID
+  local search_result=$(grep -o -E "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" /home/ubuntu/*.txt /var/log/globus-setup.log 2>/dev/null | head -1)
+  if [ -n "$search_result" ]; then
+    local uuid=$(echo "$search_result" | grep -o -E "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
+    if [ -n "$uuid" ]; then
+      # Save it for future use
+      echo "$uuid" > /home/ubuntu/endpoint-uuid.txt
+      echo "$uuid"
+      return 0
+    fi
+  fi
+  
+  return 1
+}
+
+# If we don't have an endpoint UUID yet, try to find it
+if [ -z "$ENDPOINT_UUID" ]; then
+  log "Endpoint UUID not found in script variables, trying to find it..."
+  FINAL_UUID=$(find_endpoint_uuid)
+  if [ -n "$FINAL_UUID" ]; then
+    ENDPOINT_UUID="$FINAL_UUID"
+    log "Successfully recovered endpoint UUID: $ENDPOINT_UUID"
+    # Make sure it's written to the files
+    echo "$ENDPOINT_UUID" > /home/ubuntu/endpoint-uuid.txt
+    echo "ENDPOINT UUID: $ENDPOINT_UUID (recovered during final verification)" > /home/ubuntu/ENDPOINT_UUID.txt
+  else
+    log "WARNING: Could not find endpoint UUID in final verification"
+  fi
+fi
+
 # Create deployment summary
 log "Creating deployment summary..."
 cat > /home/ubuntu/deployment-summary.txt << EOF
@@ -631,7 +889,7 @@ Endpoint Details:
 - Owner: $GLOBUS_OWNER
 - Organization: $GLOBUS_ORGANIZATION
 - Contact Email: $GLOBUS_CONTACT_EMAIL
-- UUID: $(cat /home/ubuntu/endpoint-uuid.txt 2>/dev/null || echo "Not available")
+- UUID: ${ENDPOINT_UUID:-Not available}
 
 Subscription Status:
 - Subscription ID: ${GLOBUS_SUBSCRIPTION_ID:-None provided}
@@ -639,12 +897,23 @@ Subscription Status:
 - S3 Bucket: ${S3_BUCKET_NAME:-None provided}
 
 Access Information:
-- Web URL: https://app.globus.org/file-manager?origin_id=$(cat /home/ubuntu/endpoint-uuid.txt 2>/dev/null)
+- Web URL: https://app.globus.org/file-manager?origin_id=${ENDPOINT_UUID:-MISSING_UUID}
 - S3 Collection URL: $(cat /home/ubuntu/s3-collection-url.txt 2>/dev/null || echo "Not created")
 
 Helper Scripts:
 - /home/ubuntu/create-s3-collection.sh: Helper for creating S3 collections
+
+UUID Status:
+- UUID Found: ${ENDPOINT_UUID:+Yes}${ENDPOINT_UUID:-No}
+- UUID File: $([ -f /home/ubuntu/endpoint-uuid.txt ] && echo "Exists" || echo "Missing")
+- UUID Content: $(cat /home/ubuntu/endpoint-uuid.txt 2>/dev/null || echo "Empty or missing")
 EOF
+
+# Create a special file just for UUID
+if [ -n "$ENDPOINT_UUID" ]; then
+  echo "$ENDPOINT_UUID" > /home/ubuntu/ENDPOINT_UUID_FINAL.txt
+  chmod 644 /home/ubuntu/ENDPOINT_UUID_FINAL.txt
+fi
 
 # Set permissions for logs and files
 chown -R ubuntu:ubuntu /home/ubuntu/

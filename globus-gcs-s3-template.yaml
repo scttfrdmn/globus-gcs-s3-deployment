@@ -402,6 +402,11 @@ Resources:
             exit 0
           fi
           
+          # Check script permissions
+          echo "Setting up script permissions..."
+          chmod 755 /tmp/globus-setup.sh
+          ls -la /tmp/globus-setup.sh > /home/ubuntu/script-permissions.txt
+          
           # Prepare for execution
           chmod +x /tmp/globus-setup.sh
           cp /tmp/globus-setup.sh /home/ubuntu/globus-setup.sh
@@ -422,6 +427,38 @@ Resources:
           if [ -f /home/ubuntu/endpoint-uuid.txt ]; then
             ENDPOINT_UUID=$(cat /home/ubuntu/endpoint-uuid.txt)
             echo "Endpoint URL: https://app.globus.org/file-manager?origin_id=$ENDPOINT_UUID" > /home/ubuntu/endpoint-url.txt
+            echo "✅ Endpoint UUID successfully created and exported: $ENDPOINT_UUID" >> /home/ubuntu/BOOTSTRAP_COMPLETED.txt
+          else
+            # Try to find the UUID file in case it had permission issues
+            UUID_FILE_SEARCH=$(find /home/ubuntu -name "endpoint-uuid.txt" -o -name "ENDPOINT_UUID.txt" 2>/dev/null)
+            if [ -n "$UUID_FILE_SEARCH" ]; then
+              echo "Found UUID files in unexpected locations:" >> /home/ubuntu/BOOTSTRAP_COMPLETED.txt
+              echo "$UUID_FILE_SEARCH" >> /home/ubuntu/BOOTSTRAP_COMPLETED.txt
+              
+              # Try to get the UUID from any found file
+              for found_file in $UUID_FILE_SEARCH; do
+                FOUND_UUID=$(cat "$found_file" | grep -o -E "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
+                if [ -n "$FOUND_UUID" ]; then
+                  echo "Recovered UUID from $found_file: $FOUND_UUID" >> /home/ubuntu/BOOTSTRAP_COMPLETED.txt
+                  echo "$FOUND_UUID" > /home/ubuntu/endpoint-uuid.txt
+                  echo "Endpoint URL: https://app.globus.org/file-manager?origin_id=$FOUND_UUID" > /home/ubuntu/endpoint-url.txt
+                  break
+                fi
+              done
+            else
+              echo "⚠️ WARNING: No endpoint UUID files found" >> /home/ubuntu/BOOTSTRAP_COMPLETED.txt
+              # Last resort: look in all logs for a UUID
+              echo "Searching logs for UUID pattern..." >> /home/ubuntu/BOOTSTRAP_COMPLETED.txt
+              GREP_RESULT=$(grep -o -E "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" /home/ubuntu/* 2>/dev/null | head -1)
+              if [ -n "$GREP_RESULT" ]; then
+                LOG_UUID=$(echo "$GREP_RESULT" | grep -o -E "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
+                if [ -n "$LOG_UUID" ]; then
+                  echo "Found UUID in logs: $LOG_UUID" >> /home/ubuntu/BOOTSTRAP_COMPLETED.txt
+                  echo "$LOG_UUID" > /home/ubuntu/endpoint-uuid.txt
+                  echo "Endpoint URL: https://app.globus.org/file-manager?origin_id=$LOG_UUID" > /home/ubuntu/endpoint-url.txt
+                fi
+              fi
+            fi
           fi
           
           # Mark bootstrap completion
