@@ -398,15 +398,17 @@ SETUP_CMD+=" --dont-set-advertised-owner"
 # Required parameters
 SETUP_CMD+=" --organization \"${GC_ORG}\""
 
-# Project ID is critical for automated deployments
+# Project ID is required for automated deployments
 GC_PROJECT_ID=""
 [ -f /home/ubuntu/globus-project-id.txt ] && GC_PROJECT_ID=$(cat /home/ubuntu/globus-project-id.txt)
 if [ -n "${GC_PROJECT_ID}" ]; then
   echo "Using project ID: ${GC_PROJECT_ID}"
   SETUP_CMD+=" --project-id \"${GC_PROJECT_ID}\""
 else
-  echo "WARNING: No project ID specified. This is strongly recommended for automated deployments."
-  echo "See https://docs.globus.org/globus-connect-server/v5/automated-deployment/ for details."
+  echo "ERROR: No project ID specified. This is required for automated deployments with service credentials." | tee -a $SETUP_LOG
+  echo "You must specify a project ID when a service identity has access to multiple projects." | tee -a $SETUP_LOG
+  echo "See https://docs.globus.org/globus-connect-server/v5/automated-deployment/ for details." | tee -a $SETUP_LOG
+  handle_error "Missing required GlobusProjectId parameter. Please specify a valid project ID."
 fi
 
 # Use the owner parameter (required) - either from argument or explicit owner var

@@ -133,9 +133,8 @@ Parameters:
     Default: "admin@example.com"
     
   GlobusProjectId:
-    Description: (Optional) Globus Auth project ID where this endpoint will be registered
+    Description: Globus Auth project ID where this endpoint will be registered (REQUIRED for service identity authentication)
     Type: String
-    Default: ""
     
   GlobusProjectName:
     Description: (Optional) Name of the Auth project for the new endpoint client 

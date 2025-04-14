@@ -39,8 +39,10 @@
    3. **Prepare CloudFormation Parameters:**
       - Set `GlobusClientId` to your Client UUID
       - Set `GlobusClientSecret` to your Client Secret
-      - **CRITICAL**: Set `GlobusProjectId` to your Project ID (from step ii)
-        - This is essential for automated deployment authentication
+      - **REQUIRED**: Set `GlobusProjectId` to your Project ID (from step ii)
+        - This is required for automated deployments with service credentials
+        - You MUST provide this when a service identity has access to multiple projects
+        - Without this parameter, deployment will fail with "You have multiple existing projects" error
       - Set `GlobusOwner` to the identity that should own the endpoint
         - For fully automated deployments, this can be the service identity itself
         - Format: `CLIENT_UUID@clients.auth.globus.org`
@@ -123,12 +125,13 @@ Based on the [Globus endpoint setup CLI documentation](https://docs.globus.org/g
 - **GlobusDisplayName**: Display name for the Globus endpoint (defaults to "AWS GCS S3 Endpoint")
 - **GlobusOrganization**: Organization name for the endpoint (defaults to "AWS")
 
-#### Optional Globus Project Parameters (GCS 5.4.61+)
+#### Required Globus Project Parameters (GCS 5.4.61+)
 
 - **GlobusProjectId**: The Globus Auth project ID to register the endpoint in
-  - This is optional but **strongly recommended** for automated deployments
+  - This is REQUIRED for automated deployments with service credentials
   - Ensures the endpoint is registered in the correct project
-  - Essential for proper service identity authentication
+  - Required when a service identity has access to multiple projects
+  - Must be obtained from the Globus Auth Developer Console
 - **GlobusProjectName**: Name for the Auth project if one needs to be created
 - **GlobusProjectAdmin**: Admin username for the project if different from owner
 - **GlobusAlwaysCreateProject**: Force creation of a new project even if one exists
@@ -241,9 +244,9 @@ For more information on Globus Connect Server options, see the [Globus CLI Refer
     "ParameterValue": "Your Organization Name"  // Optional: Defaults to "AWS"
   },
   
-  // Optional Globus Project parameters (for GCS 5.4.61+)
+  // Required Globus Project parameters (for GCS 5.4.61+)
   {
-    "ParameterKey": "GlobusProjectId",         // Optional: Globus Auth project ID
+    "ParameterKey": "GlobusProjectId",         // REQUIRED: Globus Auth project ID
     "ParameterValue": "12345678-abcd-1234-efgh-1234567890ab"
   },
   {
