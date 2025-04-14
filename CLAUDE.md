@@ -86,6 +86,12 @@ When troubleshooting CloudFormation deployment failures:
     - Ensure the instance has a public IP address assigned (check Public DNS or IP in the EC2 console)
     - Confirm security groups allow Globus ports (443, 2811, 7512, 50000-51000)
     - Test connectivity from the internet to the public endpoint
+12. **Shell script syntax issues:**
+    - Check for mismatched `if`/`fi` statements in bash scripts
+    - Avoid using `EOF` as a heredoc delimiter within complex if/else blocks
+    - Prefer multiple `echo` statements over heredocs for creating files in complex control structures
+    - Validate shell scripts with `bash -n scriptname.sh` before deployment
+    - For complex scripts, consider simplifying nested conditional blocks to avoid syntax errors
 
 ## Parameter Requirements
 

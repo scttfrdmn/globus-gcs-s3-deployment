@@ -452,6 +452,21 @@ These variables can be modified in the CloudFormation template's UserData sectio
      - Have a subscription manager run: `globus-connect-server endpoint set-subscription-id DEFAULT`
      - Or have them set it via the Globus web interface under endpoint settings
 
+6. **Script Syntax Errors**:
+   - Error: "Bootstrap script failed at line XX with exit code 2" or "syntax error near unexpected token 'fi'"
+   - Causes and Solutions:
+     1. **Mismatched If/Fi Statements**: The script contains unbalanced if/fi constructs
+        - Solution: Check script with `bash -n /home/ubuntu/globus-setup.sh` before running
+        - Fix: Use simpler control structures and avoid deeply nested conditionals
+     2. **Heredoc Issues**: Heredocs within complex if/else blocks can cause syntax problems
+        - Solution: Replace heredocs with multiple echo statements in complex sections
+        - Example: `echo "line1" > file.txt; echo "line2" >> file.txt` instead of heredoc
+     3. **Complex Conditional Structures**: Deeply nested if/else/fi structures are error-prone
+        - Solution: Simplify logic or use functions to break up complex sections
+   - How to fix:
+     - Use `bash -n scriptname.sh` to validate scripts before running them
+     - The latest version of the script includes self-validation and improved error handling
+
 If you see "WARNING - Failed to run module scripts-user" in the logs, this is likely a cloud-init warning that doesn't affect the deployment. Check these files for diagnostic information:
 
 ```bash
