@@ -390,14 +390,10 @@ echo "Setting up endpoint using automated deployment approach..."
 # Prepare command with required parameters
 SETUP_CMD="globus-connect-server endpoint setup"
 
-# Check if we should use --dont-set-advertised-owner flag
-# This flag makes the endpoint harder to find in the web interface but can help with certain authentication issues
-if [ "${GLOBUS_DONT_SET_ADVERTISED_OWNER}" = "true" ]; then
-  echo "Adding --dont-set-advertised-owner flag as requested"
-  SETUP_CMD+=" --dont-set-advertised-owner"
-else
-  echo "NOT using --dont-set-advertised-owner for better endpoint visibility"
-fi
+# Always use --dont-set-advertised-owner flag for automation reliability
+# This flag is recommended for automated deployments with service credentials
+echo "Adding --dont-set-advertised-owner flag for reliable automation"
+SETUP_CMD+=" --dont-set-advertised-owner"
 
 # Required parameters
 SETUP_CMD+=" --organization \"${GC_ORG}\""
@@ -439,10 +435,9 @@ SETUP_CMD+=" --agree-to-letsencrypt-tos"
 # Log the command we're about to run
 echo "Running endpoint setup command with display name: ${GC_NAME}"
 echo "Using environment variables GCS_CLI_CLIENT_ID and GCS_CLI_CLIENT_SECRET for authentication"
-if [ "${GLOBUS_DONT_SET_ADVERTISED_OWNER}" = "true" ]; then
-  echo "Using --dont-set-advertised-owner flag (endpoint will be harder to find in Globus web interface)"
-else
-  echo "NOT using --dont-set-advertised-owner for better endpoint visibility"
+echo "Using --dont-set-advertised-owner flag for reliable automation"
+if [ "${RESET_ENDPOINT_OWNER}" = "true" ]; then
+  echo "Will reset endpoint owner after setup for better visibility"
 fi
 
 # Execute the command - passing the display name as a direct positional argument
@@ -787,18 +782,13 @@ EOF
   echo "Setting up service credentials via environment variables" | tee -a $SETUP_LOG
   echo "GCS_CLI_CLIENT_ID=${GCS_CLI_CLIENT_ID:0:5}... (truncated)" | tee -a $SETUP_LOG
   
-  # Check if we should use --dont-set-advertised-owner flag based on parameter
-  # This flag makes the endpoint harder to find but can help with certain authentication issues
-  if [ "${GLOBUS_DONT_SET_ADVERTISED_OWNER}" = "true" ]; then
-    echo "Adding --dont-set-advertised-owner flag as requested" | tee -a $SETUP_LOG
-    # Make sure the flag is present in the command if requested
-    if ! echo "$SETUP_CMD" | grep -q -- "--dont-set-advertised-owner"; then
-      SETUP_CMD+=" --dont-set-advertised-owner"
-    fi
-  else
-    echo "NOT using --dont-set-advertised-owner for better endpoint visibility" | tee -a $SETUP_LOG
-    # Make sure the flag is NOT present in the command
-    SETUP_CMD=$(echo "$SETUP_CMD" | sed 's/--dont-set-advertised-owner//')
+  # Always use --dont-set-advertised-owner flag for reliable automation
+  # This flag is recommended for automated deployments with service credentials
+  echo "Adding --dont-set-advertised-owner flag for reliable automation" | tee -a $SETUP_LOG
+  
+  # Make sure the flag is always present in the command
+  if ! echo "$SETUP_CMD" | grep -q -- "--dont-set-advertised-owner"; then
+    SETUP_CMD+=" --dont-set-advertised-owner"
   fi
   
   # Execute the command - passing the display name as a direct positional argument
@@ -977,13 +967,59 @@ fi
 INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
 aws ec2 create-tags --resources $INSTANCE_ID --tags Key=GlobusInstalled,Value=true --region $AWS_REGION || true
 
+# Optionally reset the endpoint owner for better visibility
+ENDPOINT_UUID=$(cat /home/ubuntu/endpoint-uuid.txt 2>/dev/null || echo "")
+
+if [ "${RESET_ENDPOINT_OWNER}" = "true" ] && [ -n "$ENDPOINT_UUID" ]; then
+  echo "Resetting endpoint advertised owner for better visibility..." | tee -a $SETUP_LOG
+  
+  # Determine which identity to use as the advertised owner
+  OWNER_IDENTITY=""
+  case "${ENDPOINT_RESET_OWNER_TARGET}" in
+    "GlobusOwner")
+      OWNER_IDENTITY="${GLOBUS_OWNER}"
+      ;;
+    "DefaultAdminIdentity")
+      OWNER_IDENTITY="${DEFAULT_ADMIN}"
+      ;;
+    "GlobusContactEmail")
+      OWNER_IDENTITY="${GLOBUS_CONTACT_EMAIL}"
+      ;;
+    *)
+      OWNER_IDENTITY="${GLOBUS_OWNER}"
+      ;;
+  esac
+  
+  if [ -n "$OWNER_IDENTITY" ]; then
+    echo "Setting advertised owner to: $OWNER_IDENTITY" | tee -a $SETUP_LOG
+    globus-connect-server endpoint set-owner-string "$OWNER_IDENTITY" | tee -a $SETUP_LOG
+    
+    # Verify the change
+    echo "Updated endpoint details:" | tee -a $SETUP_LOG
+    globus-connect-server endpoint show | tee -a $SETUP_LOG | tee /home/ubuntu/endpoint-reset-owner.txt
+  else
+    echo "WARNING: No valid identity found for setting advertised owner" | tee -a $SETUP_LOG
+  fi
+else
+  if [ "${RESET_ENDPOINT_OWNER}" != "true" ]; then
+    echo "Skipping reset of endpoint advertised owner (RESET_ENDPOINT_OWNER=${RESET_ENDPOINT_OWNER})" | tee -a $SETUP_LOG
+  fi
+  if [ -z "$ENDPOINT_UUID" ]; then
+    echo "WARNING: No endpoint UUID found, cannot reset owner" | tee -a $SETUP_LOG
+  fi
+fi
+
 # Create deployment summary with endpoint information
-ENDPOINT_UUID=$(cat /home/ubuntu/endpoint-uuid.txt 2>/dev/null || echo "UUID not found")
 echo "Deployment: $(date) Instance:$INSTANCE_ID Type:$DEPLOYMENT_TYPE Auth:$AUTH_METHOD S3:$ENABLE_S3_CONNECTOR" > /home/ubuntu/deployment-summary.txt
 echo "Endpoint Information:" >> /home/ubuntu/deployment-summary.txt
 echo "- UUID: $ENDPOINT_UUID" >> /home/ubuntu/deployment-summary.txt
 echo "- Display Name: $GLOBUS_DISPLAY_NAME" >> /home/ubuntu/deployment-summary.txt
 echo "- Organization: $GLOBUS_ORGANIZATION" >> /home/ubuntu/deployment-summary.txt
+if [ "${RESET_ENDPOINT_OWNER}" = "true" ] && [ -n "$ENDPOINT_UUID" ] && [ -n "$OWNER_IDENTITY" ]; then
+  echo "- Advertised Owner: $OWNER_IDENTITY (reset for better visibility)" >> /home/ubuntu/deployment-summary.txt
+else
+  echo "- Advertised Owner: Not set (use endpoint set-owner-string command to set)" >> /home/ubuntu/deployment-summary.txt
+fi
 echo "- Web Interface: https://app.globus.org/file-manager?origin_id=$ENDPOINT_UUID" >> /home/ubuntu/deployment-summary.txt
 echo "To view detailed endpoint information, run: /home/ubuntu/show-endpoint.sh" >> /home/ubuntu/deployment-summary.txt
 

@@ -56,8 +56,9 @@
    
    - Uses client ID and secret for non-interactive authentication
    - Creates endpoint under the project administered by the service identity
-   - By default, allows the advertised owner to be set for better visibility
-   - Provides the `GlobusDontSetAdvertisedOwner` parameter for compatibility with environments where the `--dont-set-advertised-owner` flag is needed
+   - Always uses the `--dont-set-advertised-owner` flag for reliable authentication with service credentials
+   - Automatically resets the endpoint owner after creation for better visibility (controlled by the `ResetEndpointOwner` parameter)
+   - Allows customizing which identity appears as the owner (using the `EndpointResetOwnerTarget` parameter)
 
 3. S3 Storage:
 
@@ -96,7 +97,9 @@ Based on the [Globus endpoint setup CLI documentation](https://docs.globus.org/g
   - Must be a valid Globus identity that will own the endpoint
   - If not provided, the deployment will fail with a clear error message
   - Parameter is passed to the `--owner` option of the Globus setup command
-  - The template uses `--dont-set-advertised-owner` to prevent showing the service identity as the owner
+  - The template uses `--dont-set-advertised-owner` for reliable authentication with service credentials
+  - By default, this identity is also used as the advertised owner after endpoint creation
+  - This behavior can be customized with the `ResetEndpointOwner` and `EndpointResetOwnerTarget` parameters
 - **GlobusContactEmail**: Email address for the support contact for this endpoint
   - This is a REQUIRED parameter that defaults to "admin@example.com"
   - Should be customized to a valid support email for your organization
@@ -123,13 +126,24 @@ Based on the [Globus endpoint setup CLI documentation](https://docs.globus.org/g
 #### Optional Globus Project Parameters (GCS 5.4.61+)
 
 - **GlobusProjectId**: The Globus Auth project ID to register the endpoint in
+  - This is optional but **strongly recommended** for automated deployments
+  - Ensures the endpoint is registered in the correct project
+  - Essential for proper service identity authentication
 - **GlobusProjectName**: Name for the Auth project if one needs to be created
 - **GlobusProjectAdmin**: Admin username for the project if different from owner
 - **GlobusAlwaysCreateProject**: Force creation of a new project even if one exists
-- **GlobusDontSetAdvertisedOwner**: Set to "true" to use the `--dont-set-advertised-owner` flag
-  - Default: **false** (better visibility in Globus web interface)
-  - When set to "true": Makes endpoint harder to find but may help with certain authentication issues
-  - Only set to "true" if you encounter the error "Can not set the advertised owner when using client credentials"
+
+#### Endpoint Owner Visibility Parameters
+
+- **ResetEndpointOwner**: Reset the endpoint's advertised owner after setup for better visibility
+  - Default: **true** (automatically resets owner after deployment)
+  - When set to "false": Keeps the endpoint under the service identity (less visible)
+  - This allows the endpoint to be properly visible in the Globus web interface
+  - Runs automatically after successful endpoint creation
+- **EndpointResetOwnerTarget**: Which identity to set as the advertised owner
+  - Default: **GlobusOwner** (uses the value from GlobusOwner parameter)
+  - Options: "GlobusOwner", "DefaultAdminIdentity", or "GlobusContactEmail"
+  - Controls which identity appears as the owner in the Globus web interface
 
 For more information on Globus Connect Server options, see the [Globus CLI Reference Documentation](https://docs.globus.org/globus-connect-server/v5.4/reference/cli-reference/).
 
@@ -237,8 +251,12 @@ For more information on Globus Connect Server options, see the [Globus CLI Refer
     "ParameterValue": "My Globus Project"
   },
   {
-    "ParameterKey": "GlobusDontSetAdvertisedOwner",  // Optional: Default false
-    "ParameterValue": "false"                        // Set to "true" only if needed for authentication
+    "ParameterKey": "ResetEndpointOwner",          // Optional: Default "true"
+    "ParameterValue": "true"                       // Set to "false" to keep service identity as owner
+  },
+  {
+    "ParameterKey": "EndpointResetOwnerTarget",    // Optional: Default "GlobusOwner"
+    "ParameterValue": "GlobusOwner"                // Options: "GlobusOwner", "DefaultAdminIdentity", "GlobusContactEmail"
   },
   
   // Optional connector parameters (requires subscription)
@@ -365,12 +383,18 @@ These variables can be modified in the CloudFormation template's UserData sectio
           (Format: `CLIENT_UUID@clients.auth.globus.org`)
 
 3. **Finding Your Endpoint After Deployment**:
-   - By default, the endpoint should appear under your account in the Globus web interface
-   - If you set `GlobusDontSetAdvertisedOwner: true`, endpoints won't show up under your account
-   - Solutions for finding endpoints with `GlobusDontSetAdvertisedOwner: true`:
+   - By default, the endpoint will appear under your account in the Globus web interface
+   - The deployment automatically uses the `--dont-set-advertised-owner` flag for service credentials
+   - Immediately after creation, the endpoint will reset its advertised owner based on your parameters:
+     - Default: Sets the advertised owner to the value from `GlobusOwner` parameter
+     - Configurable using `EndpointResetOwnerTarget` to use another identity
+   - To change this behavior:
+     - Set `ResetEndpointOwner: false` to keep the service identity as owner (less visible)
+     - Customize `EndpointResetOwnerTarget` to control which identity is shown as the owner
+   - If you can't find your endpoint:
      - Use the UUID from `/home/ubuntu/endpoint-uuid.txt` on the server
      - Search for your endpoint by its display name in Globus web interface
-     - After deployment, use `globus-connect-server endpoint set-owner-string` to set the advertised owner
+     - Manually run `globus-connect-server endpoint set-owner-string "your-email@example.com"` on the server
 
 4. **"Credentials environment variables set: 0"**:
    - This indicates the environment variables for authentication aren't being set correctly
@@ -457,22 +481,32 @@ globus-connect-server endpoint show
 globus-connect-server storage-gateway list
 ```
 
-### 4. Set Advertised Owner (if using client credentials)
+### 4. Verify Endpoint Owner Settings
 
-When deploying with service credentials, the endpoint is created with the `--dont-set-advertised-owner` flag, which makes it difficult to find in the Globus web interface. After deployment, you can set the advertised owner to make it more visible:
+The template automatically handles endpoint owner visibility through the endpoint reset feature. You can verify the configured settings:
 
 ```bash
-# Get the endpoint UUID
-ENDPOINT_UUID=$(cat /home/ubuntu/endpoint-uuid.txt)
+# View the deployment summary to see owner reset status
+cat /home/ubuntu/deployment-summary.txt
 
-# Set the advertised owner to your Globus identity
+# Check the specific owner reset results
+cat /home/ubuntu/endpoint-reset-owner.txt
+
+# Verify the current endpoint settings
+globus-connect-server endpoint show
+```
+
+If needed, you can manually change the advertised owner:
+
+```bash
+# Set the advertised owner to another identity
 globus-connect-server endpoint set-owner-string "your-email@example.com"
 
 # Verify the change
 globus-connect-server endpoint show
 ```
 
-This makes the endpoint appear under your account in the Globus web interface.
+By default (`ResetEndpointOwner: true`), the endpoint should appear under your account in the Globus web interface based on the `EndpointResetOwnerTarget` parameter.
 
 ### 5. Verify access policies
 

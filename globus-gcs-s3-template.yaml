@@ -155,13 +155,22 @@ Parameters:
       - "true"
       - "false"
       
-  GlobusDontSetAdvertisedOwner:
-    Description: Don't set advertised owner in the Globus web interface (makes endpoint harder to find but may help with certain authentication issues)
+  ResetEndpointOwner:
+    Description: Reset the endpoint's advertised owner after setup for better visibility (runs automatically after deployment)
     Type: String
-    Default: "false"
+    Default: "true"
     AllowedValues:
       - "true"
       - "false"
+      
+  EndpointResetOwnerTarget:
+    Description: Which identity to set as the advertised owner (if ResetEndpointOwner is true)
+    Type: String
+    Default: "GlobusOwner"
+    AllowedValues:
+      - "GlobusOwner"
+      - "DefaultAdminIdentity"
+      - "GlobusContactEmail"
 
 Mappings:
   RegionMap:
@@ -335,7 +344,8 @@ Resources:
           export GLOBUS_PROJECT_NAME="${GlobusProjectName}"
           export GLOBUS_PROJECT_ADMIN="${GlobusProjectAdmin}"
           export GLOBUS_ALWAYS_CREATE_PROJECT="${GlobusAlwaysCreateProject}"
-          export GLOBUS_DONT_SET_ADVERTISED_OWNER="${GlobusDontSetAdvertisedOwner}"
+          export RESET_ENDPOINT_OWNER="${ResetEndpointOwner}"
+          export ENDPOINT_RESET_OWNER_TARGET="${EndpointResetOwnerTarget}"
           export GLOBUS_SUBSCRIPTION_ID="${GlobusSubscriptionId}"
           export DEPLOYMENT_TYPE="${DeploymentType}"
           export AUTH_METHOD="Globus"
