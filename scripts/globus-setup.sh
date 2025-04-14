@@ -1071,11 +1071,11 @@ else
 fi
 
 # Add helper script for creating collections
-cat > /home/ubuntu/create-collection.sh << 'EOD'
+cat > /home/ubuntu/create-s3-collection.sh << 'EOD'
 #!/bin/bash
-# Script to create a Globus collection
+# Script to create a Globus S3 collection
 
-echo "=== Globus Collection Creation Tool ==="
+echo "=== Globus S3 Collection Creation Tool ==="
 
 # Load credentials and endpoint ID
 if [ -f /home/ubuntu/globus-client-id.txt ] && [ -f /home/ubuntu/globus-client-secret.txt ]; then
@@ -1101,64 +1101,35 @@ GATEWAYS=$(globus-connect-server storage-gateway list 2>/dev/null)
 echo "$GATEWAYS"
 
 if [ -z "$GATEWAYS" ] || ! echo "$GATEWAYS" | grep -q -i "ID:"; then
-  echo "No storage gateways found. Creating one first..."
+  echo "No storage gateways found. Creating S3 storage gateway..."
   
-  # If we're creating a new storage gateway, we need to know what type
+  # Get the bucket name
   if [ -z "$1" ]; then
-    echo "Available storage gateway types:"
-    echo "1. s3 - Amazon S3 storage"
-    echo "2. posix - Local filesystem storage"
-    read -p "Enter storage gateway type (1 or 2): " GATEWAY_TYPE_CHOICE
-    
-    case "$GATEWAY_TYPE_CHOICE" in
-      1|s3)
-        GATEWAY_TYPE="s3"
-        read -p "Enter S3 bucket name: " BUCKET_NAME
-        ;;
-      2|posix)
-        GATEWAY_TYPE="posix"
-        read -p "Enter local path (e.g. /mnt/data): " LOCAL_PATH
-        ;;
-      *)
-        echo "Invalid choice. Defaulting to posix."
-        GATEWAY_TYPE="posix"
-        read -p "Enter local path (e.g. /mnt/data): " LOCAL_PATH
-        ;;
-    esac
-  else
-    # Command line parameters: type [bucket/path]
-    GATEWAY_TYPE="$1"
-    PARAM2="$2"
-    
-    if [ "$GATEWAY_TYPE" = "s3" ]; then
-      BUCKET_NAME="$PARAM2"
-      if [ -z "$BUCKET_NAME" ]; then
-        read -p "Enter S3 bucket name: " BUCKET_NAME
-      fi
-    elif [ "$GATEWAY_TYPE" = "posix" ]; then
-      LOCAL_PATH="$PARAM2"
-      if [ -z "$LOCAL_PATH" ]; then
-        read -p "Enter local path (e.g. /mnt/data): " LOCAL_PATH
-      fi
+    # Check if we have a saved bucket name
+    if [ -f /home/ubuntu/s3-bucket-name.txt ]; then
+      BUCKET_NAME=$(cat /home/ubuntu/s3-bucket-name.txt)
+      echo "Using saved bucket name: $BUCKET_NAME"
     else
-      echo "Invalid gateway type. Use 's3' or 'posix'."
-      exit 1
+      read -p "Enter S3 bucket name: " BUCKET_NAME
     fi
+  else
+    BUCKET_NAME="$1"
   fi
   
-  # Create the storage gateway
-  if [ "$GATEWAY_TYPE" = "s3" ]; then
-    echo "Creating S3 storage gateway with bucket '$BUCKET_NAME'..."
-    GATEWAY_OUTPUT=$(globus-connect-server storage-gateway create s3 \
-      --domain s3.amazonaws.com \
-      --bucket "$BUCKET_NAME" \
-      --display-name "S3 Storage" 2>&1)
-  else
-    echo "Creating POSIX storage gateway at path '$LOCAL_PATH'..."
-    GATEWAY_OUTPUT=$(globus-connect-server storage-gateway create posix \
-      --display-name "Local Storage" \
-      --root-path "$LOCAL_PATH" 2>&1)
+  if [ -z "$BUCKET_NAME" ]; then
+    echo "ERROR: S3 bucket name is required"
+    exit 1
   fi
+  
+  # Save the bucket name for future reference
+  echo "$BUCKET_NAME" > /home/ubuntu/s3-bucket-name.txt
+  
+  # Create the S3 storage gateway
+  echo "Creating S3 storage gateway with bucket '$BUCKET_NAME'..."
+  GATEWAY_OUTPUT=$(globus-connect-server storage-gateway create s3 \
+    --domain s3.amazonaws.com \
+    --bucket "$BUCKET_NAME" \
+    --display-name "S3 Storage" 2>&1)
   
   GATEWAY_STATUS=$?
   echo "$GATEWAY_OUTPUT"
@@ -1226,7 +1197,7 @@ fi
 echo "=== End of collection creation ==="
 EOD
 
-chmod +x /home/ubuntu/create-collection.sh
+chmod +x /home/ubuntu/create-s3-collection.sh
 
 # Run diagnostic commands to test endpoint functionality
 echo "Running post-setup diagnostics..." | tee -a $SETUP_LOG
@@ -1292,9 +1263,10 @@ globus-connect-server storage-gateway list || echo "   No storage gateways found
 
 # Additional helpful commands to try manually
 echo "9. Additional commands to try manually:"
-echo "   - Create a storage gateway: globus-connect-server storage-gateway create s3 --display-name \"S3 Storage\" --bucket-name \"your-bucket\""
-echo "   - Create a collection: globus-connect-server collection create --storage-gateway s3_storage --display-name \"S3 Collection\""
-echo "   - Reset owner: globus-connect-server endpoint set-owner-string \"your-identity@example.com\""
+echo "   - Create S3 storage gateway: globus-connect-server storage-gateway create s3 --domain s3.amazonaws.com --bucket \"your-bucket\" --display-name \"S3 Storage\""
+echo "   - Create S3 collection: globus-connect-server collection create --storage-gateway GATEWAY_ID --display-name \"S3 Collection\""
+echo "   - Reset endpoint owner: globus-connect-server endpoint set-owner-string \"your-identity@example.com\""
+echo "   - Use the helper script: /home/ubuntu/create-s3-collection.sh YOUR_BUCKET_NAME"
 
 echo "=== End of diagnostics ==="
 EOD
@@ -1319,8 +1291,9 @@ echo "- Web Interface: https://app.globus.org/file-manager?origin_id=$ENDPOINT_U
 echo "To view detailed endpoint information, run: /home/ubuntu/show-endpoint.sh" >> /home/ubuntu/deployment-summary.txt
 echo "To see endpoint diagnostics results, run: cat /home/ubuntu/endpoint-diagnosis.txt" >> /home/ubuntu/deployment-summary.txt
 echo "To run diagnostics again, run: /home/ubuntu/diagnose-endpoint.sh" >> /home/ubuntu/deployment-summary.txt
-echo "To create a collection for file transfers, run: /home/ubuntu/create-collection.sh" >> /home/ubuntu/deployment-summary.txt
-echo "IMPORTANT: Collections must be created to transfer files via Globus web interface" >> /home/ubuntu/deployment-summary.txt
+echo "To create an S3 collection for file transfers, run: /home/ubuntu/create-s3-collection.sh YOUR_BUCKET_NAME" >> /home/ubuntu/deployment-summary.txt
+echo "IMPORTANT: S3 collections must be created to transfer files via Globus web interface" >> /home/ubuntu/deployment-summary.txt
+echo "EXAMPLE: /home/ubuntu/create-s3-collection.sh my-globus-bucket" >> /home/ubuntu/deployment-summary.txt
 
 # ===== Final deployment steps and diagnostics =====
 echo "===== [8/10] Collecting diagnostic information =====" | tee -a /home/ubuntu/install-debug.log
