@@ -19,11 +19,21 @@ echo "S3 Connector: $ENABLE_S3_CONNECTOR Bucket: $S3_BUCKET_NAME"
 function check_gcs_version() {
   echo "Checking Globus Connect Server version"
   
-  # CRITICAL: Skip version check completely if debugging flag is set
+  # Skip version check if debugging flag is set
   if [ -n "$DEBUG_SKIP_VERSION_CHECK" ]; then
     echo "DEBUG_SKIP_VERSION_CHECK is set - bypassing version compatibility check"
-    # Set a high version to ensure version-specific logic still works
-    GCS_VERSION="9.9.9"
+    # Try to detect actual version first instead of using arbitrary number
+    GCS_VERSION_RAW=$(globus-connect-server --version 2>&1) 
+    GCS_VERSION_PACKAGE=$(echo "$GCS_VERSION_RAW" | grep -o "package [0-9]\+\.[0-9]\+\.[0-9]\+" | awk '{print $2}' || echo "")
+    
+    if [ -n "$GCS_VERSION_PACKAGE" ]; then
+      GCS_VERSION="$GCS_VERSION_PACKAGE"
+      echo "Using detected version: $GCS_VERSION (version check bypassed)"
+    else
+      # Fallback to minimum required version if detection fails
+      GCS_VERSION="5.4.61"
+      echo "Using minimum required version: $GCS_VERSION (version check bypassed)"
+    fi
     return 0
   fi
   
@@ -606,10 +616,13 @@ if [ "$DEBUG_SKIP_DUPLICATE_CHECK" = "true" ]; then
   echo "DEBUG: Skipping endpoint check due to DEBUG_SKIP_DUPLICATE_CHECK flag" | tee -a $SETUP_LOG
   EXISTING_ENDPOINT=""
 else
-  echo "Checking for existing endpoint with the same name: '$GLOBUS_DISPLAY_NAME'..." | tee -a $SETUP_LOG
+  # Only log to file, not to console, to avoid duplicate messages
+  echo "Checking for existing endpoint with name '$GLOBUS_DISPLAY_NAME'..." >> $SETUP_LOG
   
   # Setup Globus CLI for more reliable endpoint listing - use same auth as for the setup
-  pip3 install -q globus-cli
+  # Use virtual environment to avoid pip warning message
+  python3 -m venv /tmp/globus-venv
+  /tmp/globus-venv/bin/pip install -q --disable-pip-version-check globus-cli
   mkdir -p ~/.globus
   
   # Ensure Globus CLI is properly configured with the same credentials
@@ -619,12 +632,12 @@ default_client_id = ${GLOBUS_CLIENT_ID}
 default_client_secret = ${GLOBUS_CLIENT_SECRET}
 EOF
   
-  # First try globus-connect-server endpoint list
+  # First try globus-connect-server endpoint list (redirect error messages to keep log clean)
   EXISTING_ENDPOINT=$(globus-connect-server endpoint list 2>/dev/null | grep -F "$GLOBUS_DISPLAY_NAME" || echo "")
   
   # Fallback to globus CLI if first method doesn't work
   if [ -z "$EXISTING_ENDPOINT" ]; then
-    echo "Trying alternate endpoint search method..." | tee -a $SETUP_LOG
+    echo "Using alternate endpoint search method..." | tee -a $SETUP_LOG
     # The globus CLI works differently and requires the user to be logged in
     if command -v globus &>/dev/null; then
       GLOBUS_SEARCH=$(globus endpoint search --filter-scope all "$GLOBUS_DISPLAY_NAME" 2>/dev/null || echo "")
@@ -688,8 +701,9 @@ else
   
   # Make sure GCS_VERSION is a valid version string
   if [[ ! "$GCS_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    echo "WARNING: Invalid GCS_VERSION format, using default high version" | tee -a $SETUP_LOG
-    GCS_VERSION="9.9.9"
+    echo "WARNING: Invalid GCS_VERSION format, using detected version" | tee -a $SETUP_LOG
+    GCS_VERSION=$(globus-connect-server --version 2>&1 | grep -o "package [0-9]\+\.[0-9]\+\.[0-9]\+" | awk '{print $2}' || echo "5.4.61")
+    echo "Detected version: $GCS_VERSION" | tee -a $SETUP_LOG
   fi
   
   # Check Globus version to determine if we need client-id
@@ -697,7 +711,7 @@ else
   GCS_VERSION_MINOR=$(echo "$GCS_VERSION" | cut -d. -f2)
   GCS_VERSION_PATCH=$(echo "$GCS_VERSION" | cut -d. -f3)
   
-  echo "Using GCS version components for client credential check: $GCS_VERSION_MAJOR.$GCS_VERSION_MINOR.$GCS_VERSION_PATCH" | tee -a $SETUP_LOG
+  echo "Using service credentials authentication with GCS version $GCS_VERSION" | tee -a $SETUP_LOG
   
   # For Globus versions < 5.4.67, we might need to include client-id and client-secret as parameters
   # However, we'll primarily use the environment variable authentication method as recommended
@@ -833,9 +847,11 @@ EOF
     
     # For debugging, show detailed error information
     echo "=== Error diagnostics ===" | tee -a $SETUP_LOG
-    echo "1. Credentials environment variables set: $(env | grep -c GCS_CLI)" | tee -a $SETUP_LOG
+    echo "1. Credentials environment variables: $(env | grep -c GCS_CLI) variables set" | tee -a $SETUP_LOG
     echo "2. Command that failed: ${SETUP_CMD} \"${GLOBUS_DISPLAY_NAME}\"" | tee -a $SETUP_LOG
-    echo "3. Check Globus documentation: https://docs.globus.org/globus-connect-server/v5/automated-deployment/" | tee -a $SETUP_LOG
+    echo "3. Project ID specified: $([ -n "$GLOBUS_PROJECT_ID" ] && echo "Yes - $GLOBUS_PROJECT_ID" || echo "No - this may cause errors with multiple projects")" | tee -a $SETUP_LOG
+    echo "4. Globus version: $GCS_VERSION" | tee -a $SETUP_LOG
+    echo "5. Globus documentation: https://docs.globus.org/globus-connect-server/v5/automated-deployment/" | tee -a $SETUP_LOG
     echo "=========================" | tee -a $SETUP_LOG
     
     SETUP_STATUS=1
