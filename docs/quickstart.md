@@ -2,6 +2,16 @@
 
 This guide provides concise steps to set up and deploy the Globus Connect Server S3 template.
 
+### Quick Deploy
+
+Click on a region-specific launch button to deploy the template directly through the AWS CloudFormation console:
+
+| Region | Launch Button |
+|--------|--------------|
+| **US East (N. Virginia)** | [![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/review?templateURL=https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/globus-gcs-s3-template.yaml&stackName=globus-gcs) |
+| **US East (Ohio)** | [![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=us-east-2#/stacks/create/review?templateURL=https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/globus-gcs-s3-template.yaml&stackName=globus-gcs) |
+| **US West (Oregon)** | [![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=us-west-2#/stacks/create/review?templateURL=https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/globus-gcs-s3-template.yaml&stackName=globus-gcs) |
+
 ## Prerequisites
 
 1. **AWS Account Setup**:
