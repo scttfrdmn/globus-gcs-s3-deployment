@@ -11,21 +11,48 @@
 2. Globus Account and Registration:
 
    - Create account at [globus.org](https://www.globus.org/)
-   - Register application in [Globus Developer Console](https://developers.globus.org/)
-   - Obtain Client ID and Client Secret as service credentials
-   - (Optional) Obtain Subscription ID for connector support
    - **IMPORTANT**: This template requires Globus Connect Server 5.4.61 or higher
      - The deployment script will automatically detect and verify version compatibility
-     - Supports various version formats including "package X.Y.Z" format
-     - Provides detailed debug information for version detection and comparison
-     
-   **Automated Deployment Authentication**:
    
-   The template uses Globus's recommended [automated deployment approach](https://docs.globus.org/globus-connect-server/v5/automated-deployment/) with service credentials:
+   **CRITICAL PREREQUISITES FOR AUTOMATED DEPLOYMENT:**
    
-   - Uses client ID and secret as environment variables (`GCS_CLI_CLIENT_ID`, `GCS_CLI_CLIENT_SECRET`)
-   - Enables non-interactive deployment without human intervention
-   - Compatible with both older and newer Globus Connect Server versions
+   Follow these steps before launching the CloudFormation template:
+   
+   1. **Register Service Credentials:**
+      - Go to [Globus Developer Console](https://app.globus.org/settings/developers)
+      - Create a new project or use an existing one
+      - Register a new application with:
+        - Name: (choose a descriptive name, e.g., "GCS Automated Deployment")
+        - Redirect URLs: (can be blank for service credentials)
+        - Scopes: Select all relevant scopes
+      - Record the **Client UUID** and **Client Secret** to use in your deployment
+   
+   2. **Create Project Administrator Role for Service Identity:**
+      - Go to [Globus Auth Developer Console](https://auth.globus.org/v2/web/developers)
+      - Select an existing project or create a new one
+      - Select "Add" → "Add/remove admins"
+      - Add your service identity in the "Add admin to project" field
+        - Format: `YOUR_CLIENT_UUID@clients.auth.globus.org`
+        - Example: `e0558739-6e6f-4600-a46d-983d309f88ff@clients.auth.globus.org`
+      - Record the **Project ID** to use in your deployment
+      
+   3. **Prepare CloudFormation Parameters:**
+      - Set `GlobusClientId` to your Client UUID
+      - Set `GlobusClientSecret` to your Client Secret
+      - Set `GlobusProjectId` to your Project ID
+      - Set `GlobusOwner` to the identity that should own the endpoint
+   
+   If these steps are not completed before deployment, the endpoint setup will fail with authentication errors.
+   
+   See [Globus Automated Deployment Documentation](https://docs.globus.org/globus-connect-server/v5/automated-deployment/) for complete details.
+   
+   **Automated Deployment Authentication:**
+   
+   The template uses service credentials with the following approach:
+   
+   - Uses client ID and secret for non-interactive authentication
+   - Requires `--dont-set-advertised-owner` flag for client credentials
+   - Creates endpoint under the project administered by the service identity
 
 3. S3 Storage:
 
@@ -302,6 +329,33 @@ These variables can be modified in the CloudFormation template's UserData sectio
 
 ## Troubleshooting
 
+### Common Errors
+
+1. **"Can not set the advertised owner when using client credentials"**: 
+   - This error occurs when using client credentials with the wrong settings
+   - Cause: When using service credentials, the endpoint must use `--dont-set-advertised-owner`
+   - Solution: The script automatically adds this flag to prevent this error
+
+2. **Authentication Errors During Endpoint Setup**:
+   - Error: "Failed to perform any Auth flows" or "Authentication/Authorization failed"
+   - Cause: Missing Project Administrator Role for the service identity
+   - Solution: Ensure you've completed the prerequisite steps:
+     1. Register service credentials in Globus Developer Console
+     2. Add the service identity as an admin to your project in Auth Developer Console
+        (Format: `CLIENT_UUID@clients.auth.globus.org`)
+     3. Use the correct Project ID in your CloudFormation parameters
+
+3. **Finding Your Endpoint After Deployment**:
+   - Challenge: With `--dont-set-advertised-owner`, endpoints don't show up under your account
+   - Solution:
+     - Use the UUID from `/home/ubuntu/endpoint-uuid.txt` on the server
+     - Search for your endpoint by its display name in Globus web interface
+     - After deployment, you can use `globus-connect-server endpoint set-owner-string` to set the advertised owner
+
+4. **"Credentials environment variables set: 0"**:
+   - This indicates the environment variables for authentication aren't being set correctly
+   - Solution: The script uses multiple authentication methods for maximum compatibility
+
 If you see "WARNING - Failed to run module scripts-user" in the logs, this is likely a cloud-init warning that doesn't affect the deployment. Check these files for diagnostic information:
 
 ```bash
@@ -383,7 +437,24 @@ globus-connect-server endpoint show
 globus-connect-server storage-gateway list
 ```
 
-### 4. Verify access policies (if using Globus auth)
+### 4. Set Advertised Owner (if using client credentials)
+
+When deploying with service credentials, the endpoint is created with the `--dont-set-advertised-owner` flag, which makes it difficult to find in the Globus web interface. After deployment, you can set the advertised owner to make it more visible:
+
+```bash
+# Get the endpoint UUID
+ENDPOINT_UUID=$(cat /home/ubuntu/endpoint-uuid.txt)
+
+# Set the advertised owner to your Globus identity
+globus-connect-server endpoint set-owner-string "your-email@example.com"
+
+# Verify the change
+globus-connect-server endpoint show
+```
+
+This makes the endpoint appear under your account in the Globus web interface.
+
+### 5. Verify access policies
 
 ```bash
 # List access policies
