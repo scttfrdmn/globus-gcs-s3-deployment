@@ -414,7 +414,42 @@ Resources:
           
           # Run the setup script with careful error handling and debug mode enabled
           echo "Running Globus setup script with sudo and debug mode..."
-          sudo DEBUG_MODE=true bash /tmp/globus-setup.sh > >(tee /home/ubuntu/globus-setup-output.log) 2>&1
+          # Create an environment file to pass all variables to the script
+          echo "#!/bin/bash" > /tmp/globus-env.sh
+          echo "export AWS_REGION=\"${AWS::Region}\"" >> /tmp/globus-env.sh
+          echo "export AWS_STACK_NAME=\"${AWS::StackName}\"" >> /tmp/globus-env.sh
+          echo "export GLOBUS_CLIENT_ID=\"${GlobusClientId}\"" >> /tmp/globus-env.sh
+          echo "export GLOBUS_CLIENT_SECRET=\"${GlobusClientSecret}\"" >> /tmp/globus-env.sh
+          echo "export GLOBUS_DISPLAY_NAME=\"${GlobusDisplayName}\"" >> /tmp/globus-env.sh
+          echo "export GLOBUS_ORGANIZATION=\"${GlobusOrganization}\"" >> /tmp/globus-env.sh
+          echo "export GLOBUS_OWNER=\"${GlobusOwner}\"" >> /tmp/globus-env.sh
+          echo "export GLOBUS_CONTACT_EMAIL=\"${GlobusContactEmail}\"" >> /tmp/globus-env.sh
+          echo "export GLOBUS_PROJECT_ID=\"${GlobusProjectId}\"" >> /tmp/globus-env.sh
+          echo "export GLOBUS_PROJECT_NAME=\"${GlobusProjectName}\"" >> /tmp/globus-env.sh
+          echo "export GLOBUS_PROJECT_ADMIN=\"${GlobusProjectAdmin}\"" >> /tmp/globus-env.sh
+          echo "export GLOBUS_ALWAYS_CREATE_PROJECT=\"${GlobusAlwaysCreateProject}\"" >> /tmp/globus-env.sh
+          echo "export RESET_ENDPOINT_OWNER=\"${ResetEndpointOwner}\"" >> /tmp/globus-env.sh
+          echo "export ENDPOINT_RESET_OWNER_TARGET=\"${EndpointResetOwnerTarget}\"" >> /tmp/globus-env.sh
+          echo "export GLOBUS_SUBSCRIPTION_ID=\"${GlobusSubscriptionId}\"" >> /tmp/globus-env.sh
+          echo "export ENABLE_S3_CONNECTOR=\"${EnableS3Connector}\"" >> /tmp/globus-env.sh
+          echo "export S3_BUCKET_NAME=\"${S3BucketName}\"" >> /tmp/globus-env.sh
+          echo "export DEFAULT_ADMIN=\"${DefaultAdminIdentity}\"" >> /tmp/globus-env.sh
+          echo "export DEBUG_MODE=true" >> /tmp/globus-env.sh
+          chmod +x /tmp/globus-env.sh
+          
+          # Verify the environment file was created correctly
+          echo "Checking environment file:"
+          cat /tmp/globus-env.sh > /home/ubuntu/globus-env-debug.txt
+          
+          # Save credential values for debugging
+          echo "Client ID provided: ${GlobusClientId}" > /home/ubuntu/credential-debug.txt
+          echo "Client Secret provided: ${GlobusClientSecret}" >> /home/ubuntu/credential-debug.txt
+          
+          # Modify the script to source the environment file at the top
+          sed -i '3i# Source environment variables\nif [ -f /tmp/globus-env.sh ]; then\n  source /tmp/globus-env.sh\nfi' /tmp/globus-setup.sh
+          
+          # Use sudo with -E to preserve environment variables
+          sudo -E bash /tmp/globus-setup.sh > >(tee /home/ubuntu/globus-setup-output.log) 2>&1
           SETUP_EXIT_CODE=$?
           
           # Capture and record script results

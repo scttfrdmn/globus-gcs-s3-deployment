@@ -67,6 +67,26 @@ debug() {
   fi
 }
 
+# Dump environment variables for debugging
+if [ "$DEBUG_MODE" = "true" ]; then
+  log "=== Environment Variables Dump ==="
+  log "HOSTNAME: $(hostname)"
+  log "WHOAMI: $(whoami)"
+  log "PWD: $(pwd)"
+  log "GLOBUS_CLIENT_ID: ${GLOBUS_CLIENT_ID:0:3}... (length: ${#GLOBUS_CLIENT_ID})"
+  log "GLOBUS_CLIENT_SECRET: ${GLOBUS_CLIENT_SECRET:0:3}... (length: ${#GLOBUS_CLIENT_SECRET})"
+  log "GLOBUS_DISPLAY_NAME: $GLOBUS_DISPLAY_NAME"
+  log "GLOBUS_ORGANIZATION: $GLOBUS_ORGANIZATION"
+  log "GLOBUS_OWNER: $GLOBUS_OWNER"
+  log "GLOBUS_CONTACT_EMAIL: $GLOBUS_CONTACT_EMAIL"
+  log "GLOBUS_PROJECT_ID: $GLOBUS_PROJECT_ID"
+  log "PATH: $PATH"
+  
+  # Save full environment to a file for debugging
+  env | sort > /home/ubuntu/debug-environment.txt
+  chown ubuntu:ubuntu /home/ubuntu/debug-environment.txt 2>/dev/null || true
+fi
+
 # Read environment variables passed from CloudFormation
 GLOBUS_CLIENT_ID="${GLOBUS_CLIENT_ID:-}"
 GLOBUS_CLIENT_SECRET="${GLOBUS_CLIENT_SECRET:-}"
@@ -99,7 +119,40 @@ chmod 600 /home/ubuntu/globus-client-*.txt
 
 # Validate critical parameters
 if [ -z "$GLOBUS_CLIENT_ID" ] || [ -z "$GLOBUS_CLIENT_SECRET" ]; then
-  handle_error "Missing client credentials. GLOBUS_CLIENT_ID and GLOBUS_CLIENT_SECRET are required."
+  log "ERROR: Missing client credentials - environment variables not properly passed to script"
+  log "This is often caused by sudo not preserving environment variables"
+  
+  # Try to source the environment file if it exists
+  if [ -f /tmp/globus-env.sh ]; then
+    log "Found environment file at /tmp/globus-env.sh, attempting to source it..."
+    source /tmp/globus-env.sh
+    # Check if we have the values now
+    if [ -n "$GLOBUS_CLIENT_ID" ] && [ -n "$GLOBUS_CLIENT_SECRET" ]; then
+      log "Successfully sourced environment variables from file!"
+    else
+      log "SERIOUS ERROR: Still missing credentials after sourcing environment file"
+      # Write error details to file for debugging
+      cat > /home/ubuntu/ENV_ERROR.txt << EOF
+ENVIRONMENT VARIABLE ERROR:
+The critical environment variables GLOBUS_CLIENT_ID and GLOBUS_CLIENT_SECRET 
+were not passed to the script. This typically happens when:
+
+1. The values weren't provided in the CloudFormation parameters
+2. The sudo command dropped the environment variables
+3. The environment file wasn't created or sourced properly
+
+Environment variables expected in: /tmp/globus-env.sh
+Environment file exists: $([ -f /tmp/globus-env.sh ] && echo "Yes" || echo "No")
+Environment file content:
+$(cat /tmp/globus-env.sh 2>/dev/null || echo "Empty or unreadable")
+
+For more details, check /home/ubuntu/debug-environment.txt
+EOF
+      handle_error "Missing client credentials. GLOBUS_CLIENT_ID and GLOBUS_CLIENT_SECRET are required."
+    fi
+  else
+    handle_error "Missing client credentials and no environment file found at /tmp/globus-env.sh"
+  fi
 fi
 
 if [ -z "$GLOBUS_DISPLAY_NAME" ]; then
