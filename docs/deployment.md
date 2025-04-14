@@ -21,14 +21,11 @@
      
    **Automated Deployment Authentication**:
    
-   This template uses the recommended Globus automated deployment approach with service credentials:
+   The template uses Globus's recommended [automated deployment approach](https://docs.globus.org/globus-connect-server/v5/automated-deployment/) with service credentials:
    
-   - **Service Credentials**: Uses client ID and secret as service credentials via environment variables
-   - **Environment Variables**: Sets `GCS_CLI_CLIENT_ID` and `GCS_CLI_CLIENT_SECRET` for authentication
-   - **Non-Interactive Setup**: Enables fully automated deployment without user interaction
-   - **Compatibility**: Works with both older and newer Globus Connect Server versions
-   
-   For details, see the [Globus Automated Deployment Documentation](https://docs.globus.org/globus-connect-server/v5/automated-deployment/)
+   - Uses client ID and secret as environment variables (`GCS_CLI_CLIENT_ID`, `GCS_CLI_CLIENT_SECRET`)
+   - Enables non-interactive deployment without human intervention
+   - Compatible with both older and newer Globus Connect Server versions
 
 3. S3 Storage:
 
@@ -283,33 +280,29 @@ Common issues include:
   - Provides automatic fallback methods if key conversion fails
   - Tries multiple command formats to maximize compatibility
 
-### Debugging Environment Variables
+## Advanced Configuration
 
-The template includes debugging flags that help troubleshoot deployment issues. These flags have been updated to provide more reliable deployments:
+### Debugging and Reliability Controls
 
-1. **DEBUG_SKIP_VERSION_CHECK**: 
-   - Default: **false** (version checking enabled)
-   - When set to "true": Bypasses version compatibility checking
-   - Current behavior: Ensures Globus Connect Server is version 5.4.61 or higher
-   - Use case: Set to "true" only when your Globus version reports itself in an unusual format but is actually compatible
+The template includes configuration flags that control validation and error handling:
 
-2. **DEBUG_SKIP_DUPLICATE_CHECK**: 
-   - Default: **false** (duplicate checking enabled)
-   - When set to "true": Skips the check for existing endpoints with the same name
-   - Current behavior: Checks for existing endpoints with the same name before creating a new one
-   - If found, uses the existing endpoint instead of creating a duplicate
-   - Use case: Set to "true" only if you're testing endpoint creation or need to create multiple endpoints with the same name
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| **DEBUG_SKIP_VERSION_CHECK** | false | Controls version compatibility checking |
+| **DEBUG_SKIP_DUPLICATE_CHECK** | false | Controls endpoint duplication checking |
+| **SHOULD_FAIL** | no | Controls CloudFormation stack failure behavior |
 
-3. **SHOULD_FAIL**: 
-   - Default: **"no"** (stack does not fail on script errors)
-   - When set to "yes": CloudFormation stack will fail if script encounters errors
-   - Current behavior: Instances are retained even when setup errors occur
-   - EC2 instance is kept running with `DeletionPolicy: Retain` for troubleshooting
-   - Use case: Keep as "no" during testing; change to "yes" only for production when you want strict validation
+**When to modify these settings:**
 
-These variables can be modified in the CloudFormation template's UserData section or used directly when running the helper script manually. For production deployments, consider setting `SHOULD_FAIL="yes"` to ensure the stack only succeeds when everything is properly configured.
+- **DEBUG_SKIP_VERSION_CHECK**: Set to "true" only if your Globus version reports in an unusual format
+- **DEBUG_SKIP_DUPLICATE_CHECK**: Set to "true" when testing endpoint creation or intentionally creating duplicates
+- **SHOULD_FAIL**: Set to "yes" in production for strict validation; keep as "no" during testing
 
-If you see "WARNING - Failed to run module scripts-user" in the logs, this is likely a cloud-init warning that doesn't affect the deployment. The template includes robust error handling to continue despite these warnings. Check these files for diagnostic information:
+These variables can be modified in the CloudFormation template's UserData section or directly when running the helper script. When `SHOULD_FAIL="no"`, instances are retained with `DeletionPolicy: Retain` even if errors occur, facilitating troubleshooting.
+
+## Troubleshooting
+
+If you see "WARNING - Failed to run module scripts-user" in the logs, this is likely a cloud-init warning that doesn't affect the deployment. Check these files for diagnostic information:
 
 ```bash
 # SSH into the instance first
@@ -335,36 +328,29 @@ sudo GCS_CLI_CLIENT_ID=your_client_id GCS_CLI_CLIENT_SECRET=your_client_secret b
 sudo bash -x /home/ubuntu/run-globus-setup.sh
 ```
 
-The deployment script now includes:
-- Detailed progress markers and validation steps
-- Robust error handling that continues execution
-- Multiple retry attempts for critical installation steps
-- Comprehensive diagnostic information collection
-- Version compatibility checks for different versions of Globus Connect Server
-- Environment-based service credential authentication for automated deployment
-- Non-interactive deployment using proper service authentication
-- Checks for existing endpoints with the same name before deployment
-- Ability to reuse existing endpoints rather than failing
+### Key Script Features
 
-## Authentication for Automated Deployment
+The deployment script includes:
+- ✅ Robust error handling with detailed logging
+- ✅ Version compatibility checks for Globus Connect Server
+- ✅ Service credential authentication for non-interactive deployment
+- ✅ Duplicate endpoint detection and reuse
+- ✅ Automatic retry for critical installation steps
 
-The template now uses Globus Connect Server's recommended approach for automated deployment:
+## Verification and Troubleshooting
+
+### 1. Authentication for Automated Deployment
+
+The template uses Globus Connect Server's recommended approach for automated deployment:
 
 1. **Service Credentials**: 
-   - Client ID and Secret are passed as environment variables
-   - Uses `GCS_CLI_CLIENT_ID` and `GCS_CLI_CLIENT_SECRET` 
+   - Client ID and Secret are passed as environment variables (`GCS_CLI_CLIENT_ID`, `GCS_CLI_CLIENT_SECRET`)
    - No manual interaction required during deployment
 
-2. **Implementation Details**:
-   - CloudFormation UserData sets environment variables
-   - Deployment script uses these variables for authentication
-   - Uses `--dont-set-advertised-owner` to prevent service identity showing as owner
-
-3. **Troubleshooting Authentication Issues**:
+2. **Troubleshooting Authentication Issues**:
    - Check `/var/log/globus-setup.log` for detailed authentication logs
    - Verify environment variables are set: `env | grep GCS_CLI`
-   - Check [Globus authentication documentation](https://docs.globus.org/globus-connect-server/v5/automated-deployment/)
-   - Review credentials in Globus Developer Console
+   - Check [Globus documentation](https://docs.globus.org/globus-connect-server/v5/automated-deployment/)
 
 ### 2. SSH into the instance
 
