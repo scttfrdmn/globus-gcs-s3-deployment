@@ -407,9 +407,9 @@ Resources:
           cp /tmp/globus-setup.sh /home/ubuntu/globus-setup.sh
           echo "Starting Globus setup: $(date)" > /home/ubuntu/BOOTSTRAP_STARTED.txt
           
-          # Run the setup script with careful error handling
-          echo "Running Globus setup script with sudo..."
-          sudo bash /tmp/globus-setup.sh > >(tee /home/ubuntu/globus-setup-output.log) 2>&1
+          # Run the setup script with careful error handling and debug mode enabled
+          echo "Running Globus setup script with sudo and debug mode..."
+          sudo DEBUG_MODE=true bash /tmp/globus-setup.sh > >(tee /home/ubuntu/globus-setup-output.log) 2>&1
           SETUP_EXIT_CODE=$?
           
           # Capture and record script results
