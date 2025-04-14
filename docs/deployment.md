@@ -132,6 +132,11 @@ Based on the [Globus endpoint setup CLI documentation](https://docs.globus.org/g
 #### Required S3 Connector Parameters
 
 - **GlobusSubscriptionId**: Subscription ID to join this endpoint to your subscription (REQUIRED for S3 connector)
+  - Your organization must have a Globus subscription
+  - You can use "DEFAULT" to use your organization's default subscription
+  - Or provide a specific subscription ID
+  - You must either have the subscription manager role or coordinate with your organization's subscription manager
+  - Without this, the S3 connector will not work properly
 - **S3BucketName**: Name of S3 bucket to connect (required when S3 Connector is enabled)
 
 #### Optional S3 Connector Parameters

@@ -989,16 +989,40 @@ chown -R ubuntu:ubuntu /home/ubuntu/.globus
 
 # Configure S3 connector if subscription exists (for GCS 5.4.61+)
 if [ -n "$GLOBUS_SUBSCRIPTION_ID" ]; then
+  # Save subscription ID for future use
+  echo "$GLOBUS_SUBSCRIPTION_ID" > /home/ubuntu/globus-subscription-id.txt
+  chmod 644 /home/ubuntu/globus-subscription-id.txt
+  
   # Extract endpoint UUID - this will use the same UUID that was saved to file earlier
   ENDPOINT_UUID=$(cat /home/ubuntu/endpoint-uuid.txt 2>/dev/null || globus-connect-server endpoint show 2>/dev/null | grep -i "uuid\|id" | head -1 | awk '{print $2}')
   
   if [ -n "$ENDPOINT_UUID" ]; then
     echo "Joining endpoint to subscription ID: $GLOBUS_SUBSCRIPTION_ID..." | tee -a $SETUP_LOG
-    # Update endpoint with subscription
-    globus-connect-server endpoint update --subscription-id "$GLOBUS_SUBSCRIPTION_ID" --display-name "$GLOBUS_DISPLAY_NAME" | tee -a $SETUP_LOG
+    
+    # Set the subscription ID using the recommended command
+    if [ "$GLOBUS_SUBSCRIPTION_ID" = "DEFAULT" ]; then
+      echo "Setting endpoint to use the DEFAULT subscription..." | tee -a $SETUP_LOG
+      globus-connect-server endpoint set-subscription-id DEFAULT | tee -a $SETUP_LOG
+    else 
+      echo "Setting endpoint to use specific subscription ID: $GLOBUS_SUBSCRIPTION_ID" | tee -a $SETUP_LOG
+      # First try with set-subscription-id command (recommended approach)
+      globus-connect-server endpoint set-subscription-id "$GLOBUS_SUBSCRIPTION_ID" | tee -a $SETUP_LOG
+      
+      # Fallback to update command if set-subscription-id fails
+      if [ $? -ne 0 ]; then
+        echo "Falling back to endpoint update command..." | tee -a $SETUP_LOG
+        globus-connect-server endpoint update --subscription-id "$GLOBUS_SUBSCRIPTION_ID" --display-name "$GLOBUS_DISPLAY_NAME" | tee -a $SETUP_LOG
+      fi
+    fi
     
     # Verify the update worked
+    echo "Verifying subscription setting..." | tee -a $SETUP_LOG
     globus-connect-server endpoint show | tee -a /home/ubuntu/endpoint-with-subscription.txt
+    
+    # Save the subscription command for future reference
+    echo "# To manually set the subscription ID, run:" > /home/ubuntu/set-subscription.sh
+    echo "globus-connect-server endpoint set-subscription-id $GLOBUS_SUBSCRIPTION_ID" >> /home/ubuntu/set-subscription.sh
+    chmod +x /home/ubuntu/set-subscription.sh
     
     # Also create an explicit link for the user to access their endpoint
     echo "To access your endpoint, visit: https://app.globus.org/file-manager?origin_id=$ENDPOINT_UUID" | tee -a /home/ubuntu/endpoint-access-url.txt
@@ -1106,6 +1130,43 @@ if [ -f /home/ubuntu/endpoint-uuid.txt ]; then
 else
   echo "ERROR: Endpoint UUID not found"
   exit 1
+fi
+
+# Verify endpoint has a subscription ID set (required for S3 connector)
+echo "Checking endpoint subscription status..."
+SUBSCRIPTION_STATUS=$(globus-connect-server endpoint show | grep -i "subscription" || echo "No subscription found")
+echo "$SUBSCRIPTION_STATUS"
+
+if ! echo "$SUBSCRIPTION_STATUS" | grep -q -i "subscription id"; then
+  echo "WARNING: No subscription ID found for this endpoint"
+  echo "S3 collections require the endpoint to be part of a subscription"
+  
+  # Check if we have a subscription ID saved
+  SUBSCRIPTION_ID=""
+  if [ -f /home/ubuntu/globus-subscription-id.txt ]; then
+    SUBSCRIPTION_ID=$(cat /home/ubuntu/globus-subscription-id.txt)
+    echo "Found saved subscription ID: $SUBSCRIPTION_ID"
+    
+    # Try to set the subscription ID
+    echo "Setting endpoint subscription ID to: $SUBSCRIPTION_ID"
+    globus-connect-server endpoint set-subscription-id "$SUBSCRIPTION_ID"
+    
+    if [ $? -ne 0 ]; then
+      echo "Error setting subscription ID. Please contact your subscription manager."
+      echo "You may need to run: globus-connect-server endpoint set-subscription-id DEFAULT"
+      echo "Or provide a specific subscription ID from your organization"
+    fi
+  else
+    echo "No saved subscription ID found."
+    echo "You may need to run: globus-connect-server endpoint set-subscription-id DEFAULT"
+    echo "Or provide a specific subscription ID from your organization"
+    
+    # If a parameter was provided, try to use it as subscription ID
+    if [ -n "$3" ]; then
+      echo "Using provided subscription ID: $3"
+      globus-connect-server endpoint set-subscription-id "$3"
+    fi
+  fi
 fi
 
 # First check if any storage gateway already exists

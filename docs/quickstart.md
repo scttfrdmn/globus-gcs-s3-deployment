@@ -11,7 +11,10 @@ This guide provides concise steps to set up and deploy the Globus Connect Server
 
 2. **Globus Account Setup**:
    - Create account at [globus.org](https://www.globus.org/)
-   - Get subscription ID (required for S3 connector)
+   - Get subscription ID (REQUIRED for S3 connector)
+     - Your organization needs a Globus subscription
+     - Either use "DEFAULT" or a specific subscription ID
+     - You must have subscription manager role or coordinate with one
    - Create S3 bucket
 
 3. **Globus Service Identity Setup**:
