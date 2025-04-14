@@ -2,16 +2,6 @@
 
 This guide provides concise steps to set up and deploy the Globus Connect Server S3 template.
 
-### Quick Deploy
-
-Click on a region-specific launch button to deploy the template directly through the AWS CloudFormation console:
-
-| Region | Launch Button |
-|--------|--------------|
-| **US East (N. Virginia)** | [![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/review?templateURL=https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/globus-gcs-s3-template.yaml&stackName=globus-gcs) |
-| **US East (Ohio)** | [![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=us-east-2#/stacks/create/review?templateURL=https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/globus-gcs-s3-template.yaml&stackName=globus-gcs) |
-| **US West (Oregon)** | [![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=us-west-2#/stacks/create/review?templateURL=https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/globus-gcs-s3-template.yaml&stackName=globus-gcs) |
-
 ## Prerequisites
 
 1. **AWS Account Setup**:
@@ -31,7 +21,23 @@ Click on a region-specific launch button to deploy the template directly through
    - Add service identity as project admin: `CLIENT_UUID@clients.auth.globus.org`
    - Record Project ID
 
-## Deployment Steps
+## Deployment
+
+### Option 1: CloudFormation Console (Quick Launch)
+
+Click on a region-specific launch button to deploy the template directly through the AWS CloudFormation console:
+
+| Region | Launch Button |
+|--------|--------------|
+| **US East (N. Virginia)** | [![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/review?templateURL=https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/globus-gcs-s3-template.yaml&stackName=globus-gcs) |
+| **US East (Ohio)** | [![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=us-east-2#/stacks/create/review?templateURL=https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/globus-gcs-s3-template.yaml&stackName=globus-gcs) |
+| **US West (Oregon)** | [![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=us-west-2#/stacks/create/review?templateURL=https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/globus-gcs-s3-template.yaml&stackName=globus-gcs) |
+
+* Make sure to complete the prerequisites first and have all required parameters ready
+* Fill in the parameter form with your specific Globus credentials and AWS resources
+* Check the "I acknowledge that AWS CloudFormation might create IAM resources" checkbox
+
+### Option 2: AWS CLI
 
 1. **Prepare parameters.json**:
    ```json

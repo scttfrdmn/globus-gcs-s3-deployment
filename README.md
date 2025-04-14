@@ -57,7 +57,20 @@ The repository includes detailed documentation on deploying and using Globus Con
 
 ## Getting Started
 
-### Option 1: Deploy with CloudFormation Console (Quick Launch)
+Review the [Quick Start Guide](./docs/quickstart.md) for a concise overview of the setup process.
+
+### Prerequisites
+
+Before deploying, make sure you have:
+
+1. Completed the [AWS Account and Permissions](#prerequisites) setup
+2. Created a [Globus Account and Service Identity](#prerequisites)
+3. Prepared an S3 bucket for connectivity
+4. Gathered all required parameters (Client ID, Client Secret, Project ID, etc.)
+
+### Deployment Options
+
+#### Option 1: CloudFormation Console (Quick Launch)
 
 Click on a region-specific launch button to deploy the template directly through the AWS console:
 
@@ -67,11 +80,10 @@ Click on a region-specific launch button to deploy the template directly through
 | **US East (Ohio)** | [![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=us-east-2#/stacks/create/review?templateURL=https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/globus-gcs-s3-template.yaml&stackName=globus-gcs) |
 | **US West (Oregon)** | [![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=us-west-2#/stacks/create/review?templateURL=https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/globus-gcs-s3-template.yaml&stackName=globus-gcs) |
 
-* **Important**: You'll need to complete the [prerequisites](#prerequisites) and have your Globus parameters ready before launching.
-* The launch buttons use the template directly from GitHub.
 * Be sure to check the "I acknowledge that AWS CloudFormation might create IAM resources" checkbox in the console.
+* Fill in all required parameters with your specific values.
 
-### Option 2: Deploy with AWS CLI
+#### Option 2: AWS CLI
 
 1. Clone this repository:
    ```
