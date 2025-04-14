@@ -620,9 +620,8 @@ else
   echo "Checking for existing endpoint with name '$GLOBUS_DISPLAY_NAME'..." >> $SETUP_LOG
   
   # Setup Globus CLI for more reliable endpoint listing - use same auth as for the setup
-  # Use virtual environment to avoid pip warning message
-  python3 -m venv /tmp/globus-venv
-  /tmp/globus-venv/bin/pip install -q --disable-pip-version-check globus-cli
+  # Install directly without virtual environment for compatibility with all Ubuntu versions
+  pip3 install -q --disable-pip-version-check globus-cli
   mkdir -p ~/.globus
   
   # Ensure Globus CLI is properly configured with the same credentials
@@ -819,25 +818,62 @@ EOF
     
     # Capture and save the full endpoint UUID reliably
     echo "Extracting endpoint UUID..." | tee -a $SETUP_LOG
-    # Get the complete endpoint show output
-    ENDPOINT_SHOW_OUTPUT=$(globus-connect-server endpoint show)
-    echo "$ENDPOINT_SHOW_OUTPUT" > /home/ubuntu/endpoint-details.txt
+    # Run a command to get endpoint ID directly - more reliable than parsing output
+    echo "Retrieving endpoint UUID using direct command..." | tee -a $SETUP_LOG
     
-    # Extract UUID using more reliable approach
-    ENDPOINT_UUID=$(echo "$ENDPOINT_SHOW_OUTPUT" | grep -i "uuid" | awk '{print $2}' || echo "")
+    # Save the command output
+    ENDPOINT_CMD_OUTPUT=$(globus-connect-server endpoint show 2>/dev/null)
+    
+    # Save the full output to a file for debugging
+    echo "$ENDPOINT_CMD_OUTPUT" > /home/ubuntu/endpoint-details.txt
+    
+    # Use multiple extraction methods for better reliability
+    ENDPOINT_UUID=""
+    
+    # Method 1: Use grep for UUID pattern directly
+    ENDPOINT_UUID_1=$(echo "$ENDPOINT_CMD_OUTPUT" | grep -o "[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}" | head -1)
+    
+    # Method 2: Look for specific UUID/ID fields
+    ENDPOINT_UUID_2=$(echo "$ENDPOINT_CMD_OUTPUT" | grep -i "uuid" | awk '{print $2}' | head -1)
+    
+    # Method 3: Look for ID field
+    ENDPOINT_UUID_3=$(echo "$ENDPOINT_CMD_OUTPUT" | grep -i "^ID" | awk '{print $2}' | head -1)
+    
+    # Use first available UUID
+    if [ -n "$ENDPOINT_UUID_1" ]; then
+      ENDPOINT_UUID="$ENDPOINT_UUID_1"
+      echo "Found UUID using pattern matching: $ENDPOINT_UUID" | tee -a $SETUP_LOG
+    elif [ -n "$ENDPOINT_UUID_2" ]; then
+      ENDPOINT_UUID="$ENDPOINT_UUID_2"
+      echo "Found UUID from UUID field: $ENDPOINT_UUID" | tee -a $SETUP_LOG
+    elif [ -n "$ENDPOINT_UUID_3" ]; then
+      ENDPOINT_UUID="$ENDPOINT_UUID_3"
+      echo "Found UUID from ID field: $ENDPOINT_UUID" | tee -a $SETUP_LOG
+    fi
+    
+    # If we have a UUID, save it
     if [ -n "$ENDPOINT_UUID" ]; then
       echo "Endpoint UUID: $ENDPOINT_UUID" | tee -a $SETUP_LOG
       echo "$ENDPOINT_UUID" > /home/ubuntu/endpoint-uuid.txt
       chmod 644 /home/ubuntu/endpoint-uuid.txt
+      
+      # Set environment variable for later use
+      export GCS_CLI_ENDPOINT_ID="$ENDPOINT_UUID"
     else
-      # Try alternative method if the first one fails
-      ENDPOINT_UUID=$(echo "$ENDPOINT_SHOW_OUTPUT" | grep -i "id" | awk '{print $2}' || echo "")
-      if [ -n "$ENDPOINT_UUID" ]; then
-        echo "Endpoint ID: $ENDPOINT_UUID" | tee -a $SETUP_LOG
+      # If direct extraction failed, try alternative approach
+      echo "Alternative method: Trying to find endpoint ID in logs..." | tee -a $SETUP_LOG
+      
+      # Search for endpoint ID in logs
+      ENDPOINT_UUID_LOG=$(grep -o "[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}" $SETUP_LOG | sort | uniq | head -1)
+      
+      if [ -n "$ENDPOINT_UUID_LOG" ]; then
+        ENDPOINT_UUID="$ENDPOINT_UUID_LOG"
+        echo "Found endpoint UUID in logs: $ENDPOINT_UUID" | tee -a $SETUP_LOG
         echo "$ENDPOINT_UUID" > /home/ubuntu/endpoint-uuid.txt
         chmod 644 /home/ubuntu/endpoint-uuid.txt
+        export GCS_CLI_ENDPOINT_ID="$ENDPOINT_UUID"
       else
-        echo "WARNING: Could not extract endpoint UUID" | tee -a $SETUP_LOG
+        echo "WARNING: Could not extract endpoint UUID after multiple attempts" | tee -a $SETUP_LOG
       fi
     fi
   else
@@ -986,7 +1022,14 @@ INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
 aws ec2 create-tags --resources $INSTANCE_ID --tags Key=GlobusInstalled,Value=true --region $AWS_REGION || true
 
 # Optionally reset the endpoint owner for better visibility
-ENDPOINT_UUID=$(cat /home/ubuntu/endpoint-uuid.txt 2>/dev/null || echo "")
+# First try to get the UUID if we don't already have it
+if [ -z "$ENDPOINT_UUID" ]; then
+  ENDPOINT_UUID=$(cat /home/ubuntu/endpoint-uuid.txt 2>/dev/null || echo "")
+  # Set environment variable for endpoint operations
+  if [ -n "$ENDPOINT_UUID" ]; then
+    export GCS_CLI_ENDPOINT_ID="$ENDPOINT_UUID"
+  fi
+fi
 
 if [ "${RESET_ENDPOINT_OWNER}" = "true" ] && [ -n "$ENDPOINT_UUID" ]; then
   echo "Resetting endpoint advertised owner for better visibility..." | tee -a $SETUP_LOG
@@ -1027,6 +1070,240 @@ else
   fi
 fi
 
+# Add helper script for creating collections
+cat > /home/ubuntu/create-collection.sh << 'EOD'
+#!/bin/bash
+# Script to create a Globus collection
+
+echo "=== Globus Collection Creation Tool ==="
+
+# Load credentials and endpoint ID
+if [ -f /home/ubuntu/globus-client-id.txt ] && [ -f /home/ubuntu/globus-client-secret.txt ]; then
+  export GCS_CLI_CLIENT_ID=$(cat /home/ubuntu/globus-client-id.txt)
+  export GCS_CLI_CLIENT_SECRET=$(cat /home/ubuntu/globus-client-secret.txt)
+  echo "Loaded client credentials"
+else
+  echo "ERROR: Client credentials not found"
+  exit 1
+fi
+
+if [ -f /home/ubuntu/endpoint-uuid.txt ]; then
+  export GCS_CLI_ENDPOINT_ID=$(cat /home/ubuntu/endpoint-uuid.txt)
+  echo "Loaded endpoint ID: $GCS_CLI_ENDPOINT_ID"
+else
+  echo "ERROR: Endpoint UUID not found"
+  exit 1
+fi
+
+# First check if any storage gateway already exists
+echo "Checking for existing storage gateways..."
+GATEWAYS=$(globus-connect-server storage-gateway list 2>/dev/null)
+echo "$GATEWAYS"
+
+if [ -z "$GATEWAYS" ] || ! echo "$GATEWAYS" | grep -q -i "ID:"; then
+  echo "No storage gateways found. Creating one first..."
+  
+  # If we're creating a new storage gateway, we need to know what type
+  if [ -z "$1" ]; then
+    echo "Available storage gateway types:"
+    echo "1. s3 - Amazon S3 storage"
+    echo "2. posix - Local filesystem storage"
+    read -p "Enter storage gateway type (1 or 2): " GATEWAY_TYPE_CHOICE
+    
+    case "$GATEWAY_TYPE_CHOICE" in
+      1|s3)
+        GATEWAY_TYPE="s3"
+        read -p "Enter S3 bucket name: " BUCKET_NAME
+        ;;
+      2|posix)
+        GATEWAY_TYPE="posix"
+        read -p "Enter local path (e.g. /mnt/data): " LOCAL_PATH
+        ;;
+      *)
+        echo "Invalid choice. Defaulting to posix."
+        GATEWAY_TYPE="posix"
+        read -p "Enter local path (e.g. /mnt/data): " LOCAL_PATH
+        ;;
+    esac
+  else
+    # Command line parameters: type [bucket/path]
+    GATEWAY_TYPE="$1"
+    PARAM2="$2"
+    
+    if [ "$GATEWAY_TYPE" = "s3" ]; then
+      BUCKET_NAME="$PARAM2"
+      if [ -z "$BUCKET_NAME" ]; then
+        read -p "Enter S3 bucket name: " BUCKET_NAME
+      fi
+    elif [ "$GATEWAY_TYPE" = "posix" ]; then
+      LOCAL_PATH="$PARAM2"
+      if [ -z "$LOCAL_PATH" ]; then
+        read -p "Enter local path (e.g. /mnt/data): " LOCAL_PATH
+      fi
+    else
+      echo "Invalid gateway type. Use 's3' or 'posix'."
+      exit 1
+    fi
+  fi
+  
+  # Create the storage gateway
+  if [ "$GATEWAY_TYPE" = "s3" ]; then
+    echo "Creating S3 storage gateway with bucket '$BUCKET_NAME'..."
+    GATEWAY_OUTPUT=$(globus-connect-server storage-gateway create s3 \
+      --domain s3.amazonaws.com \
+      --bucket "$BUCKET_NAME" \
+      --display-name "S3 Storage" 2>&1)
+  else
+    echo "Creating POSIX storage gateway at path '$LOCAL_PATH'..."
+    GATEWAY_OUTPUT=$(globus-connect-server storage-gateway create posix \
+      --display-name "Local Storage" \
+      --root-path "$LOCAL_PATH" 2>&1)
+  fi
+  
+  GATEWAY_STATUS=$?
+  echo "$GATEWAY_OUTPUT"
+  
+  if [ $GATEWAY_STATUS -ne 0 ]; then
+    echo "Failed to create storage gateway"
+    exit 1
+  fi
+  
+  # Extract gateway ID
+  GATEWAY_ID=$(echo "$GATEWAY_OUTPUT" | grep -i "ID:" | awk '{print $2}' || echo "")
+  
+  if [ -z "$GATEWAY_ID" ]; then
+    echo "Could not extract gateway ID"
+    exit 1
+  fi
+  
+  echo "Successfully created storage gateway with ID: $GATEWAY_ID"
+else
+  # Parse existing gateway ID
+  GATEWAY_ID=$(echo "$GATEWAYS" | grep -i "ID:" | head -1 | awk '{print $2}' || echo "")
+  
+  if [ -z "$GATEWAY_ID" ]; then
+    echo "Could not extract gateway ID from existing gateways"
+    exit 1
+  fi
+  
+  echo "Using existing storage gateway with ID: $GATEWAY_ID"
+fi
+
+# Create a collection using the storage gateway
+echo "Creating collection using storage gateway $GATEWAY_ID..."
+COLLECTION_NAME="$3"
+if [ -z "$COLLECTION_NAME" ]; then
+  COLLECTION_NAME="Data Collection"
+fi
+
+COLLECTION_OUTPUT=$(globus-connect-server collection create \
+  --storage-gateway "$GATEWAY_ID" \
+  --display-name "$COLLECTION_NAME" 2>&1)
+  
+COLLECTION_STATUS=$?
+echo "$COLLECTION_OUTPUT"
+
+if [ $COLLECTION_STATUS -eq 0 ]; then
+  echo "Successfully created collection"
+  
+  # Extract the collection ID
+  COLLECTION_ID=$(echo "$COLLECTION_OUTPUT" | grep -i "ID:" | awk '{print $2}' || echo "")
+  
+  if [ -n "$COLLECTION_ID" ]; then
+    echo "Collection ID: $COLLECTION_ID"
+    echo "$COLLECTION_ID" > /home/ubuntu/collection-id.txt
+    
+    # Create a URL for the collection
+    echo "Web Interface URL: https://app.globus.org/file-manager?destination_id=$COLLECTION_ID"
+    echo "https://app.globus.org/file-manager?destination_id=$COLLECTION_ID" > /home/ubuntu/collection-url.txt
+  else
+    echo "Could not extract collection ID from output"
+  fi
+else
+  echo "Failed to create collection"
+fi
+
+echo "=== End of collection creation ==="
+EOD
+
+chmod +x /home/ubuntu/create-collection.sh
+
+# Run diagnostic commands to test endpoint functionality
+echo "Running post-setup diagnostics..." | tee -a $SETUP_LOG
+
+# Create a diagnosis script that can be run later
+cat > /home/ubuntu/diagnose-endpoint.sh << 'EOD'
+#!/bin/bash
+# Script to diagnose Globus endpoint issues
+
+echo "=== Globus Endpoint Diagnostic Tool ==="
+echo "Running diagnostics at $(date)"
+
+# Check if environment variables are set
+echo "1. Checking environment variables..."
+ENV_VARS=$(env | grep -E 'GCS_CLI_|GLOBUS_')
+echo "Found $(echo "$ENV_VARS" | wc -l) Globus-related environment variables"
+
+# Get endpoint UUID from file if it exists
+ENDPOINT_UUID=""
+if [ -f /home/ubuntu/endpoint-uuid.txt ]; then
+  ENDPOINT_UUID=$(cat /home/ubuntu/endpoint-uuid.txt)
+  echo "2. Found endpoint UUID in file: $ENDPOINT_UUID"
+else
+  echo "2. No endpoint UUID file found"
+fi
+
+# Try to set the endpoint ID environment variable if needed
+if [ -n "$ENDPOINT_UUID" ] && [ -z "$GCS_CLI_ENDPOINT_ID" ]; then
+  export GCS_CLI_ENDPOINT_ID="$ENDPOINT_UUID"
+  echo "   Set GCS_CLI_ENDPOINT_ID environment variable"
+fi
+
+# Set client credentials from files if they exist
+if [ -f /home/ubuntu/globus-client-id.txt ] && [ -f /home/ubuntu/globus-client-secret.txt ]; then
+  export GCS_CLI_CLIENT_ID=$(cat /home/ubuntu/globus-client-id.txt)
+  export GCS_CLI_CLIENT_SECRET=$(cat /home/ubuntu/globus-client-secret.txt)
+  echo "3. Loaded client credentials from files"
+fi
+
+# Check if Globus services are running
+echo "4. Checking Globus services..."
+systemctl status globus-gridftp-server --no-pager | grep -E 'Active:|Main PID:'
+
+# Try to list endpoints
+echo "5. Attempting to list endpoints..."
+globus-connect-server endpoint list
+
+# Try to show endpoint details
+echo "6. Attempting to show endpoint details..."
+if [ -n "$ENDPOINT_UUID" ]; then
+  globus-connect-server endpoint show
+else
+  echo "   No endpoint UUID available"
+fi
+
+# Check collections
+echo "7. Checking collections..."
+globus-connect-server collection list || echo "   No collections found"
+
+# Check for storage gateways
+echo "8. Checking storage gateways..."
+globus-connect-server storage-gateway list || echo "   No storage gateways found"
+
+# Additional helpful commands to try manually
+echo "9. Additional commands to try manually:"
+echo "   - Create a storage gateway: globus-connect-server storage-gateway create s3 --display-name \"S3 Storage\" --bucket-name \"your-bucket\""
+echo "   - Create a collection: globus-connect-server collection create --storage-gateway s3_storage --display-name \"S3 Collection\""
+echo "   - Reset owner: globus-connect-server endpoint set-owner-string \"your-identity@example.com\""
+
+echo "=== End of diagnostics ==="
+EOD
+
+chmod +x /home/ubuntu/diagnose-endpoint.sh
+
+# Run the diagnosis script to gather information
+/home/ubuntu/diagnose-endpoint.sh > /home/ubuntu/endpoint-diagnosis.txt 2>&1
+
 # Create deployment summary with endpoint information
 echo "Deployment: $(date) Instance:$INSTANCE_ID Type:$DEPLOYMENT_TYPE Auth:$AUTH_METHOD S3:$ENABLE_S3_CONNECTOR" > /home/ubuntu/deployment-summary.txt
 echo "Endpoint Information:" >> /home/ubuntu/deployment-summary.txt
@@ -1040,6 +1317,10 @@ else
 fi
 echo "- Web Interface: https://app.globus.org/file-manager?origin_id=$ENDPOINT_UUID" >> /home/ubuntu/deployment-summary.txt
 echo "To view detailed endpoint information, run: /home/ubuntu/show-endpoint.sh" >> /home/ubuntu/deployment-summary.txt
+echo "To see endpoint diagnostics results, run: cat /home/ubuntu/endpoint-diagnosis.txt" >> /home/ubuntu/deployment-summary.txt
+echo "To run diagnostics again, run: /home/ubuntu/diagnose-endpoint.sh" >> /home/ubuntu/deployment-summary.txt
+echo "To create a collection for file transfers, run: /home/ubuntu/create-collection.sh" >> /home/ubuntu/deployment-summary.txt
+echo "IMPORTANT: Collections must be created to transfer files via Globus web interface" >> /home/ubuntu/deployment-summary.txt
 
 # ===== Final deployment steps and diagnostics =====
 echo "===== [8/10] Collecting diagnostic information =====" | tee -a /home/ubuntu/install-debug.log
