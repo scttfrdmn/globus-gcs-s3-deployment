@@ -154,6 +154,14 @@ Parameters:
     AllowedValues:
       - "true"
       - "false"
+      
+  GlobusDontSetAdvertisedOwner:
+    Description: Don't set advertised owner in the Globus web interface (makes endpoint harder to find but may help with certain authentication issues)
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
 
 Mappings:
   RegionMap:
@@ -327,6 +335,7 @@ Resources:
           export GLOBUS_PROJECT_NAME="${GlobusProjectName}"
           export GLOBUS_PROJECT_ADMIN="${GlobusProjectAdmin}"
           export GLOBUS_ALWAYS_CREATE_PROJECT="${GlobusAlwaysCreateProject}"
+          export GLOBUS_DONT_SET_ADVERTISED_OWNER="${GlobusDontSetAdvertisedOwner}"
           export GLOBUS_SUBSCRIPTION_ID="${GlobusSubscriptionId}"
           export DEPLOYMENT_TYPE="${DeploymentType}"
           export AUTH_METHOD="Globus"

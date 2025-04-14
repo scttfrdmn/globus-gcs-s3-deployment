@@ -51,8 +51,9 @@
    The template uses service credentials with the following approach:
    
    - Uses client ID and secret for non-interactive authentication
-   - Requires `--dont-set-advertised-owner` flag for client credentials
    - Creates endpoint under the project administered by the service identity
+   - By default, allows the advertised owner to be set for better visibility
+   - Provides the `GlobusDontSetAdvertisedOwner` parameter for compatibility with environments where the `--dont-set-advertised-owner` flag is needed
 
 3. S3 Storage:
 
@@ -121,6 +122,10 @@ Based on the [Globus endpoint setup CLI documentation](https://docs.globus.org/g
 - **GlobusProjectName**: Name for the Auth project if one needs to be created
 - **GlobusProjectAdmin**: Admin username for the project if different from owner
 - **GlobusAlwaysCreateProject**: Force creation of a new project even if one exists
+- **GlobusDontSetAdvertisedOwner**: Set to "true" to use the `--dont-set-advertised-owner` flag
+  - Default: **false** (better visibility in Globus web interface)
+  - When set to "true": Makes endpoint harder to find but may help with certain authentication issues
+  - Only set to "true" if you encounter the error "Can not set the advertised owner when using client credentials"
 
 For more information on Globus Connect Server options, see the [Globus CLI Reference Documentation](https://docs.globus.org/globus-connect-server/v5.4/reference/cli-reference/).
 
@@ -223,6 +228,10 @@ For more information on Globus Connect Server options, see the [Globus CLI Refer
   {
     "ParameterKey": "GlobusProjectName",       // Optional: Auth project name
     "ParameterValue": "My Globus Project"
+  },
+  {
+    "ParameterKey": "GlobusDontSetAdvertisedOwner",  // Optional: Default false
+    "ParameterValue": "false"                        // Set to "true" only if needed for authentication
   },
   
   // Optional connector parameters (requires subscription)
@@ -332,9 +341,9 @@ These variables can be modified in the CloudFormation template's UserData sectio
 ### Common Errors
 
 1. **"Can not set the advertised owner when using client credentials"**: 
-   - This error occurs when using client credentials with the wrong settings
-   - Cause: When using service credentials, the endpoint must use `--dont-set-advertised-owner`
-   - Solution: The script automatically adds this flag to prevent this error
+   - This error occurs in some environments when using client credentials
+   - Cause: Some Globus service identity configurations require `--dont-set-advertised-owner`
+   - Solution: Set the `GlobusDontSetAdvertisedOwner` parameter to "true" in your CloudFormation template
 
 2. **Authentication Errors During Endpoint Setup**:
    - Error: "Failed to perform any Auth flows" or "Authentication/Authorization failed"
@@ -346,11 +355,12 @@ These variables can be modified in the CloudFormation template's UserData sectio
      3. Use the correct Project ID in your CloudFormation parameters
 
 3. **Finding Your Endpoint After Deployment**:
-   - Challenge: With `--dont-set-advertised-owner`, endpoints don't show up under your account
-   - Solution:
+   - By default, the endpoint should appear under your account in the Globus web interface
+   - If you set `GlobusDontSetAdvertisedOwner: true`, endpoints won't show up under your account
+   - Solutions for finding endpoints with `GlobusDontSetAdvertisedOwner: true`:
      - Use the UUID from `/home/ubuntu/endpoint-uuid.txt` on the server
      - Search for your endpoint by its display name in Globus web interface
-     - After deployment, you can use `globus-connect-server endpoint set-owner-string` to set the advertised owner
+     - After deployment, use `globus-connect-server endpoint set-owner-string` to set the advertised owner
 
 4. **"Credentials environment variables set: 0"**:
    - This indicates the environment variables for authentication aren't being set correctly

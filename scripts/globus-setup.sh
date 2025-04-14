@@ -390,8 +390,14 @@ echo "Setting up endpoint using automated deployment approach..."
 # Prepare command with required parameters
 SETUP_CMD="globus-connect-server endpoint setup"
 
-# Note: We intentionally do not use --dont-set-advertised-owner flag to ensure 
-# the endpoint is properly visible in the Globus web interface
+# Check if we should use --dont-set-advertised-owner flag
+# This flag makes the endpoint harder to find in the web interface but can help with certain authentication issues
+if [ "${GLOBUS_DONT_SET_ADVERTISED_OWNER}" = "true" ]; then
+  echo "Adding --dont-set-advertised-owner flag as requested"
+  SETUP_CMD+=" --dont-set-advertised-owner"
+else
+  echo "NOT using --dont-set-advertised-owner for better endpoint visibility"
+fi
 
 # Required parameters
 SETUP_CMD+=" --organization \"${GC_ORG}\""
@@ -422,6 +428,11 @@ SETUP_CMD+=" --agree-to-letsencrypt-tos"
 # Log the command we're about to run
 echo "Running endpoint setup command with display name: ${GC_NAME}"
 echo "Using environment variables GCS_CLI_CLIENT_ID and GCS_CLI_CLIENT_SECRET for authentication"
+if [ "${GLOBUS_DONT_SET_ADVERTISED_OWNER}" = "true" ]; then
+  echo "Using --dont-set-advertised-owner flag (endpoint will be harder to find in Globus web interface)"
+else
+  echo "NOT using --dont-set-advertised-owner for better endpoint visibility"
+fi
 
 # Execute the command - passing the display name as a direct positional argument
 # to ensure proper quoting
@@ -737,15 +748,36 @@ else
   # Setup proper environment variables for service credentials
   # This is the recommended approach for automated deployment as per
   # https://docs.globus.org/globus-connect-server/v5/automated-deployment/
+  
+  # Ensure credentials are properly exported in multiple ways for maximum compatibility
+  # 1. Export environment variables
   export GCS_CLI_CLIENT_ID="${GLOBUS_CLIENT_ID}"
   export GCS_CLI_CLIENT_SECRET="${GLOBUS_CLIENT_SECRET}"
+  
+  # 2. Create Globus CLI config file in case environment variables aren't working
+  mkdir -p ~/.globus
+  cat > ~/.globus/globus.cfg << EOF
+[cli]
+default_client_id = ${GLOBUS_CLIENT_ID}
+default_client_secret = ${GLOBUS_CLIENT_SECRET}
+EOF
   
   echo "Setting up service credentials via environment variables" | tee -a $SETUP_LOG
   echo "GCS_CLI_CLIENT_ID=${GCS_CLI_CLIENT_ID:0:5}... (truncated)" | tee -a $SETUP_LOG
   
-  # Remove the --dont-set-advertised-owner flag if it's in the command 
-  # to ensure proper visibility in the Globus web interface
-  SETUP_CMD=$(echo "$SETUP_CMD" | sed 's/--dont-set-advertised-owner//')
+  # Check if we should use --dont-set-advertised-owner flag based on parameter
+  # This flag makes the endpoint harder to find but can help with certain authentication issues
+  if [ "${GLOBUS_DONT_SET_ADVERTISED_OWNER}" = "true" ]; then
+    echo "Adding --dont-set-advertised-owner flag as requested" | tee -a $SETUP_LOG
+    # Make sure the flag is present in the command if requested
+    if ! echo "$SETUP_CMD" | grep -q -- "--dont-set-advertised-owner"; then
+      SETUP_CMD+=" --dont-set-advertised-owner"
+    fi
+  else
+    echo "NOT using --dont-set-advertised-owner for better endpoint visibility" | tee -a $SETUP_LOG
+    # Make sure the flag is NOT present in the command
+    SETUP_CMD=$(echo "$SETUP_CMD" | sed 's/--dont-set-advertised-owner//')
+  fi
   
   # Execute the command - passing the display name as a direct positional argument
   # rather than as part of the command string to ensure proper quoting
