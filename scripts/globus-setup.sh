@@ -390,8 +390,8 @@ echo "Setting up endpoint using automated deployment approach..."
 # Prepare command with required parameters
 SETUP_CMD="globus-connect-server endpoint setup"
 
-# Add --dont-set-advertised-owner flag for automated deployments
-SETUP_CMD+=" --dont-set-advertised-owner"
+# Note: We intentionally do not use --dont-set-advertised-owner flag to ensure 
+# the endpoint is properly visible in the Globus web interface
 
 # Required parameters
 SETUP_CMD+=" --organization \"${GC_ORG}\""
@@ -704,6 +704,10 @@ else
   echo "Setting up service credentials via environment variables" | tee -a $SETUP_LOG
   echo "GCS_CLI_CLIENT_ID=${GCS_CLI_CLIENT_ID:0:5}... (truncated)" | tee -a $SETUP_LOG
   
+  # Remove the --dont-set-advertised-owner flag if it's in the command 
+  # to ensure proper visibility in the Globus web interface
+  SETUP_CMD=$(echo "$SETUP_CMD" | sed 's/--dont-set-advertised-owner//')
+  
   # Execute the command - passing the display name as a direct positional argument
   # rather than as part of the command string to ensure proper quoting
   echo "Running command with environment-based authentication: ${SETUP_CMD} \"${GLOBUS_DISPLAY_NAME}\"" | tee -a $SETUP_LOG
@@ -713,6 +717,30 @@ else
   if [ $SETUP_RESULT -eq 0 ]; then
     echo "Endpoint setup succeeded!" | tee -a $SETUP_LOG
     SETUP_STATUS=0
+    
+    # Capture and save the full endpoint UUID reliably
+    echo "Extracting endpoint UUID..." | tee -a $SETUP_LOG
+    # Get the complete endpoint show output
+    ENDPOINT_SHOW_OUTPUT=$(globus-connect-server endpoint show)
+    echo "$ENDPOINT_SHOW_OUTPUT" > /home/ubuntu/endpoint-details.txt
+    
+    # Extract UUID using more reliable approach
+    ENDPOINT_UUID=$(echo "$ENDPOINT_SHOW_OUTPUT" | grep -i "uuid" | awk '{print $2}' || echo "")
+    if [ -n "$ENDPOINT_UUID" ]; then
+      echo "Endpoint UUID: $ENDPOINT_UUID" | tee -a $SETUP_LOG
+      echo "$ENDPOINT_UUID" > /home/ubuntu/endpoint-uuid.txt
+      chmod 644 /home/ubuntu/endpoint-uuid.txt
+    else
+      # Try alternative method if the first one fails
+      ENDPOINT_UUID=$(echo "$ENDPOINT_SHOW_OUTPUT" | grep -i "id" | awk '{print $2}' || echo "")
+      if [ -n "$ENDPOINT_UUID" ]; then
+        echo "Endpoint ID: $ENDPOINT_UUID" | tee -a $SETUP_LOG
+        echo "$ENDPOINT_UUID" > /home/ubuntu/endpoint-uuid.txt
+        chmod 644 /home/ubuntu/endpoint-uuid.txt
+      else
+        echo "WARNING: Could not extract endpoint UUID" | tee -a $SETUP_LOG
+      fi
+    fi
   else
     echo "Endpoint setup failed with code $SETUP_RESULT." | tee -a $SETUP_LOG
     echo "Please check your client credentials and ensure they are correct." | tee -a $SETUP_LOG
@@ -747,8 +775,87 @@ if [ "$AUTH_METHOD" = "Globus" ] && [ "$DEFAULT_ADMIN" != "" ]; then
   done
 fi
 
+# Create a helper script for users to easily access the UUID and see endpoint info
+cat > /home/ubuntu/show-endpoint.sh << 'EOF'
+#!/bin/bash
+# This script helps view endpoint details using the Globus CLI with proper authentication
+
+# Source credentials if available
+if [ -f /home/ubuntu/globus-client-id.txt ] && [ -f /home/ubuntu/globus-client-secret.txt ]; then
+  export GCS_CLI_CLIENT_ID=$(cat /home/ubuntu/globus-client-id.txt)
+  export GCS_CLI_CLIENT_SECRET=$(cat /home/ubuntu/globus-client-secret.txt)
+  
+  # Set up Globus CLI config
+  mkdir -p ~/.globus
+  echo -e "[cli]\ndefault_client_id = $GCS_CLI_CLIENT_ID" > ~/.globus/globus.cfg
+  echo -e "default_client_secret = $GCS_CLI_CLIENT_SECRET" >> ~/.globus/globus.cfg
+fi
+
+# Check if we have the UUID file
+if [ -f /home/ubuntu/endpoint-uuid.txt ]; then
+  ENDPOINT_UUID=$(cat /home/ubuntu/endpoint-uuid.txt)
+  echo "Endpoint UUID: $ENDPOINT_UUID"
+  
+  # Try both commands to show endpoint details
+  echo "===== Globus Connect Server Endpoint Details ====="
+  globus-connect-server endpoint show
+  
+  echo "===== Globus CLI Endpoint Details ====="
+  globus endpoint show --format json "$ENDPOINT_UUID" | python3 -m json.tool || echo "Unable to get details with globus CLI"
+  
+  echo "Note: To access endpoint in Globus web interface, go to:"
+  echo "https://app.globus.org/file-manager?origin_id=$ENDPOINT_UUID"
+else
+  echo "Endpoint UUID file not found. Trying to get endpoint details..."
+  globus-connect-server endpoint show || echo "Unable to show endpoint details"
+fi
+EOF
+
+chmod +x /home/ubuntu/show-endpoint.sh
+chown ubuntu:ubuntu /home/ubuntu/show-endpoint.sh
+
+# Install and setup the Globus CLI with proper configuration
+echo "Setting up Globus CLI and authentication..." | tee -a $SETUP_LOG
+pip3 install -q globus-cli
+
+# Configure authentication for both globus-connect-server and globus CLI
+mkdir -p ~/.globus /home/ubuntu/.globus
+
+# Configure for root user (used by script)
+cat > ~/.globus/globus.cfg << EOF
+[cli]
+default_client_id = ${GLOBUS_CLIENT_ID}
+default_client_secret = ${GLOBUS_CLIENT_SECRET}
+EOF
+
+# Configure for ubuntu user (for manual troubleshooting)
+cat > /home/ubuntu/.globus/globus.cfg << EOF
+[cli]
+default_client_id = ${GLOBUS_CLIENT_ID}
+default_client_secret = ${GLOBUS_CLIENT_SECRET}
+EOF
+
+chown -R ubuntu:ubuntu /home/ubuntu/.globus
+
 # Configure S3 connector if subscription exists (for GCS 5.4.61+)
 if [ -n "$GLOBUS_SUBSCRIPTION_ID" ]; then
+  # Extract endpoint UUID - this will use the same UUID that was saved to file earlier
+  ENDPOINT_UUID=$(cat /home/ubuntu/endpoint-uuid.txt 2>/dev/null || globus-connect-server endpoint show 2>/dev/null | grep -i "uuid\|id" | head -1 | awk '{print $2}')
+  
+  if [ -n "$ENDPOINT_UUID" ]; then
+    echo "Joining endpoint to subscription ID: $GLOBUS_SUBSCRIPTION_ID..." | tee -a $SETUP_LOG
+    # Update endpoint with subscription
+    globus-connect-server endpoint update --subscription-id "$GLOBUS_SUBSCRIPTION_ID" --display-name "$GLOBUS_DISPLAY_NAME" | tee -a $SETUP_LOG
+    
+    # Verify the update worked
+    globus-connect-server endpoint show | tee -a /home/ubuntu/endpoint-with-subscription.txt
+    
+    # Also create an explicit link for the user to access their endpoint
+    echo "To access your endpoint, visit: https://app.globus.org/file-manager?origin_id=$ENDPOINT_UUID" | tee -a /home/ubuntu/endpoint-access-url.txt
+  else
+    echo "WARNING: Could not find endpoint UUID for subscription association" | tee -a $SETUP_LOG
+  fi
+  
   # S3 connector - check command availability first
   if [ "$ENABLE_S3_CONNECTOR" = "true" ] && [ "$S3_BUCKET_NAME" != "" ] && aws s3 ls "s3://$S3_BUCKET_NAME" >/dev/null 2>&1; then
     echo "Setting up S3 connector for bucket $S3_BUCKET_NAME..." | tee -a $SETUP_LOG
@@ -763,19 +870,13 @@ if [ -n "$GLOBUS_SUBSCRIPTION_ID" ]; then
       
     if [ $? -eq 0 ]; then
       echo "S3 connector setup successful" | tee -a $SETUP_LOG
+      
+      # Save S3 connector details
+      globus-connect-server storage-gateway list > /home/ubuntu/s3-connector-details.txt
     else
       echo "WARNING: Failed to set up S3 connector" | tee -a $SETUP_LOG
     fi
   fi
-  
-  # Join subscription
-  pip3 install -q globus-cli
-  mkdir -p ~/.globus && echo -e "[cli]\ndefault_client_id = $GLOBUS_CLIENT_ID\n" > ~/.globus/globus.cfg
-  # Add secret instead of client_secret for compatibility
-  echo -e "default_client_secret = $GLOBUS_CLIENT_SECRET" >> ~/.globus/globus.cfg
-  sleep 5
-  ENDPOINT_ID=$(globus-connect-server endpoint show 2>/dev/null | grep -E 'UUID|ID' | awk '{print $2}' | head -1)
-  [ -n "$ENDPOINT_ID" ] && globus-connect-server endpoint update --subscription-id "$GLOBUS_SUBSCRIPTION_ID" --display-name "$GLOBUS_DISPLAY_NAME"
 fi
 
 # Enable services and tag instance
@@ -783,8 +884,15 @@ fi
 INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
 aws ec2 create-tags --resources $INSTANCE_ID --tags Key=GlobusInstalled,Value=true --region $AWS_REGION || true
 
-# Create minimal deployment summary
+# Create deployment summary with endpoint information
+ENDPOINT_UUID=$(cat /home/ubuntu/endpoint-uuid.txt 2>/dev/null || echo "UUID not found")
 echo "Deployment: $(date) Instance:$INSTANCE_ID Type:$DEPLOYMENT_TYPE Auth:$AUTH_METHOD S3:$ENABLE_S3_CONNECTOR" > /home/ubuntu/deployment-summary.txt
+echo "Endpoint Information:" >> /home/ubuntu/deployment-summary.txt
+echo "- UUID: $ENDPOINT_UUID" >> /home/ubuntu/deployment-summary.txt
+echo "- Display Name: $GLOBUS_DISPLAY_NAME" >> /home/ubuntu/deployment-summary.txt
+echo "- Organization: $GLOBUS_ORGANIZATION" >> /home/ubuntu/deployment-summary.txt
+echo "- Web Interface: https://app.globus.org/file-manager?origin_id=$ENDPOINT_UUID" >> /home/ubuntu/deployment-summary.txt
+echo "To view detailed endpoint information, run: /home/ubuntu/show-endpoint.sh" >> /home/ubuntu/deployment-summary.txt
 
 # ===== Final deployment steps and diagnostics =====
 echo "===== [8/10] Collecting diagnostic information =====" | tee -a /home/ubuntu/install-debug.log
