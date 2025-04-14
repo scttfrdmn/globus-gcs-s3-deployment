@@ -285,13 +285,29 @@ Common issues include:
 
 ### Debugging Environment Variables
 
-The template includes debugging flags that can help troubleshoot deployment issues:
+The template includes debugging flags that help troubleshoot deployment issues. These flags have been updated to provide more reliable deployments:
 
-1. **DEBUG_SKIP_VERSION_CHECK**: Set to "true" in the template to bypass version compatibility checking. This is useful when your Globus version reports itself in an unusual format but is actually compatible.
+1. **DEBUG_SKIP_VERSION_CHECK**: 
+   - Default: **false** (version checking enabled)
+   - When set to "true": Bypasses version compatibility checking
+   - Current behavior: Ensures Globus Connect Server is version 5.4.61 or higher
+   - Use case: Set to "true" only when your Globus version reports itself in an unusual format but is actually compatible
 
-2. **DEBUG_SKIP_DUPLICATE_CHECK**: Set to "true" to skip the check for existing endpoints with the same name, useful if you're testing the endpoint creation process or encountering duplicate check errors.
+2. **DEBUG_SKIP_DUPLICATE_CHECK**: 
+   - Default: **false** (duplicate checking enabled)
+   - When set to "true": Skips the check for existing endpoints with the same name
+   - Current behavior: Checks for existing endpoints with the same name before creating a new one
+   - If found, uses the existing endpoint instead of creating a duplicate
+   - Use case: Set to "true" only if you're testing endpoint creation or need to create multiple endpoints with the same name
 
-These variables can be modified in the CloudFormation template's UserData section or used directly when running the helper script manually:
+3. **SHOULD_FAIL**: 
+   - Default: **"no"** (stack does not fail on script errors)
+   - When set to "yes": CloudFormation stack will fail if script encounters errors
+   - Current behavior: Instances are retained even when setup errors occur
+   - EC2 instance is kept running with `DeletionPolicy: Retain` for troubleshooting
+   - Use case: Keep as "no" during testing; change to "yes" only for production when you want strict validation
+
+These variables can be modified in the CloudFormation template's UserData section or used directly when running the helper script manually. For production deployments, consider setting `SHOULD_FAIL="yes"` to ensure the stack only succeeds when everything is properly configured.
 
 If you see "WARNING - Failed to run module scripts-user" in the logs, this is likely a cloud-init warning that doesn't affect the deployment. The template includes robust error handling to continue despite these warnings. Check these files for diagnostic information:
 
