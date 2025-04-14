@@ -84,17 +84,17 @@ apt-get install -y curl wget apt-transport-https ca-certificates
 
 # Add Globus repository
 log "Adding Globus repository..."
-curl -s https://downloads.globus.org/globus-connect-server/stable/installers/repo/deb/globus-repo-latest.deb -o /tmp/globus-repo-latest.deb
-if [ ! -f /tmp/globus-repo-latest.deb ]; then
+curl -LOs https://downloads.globus.org/globus-connect-server/stable/installers/repo/deb/globus-repo_latest_all.deb
+if [ ! -f globus-repo_latest_all.deb ]; then
   handle_error "Failed to download Globus repository package."
 fi
 
-dpkg -i /tmp/globus-repo-latest.deb
+dpkg -i globus-repo_latest_all.deb
 apt-get update
 
-# Install Globus Connect Server 
-log "Installing Globus Connect Server..."
-apt-get install -y globus-connect-server
+# Install Globus Connect Server package (correct Ubuntu package)
+log "Installing Globus Connect Server 54 package..."
+apt-get install -y globus-connect-server54
 
 # Verify installation
 if ! command -v globus-connect-server &> /dev/null; then
