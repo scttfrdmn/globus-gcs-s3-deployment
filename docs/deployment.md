@@ -39,8 +39,12 @@
    3. **Prepare CloudFormation Parameters:**
       - Set `GlobusClientId` to your Client UUID
       - Set `GlobusClientSecret` to your Client Secret
-      - Set `GlobusProjectId` to your Project ID
+      - **CRITICAL**: Set `GlobusProjectId` to your Project ID (from step 2)
+        - This is essential for automated deployment authentication
       - Set `GlobusOwner` to the identity that should own the endpoint
+        - For fully automated deployments, this can be the service identity itself
+        - Format: `CLIENT_UUID@clients.auth.globus.org`
+        - Example: `e0558739-6e6f-4600-a46d-983d309f88ff@clients.auth.globus.org`
    
    If these steps are not completed before deployment, the endpoint setup will fail with authentication errors.
    
@@ -168,26 +172,29 @@ For more information on Globus Connect Server options, see the [Globus CLI Refer
   
   // Required Globus parameters - MUST be customized with valid values
   {
+    "ParameterKey": "GlobusClientId", // Client UUID from service credential registration
+    "ParameterValue": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+  },
+  {
+    "ParameterKey": "GlobusClientSecret", // Secret from service credential registration
+    "ParameterValue": "xxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "ParameterKey": "GlobusProjectId", // CRITICAL: Project ID from step 2
+    "ParameterValue": "12345678-abcd-1234-efgh-1234567890ab"
+  },
+  {
     "ParameterKey": "GlobusOwner",
-    "ParameterValue": "user@example.com"  // CRITICAL: Identity username of the endpoint owner
-                                          // Must be a valid Globus identity (no default value)
-                                          // Cannot be a client ID or other non-identity value
-                                          // Must be an actual Globus user identity that exists
+    "ParameterValue": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx@clients.auth.globus.org"  // CRITICAL: For automated deployment
+                                          // Must be either:
+                                          // 1. The service identity (CLIENT_UUID@clients.auth.globus.org), or
+                                          // 2. A valid Globus identity (user@example.com)
   },
   {
     "ParameterKey": "GlobusContactEmail",
     "ParameterValue": "support@example.com"  // CRITICAL: Email address for endpoint support
                                              // Must be a valid email address
-                                             // Cannot be a client ID or other non-email value
                                              // Visible to users who need assistance
-  },
-  {
-    "ParameterKey": "GlobusClientId",     // Required for service credential authentication
-    "ParameterValue": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-  },
-  {
-    "ParameterKey": "GlobusClientSecret", // Required for service credential authentication
-    "ParameterValue": "xxxxxxxxxxxxxxxxxxxx"
   },
   
   // === OPTIONAL PARAMETERS ===
@@ -347,12 +354,15 @@ These variables can be modified in the CloudFormation template's UserData sectio
 
 2. **Authentication Errors During Endpoint Setup**:
    - Error: "Failed to perform any Auth flows" or "Authentication/Authorization failed"
-   - Cause: Missing Project Administrator Role for the service identity
-   - Solution: Ensure you've completed the prerequisite steps:
-     1. Register service credentials in Globus Developer Console
-     2. Add the service identity as an admin to your project in Auth Developer Console
-        (Format: `CLIENT_UUID@clients.auth.globus.org`)
-     3. Use the correct Project ID in your CloudFormation parameters
+   - Causes and Solutions:
+     1. **Missing Project ID**: The `GlobusProjectId` parameter is not set or incorrect
+        - Solution: Set the correct Project ID in your CloudFormation parameters
+     2. **Missing Project Administrator Role**: Service identity not added as admin
+        - Solution: Add the service identity as an admin to your project in Auth Developer Console
+          (Format: `CLIENT_UUID@clients.auth.globus.org`)
+     3. **Incorrect Owner**: The owner identity is not properly formatted
+        - Solution: Set `GlobusOwner` to the service identity (for fully automated deployments)
+          (Format: `CLIENT_UUID@clients.auth.globus.org`)
 
 3. **Finding Your Endpoint After Deployment**:
    - By default, the endpoint should appear under your account in the Globus web interface

@@ -402,6 +402,17 @@ fi
 # Required parameters
 SETUP_CMD+=" --organization \"${GC_ORG}\""
 
+# Project ID is critical for automated deployments
+GC_PROJECT_ID=""
+[ -f /home/ubuntu/globus-project-id.txt ] && GC_PROJECT_ID=$(cat /home/ubuntu/globus-project-id.txt)
+if [ -n "${GC_PROJECT_ID}" ]; then
+  echo "Using project ID: ${GC_PROJECT_ID}"
+  SETUP_CMD+=" --project-id \"${GC_PROJECT_ID}\""
+else
+  echo "WARNING: No project ID specified. This is strongly recommended for automated deployments."
+  echo "See https://docs.globus.org/globus-connect-server/v5/automated-deployment/ for details."
+fi
+
 # Use the owner parameter (required) - either from argument or explicit owner var
 if [ -n "${GC_OWNER}" ]; then
   echo "Using specified owner: ${GC_OWNER}"
@@ -556,6 +567,12 @@ echo "$GLOBUS_CONTACT_EMAIL" > /home/ubuntu/globus-contact-email.txt && \
   chown ubuntu:ubuntu /home/ubuntu/globus-contact-email.txt && \
   echo "- Created contact email file" >> /home/ubuntu/install-debug.log || \
   echo "ERROR: Failed to create contact email file" | tee -a /home/ubuntu/install-debug.log
+  
+echo "$GLOBUS_PROJECT_ID" > /home/ubuntu/globus-project-id.txt && \
+  chmod 600 /home/ubuntu/globus-project-id.txt && \
+  chown ubuntu:ubuntu /home/ubuntu/globus-project-id.txt && \
+  echo "- Created project ID file" >> /home/ubuntu/install-debug.log || \
+  echo "ERROR: Failed to create project ID file" | tee -a /home/ubuntu/install-debug.log
 
 # Create a deployment log that can be checked for "scripts-user" errors
 echo "Checking for cloud-init script-user issues..."
@@ -722,11 +739,16 @@ else
     exit 1
   fi
   
-  # Optional project parameters (for GCS 5.4.61+)
+  # Project ID is critical for automated deployments
   if [ -n "${GLOBUS_PROJECT_ID}" ]; then
+    echo "Using project ID: ${GLOBUS_PROJECT_ID}" | tee -a $SETUP_LOG
     SETUP_CMD+=" --project-id \"${GLOBUS_PROJECT_ID}\""
+  else
+    echo "WARNING: No project ID specified. This is strongly recommended for automated deployments." | tee -a $SETUP_LOG
+    echo "See https://docs.globus.org/globus-connect-server/v5/automated-deployment/ for details." | tee -a $SETUP_LOG
   fi
   
+  # Other optional project parameters
   if [ -n "${GLOBUS_PROJECT_NAME}" ]; then
     SETUP_CMD+=" --project-name \"${GLOBUS_PROJECT_NAME}\""
   fi
