@@ -545,16 +545,38 @@ Resources:
           # Make temp dirs world-writeable to avoid permissions issues
           /bin/chmod 1777 /tmp /var/tmp 2>/dev/null || true
           
-          # Run with timeout to prevent hanging, and redirect all output to log files
-          # If timeout isn't available, try with normal bash
+          # Run with timeout to prevent hanging, and use tee for better logging
+          # Store a copy of the script for inspection
+          echo "Preserving script content for debugging..." >> /home/ubuntu/bootstrap-progress.log
+          /bin/cp /tmp/globus-setup.sh /home/ubuntu/globus-setup-preserved.sh
+
+          # Run a pre-check to validate the script syntax
+          echo "Checking script syntax before execution..." >> /home/ubuntu/bootstrap-progress.log
+          /bin/bash -n /tmp/globus-setup.sh > /home/ubuntu/syntax-check.log 2>&1
+          SYNTAX_CHECK=$?
+          
+          if [ $SYNTAX_CHECK -ne 0 ]; then
+            echo "ERROR: Script contains syntax errors, check /home/ubuntu/syntax-check.log" >> /home/ubuntu/bootstrap-progress.log
+            echo "ERROR: Script contains syntax errors (exit code $SYNTAX_CHECK)" > /home/ubuntu/SYNTAX_ERROR.txt
+            cat /home/ubuntu/syntax-check.log >> /home/ubuntu/SYNTAX_ERROR.txt
+          else  
+            echo "Script syntax check passed, executing..." >> /home/ubuntu/bootstrap-progress.log
+          fi
+
+          # Execute script with improved error capture
           if command -v timeout >/dev/null 2>&1; then
-            timeout -k 1800 1800 /bin/bash /tmp/globus-setup.sh > /home/ubuntu/globus-setup-output.log 2>&1
-            SETUP_EXIT_CODE=$?
+            # Use tee to capture output in real-time while also saving to a file
+            echo "Running with timeout protection (30 minutes)..." >> /home/ubuntu/bootstrap-progress.log
+            timeout -k 1800 1800 /bin/bash /tmp/globus-setup.sh 2>&1 | tee /home/ubuntu/globus-setup-output.log
+            SETUP_EXIT_CODE=${PIPESTATUS[0]}  # Capture the exit code from the first command in the pipe
           else
             echo "Timeout command not available, running without timeout" >> /home/ubuntu/bootstrap-progress.log
-            /bin/bash /tmp/globus-setup.sh > /home/ubuntu/globus-setup-output.log 2>&1
-            SETUP_EXIT_CODE=$?
+            /bin/bash /tmp/globus-setup.sh 2>&1 | tee /home/ubuntu/globus-setup-output.log
+            SETUP_EXIT_CODE=${PIPESTATUS[0]}
           fi
+          
+          # Save a copy of all environment variables for debugging
+          env | sort > /home/ubuntu/execution-environment.txt
           
           # Record exit code 
           echo "Script execution completed with exit code: $SETUP_EXIT_CODE" >> /home/ubuntu/bootstrap-progress.log

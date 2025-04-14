@@ -15,15 +15,28 @@ echo "DEBUG: Script started with args: $@" > /tmp/globus-debug.log
 env | sort >> /tmp/globus-debug.log
 
 # Setup proper logging - using both file and console output
-exec > >(tee /var/log/globus-setup.log | logger -t globus-setup -s 2>/dev/console) 2>&1
+# Use a safer approach that doesn't rely on exec redirection which can cause issues
+LOG_FILE="/var/log/globus-setup.log"
+touch "$LOG_FILE" # Ensure the log file exists
+chmod 644 "$LOG_FILE" # Make it world-readable
+
+# Define a logging function instead of using exec redirection
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $*" | tee -a "$LOG_FILE"
+    logger -t globus-setup -s "$*" 2>/dev/null || true
+}
+
+log "===== STARTING GLOBUS SETUP SCRIPT ====="
+log "Running as user: $(id -un)"
+log "Working directory: $(pwd)"
 
 # Mark the beginning of our script for tracking
-echo "=== GLOBUS-CONNECT-SERVER-INSTALLATION-SCRIPT ==="
+log "=== GLOBUS-CONNECT-SERVER-INSTALLATION-SCRIPT ==="
 
-echo "=== Starting Globus Connect Server installation $(date) ==="
-echo "Stack:$AWS_STACK_NAME Region:$AWS_REGION Type:$DEPLOYMENT_TYPE Auth:$AUTH_METHOD"
-echo "Organization:\"$GLOBUS_ORGANIZATION\" DisplayName:\"$GLOBUS_DISPLAY_NAME\"" 
-echo "S3 Connector: $ENABLE_S3_CONNECTOR Bucket: $S3_BUCKET_NAME"
+log "=== Starting Globus Connect Server installation $(date) ==="
+log "Stack:$AWS_STACK_NAME Region:$AWS_REGION Type:$DEPLOYMENT_TYPE Auth:$AUTH_METHOD"
+log "Organization:\"$GLOBUS_ORGANIZATION\" DisplayName:\"$GLOBUS_DISPLAY_NAME\"" 
+log "S3 Connector: $ENABLE_S3_CONNECTOR Bucket: $S3_BUCKET_NAME"
 
 # Check GCS version to ensure compatibility
 function check_gcs_version() {
@@ -168,6 +181,7 @@ function handle_error {
   local stage=$3
   
   # Always create these files for debugging
+  log "ERROR: $error_message (Exit code: $exit_code)"
   echo "ERROR: $error_message (Exit code: $exit_code)" | tee -a /home/ubuntu/deployment-error.txt
   echo "$(date) - Error in stage: $stage" >> /home/ubuntu/deployment-error.txt
   
@@ -180,7 +194,12 @@ function handle_error {
   # Log to CloudWatch if possible
   logger -t "globus-deploy" "ERROR in $stage: $error_message (code: $exit_code)"
   
+  # Create better debug info
+  echo "Full environment at time of error:" >> /home/ubuntu/SCRIPT_FAILED.txt
+  env | sort >> /home/ubuntu/SCRIPT_FAILED.txt
+  
   # Force continue for CloudFormation debug
+  log "NOT FAILING despite error - preserving instance for debugging"
   echo "NOT FAILING despite error - preserving instance for debugging" | tee -a /home/ubuntu/deployment-error.txt
   
   # Continue execution despite error (FORCE CONTINUE)
