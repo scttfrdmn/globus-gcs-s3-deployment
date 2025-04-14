@@ -39,7 +39,7 @@
    3. **Prepare CloudFormation Parameters:**
       - Set `GlobusClientId` to your Client UUID
       - Set `GlobusClientSecret` to your Client Secret
-      - **CRITICAL**: Set `GlobusProjectId` to your Project ID (from step 2)
+      - **CRITICAL**: Set `GlobusProjectId` to your Project ID (from step ii)
         - This is essential for automated deployment authentication
       - Set `GlobusOwner` to the identity that should own the endpoint
         - For fully automated deployments, this can be the service identity itself
