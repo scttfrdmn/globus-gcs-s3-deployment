@@ -163,7 +163,7 @@ function handle_error {
     return 0
   fi
 }
-SHOULD_FAIL="no"
+SHOULD_FAIL="yes"
 
 # Create a debug file to make it easier to diagnose cloud-init issues
 echo "Installation script started at $(date)" > /home/ubuntu/install-debug.log
@@ -472,9 +472,46 @@ else
   exit 1
 fi
 
+# Extract endpoint ID from the output and save it
+echo "Extracting endpoint UUID from setup result..."
+# Try multiple patterns to extract the UUID
+SETUP_OUTPUT=$(globus-connect-server endpoint show 2>&1)
+echo "$SETUP_OUTPUT" > /home/ubuntu/endpoint-details.txt
+
+# Look for UUID pattern in the output
+ENDPOINT_UUID=$(echo "$SETUP_OUTPUT" | grep -o -E "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
+
+if [ -n "$ENDPOINT_UUID" ]; then
+  echo "Successfully extracted endpoint UUID: $ENDPOINT_UUID"
+  # Save to file
+  echo "$ENDPOINT_UUID" > /home/ubuntu/endpoint-uuid.txt
+  # Make it extremely visible as a standalone file
+  echo "$ENDPOINT_UUID" > /home/ubuntu/ENDPOINT_UUID.txt
+  # Set environment variables for future commands
+  export GCS_CLI_ENDPOINT_ID="$ENDPOINT_UUID"
+  # Add to profile for persistence across sessions
+  echo "export GCS_CLI_ENDPOINT_ID=$ENDPOINT_UUID" > /home/ubuntu/globus-env.sh
+  chmod +x /home/ubuntu/globus-env.sh
+  
+  echo "Endpoint UUID has been saved to /home/ubuntu/endpoint-uuid.txt"
+  echo "To use this UUID in future commands, run: source /home/ubuntu/globus-env.sh"
+else
+  echo "WARNING: Could not extract endpoint UUID from output"
+  echo "Manual steps may be required to set the GCS_CLI_ENDPOINT_ID environment variable"
+fi
+
 # Show result
 echo "Setup complete! Endpoint details:"
+echo "NOTE: The following command may fail if the environment variables aren't set yet"
+echo "To fix, run: export GCS_CLI_ENDPOINT_ID=$(cat /home/ubuntu/endpoint-uuid.txt 2>/dev/null)"
 globus-connect-server endpoint show
+
+# Create a URL for easy access
+if [ -n "$ENDPOINT_UUID" ]; then
+  echo "To access your endpoint, visit:"
+  echo "https://app.globus.org/file-manager?origin_id=$ENDPOINT_UUID"
+  echo "https://app.globus.org/file-manager?origin_id=$ENDPOINT_UUID" > /home/ubuntu/endpoint-url.txt
+fi
 EOF
 
 if [ -f /home/ubuntu/run-globus-setup.sh ]; then
@@ -1015,6 +1052,63 @@ if [ -n "$GLOBUS_SUBSCRIPTION_ID" ]; then
       fi
     fi
     
+    # Check the result and provide guidance if it fails
+    SUBSCRIPTION_RESULT=$?
+    if [ $SUBSCRIPTION_RESULT -ne 0 ]; then
+      echo "WARNING: Failed to set subscription ID. This is a permissions issue." | tee -a $SETUP_LOG
+      echo "" | tee -a $SETUP_LOG
+      echo "To set an endpoint as managed under a subscription, one of these must be true:" | tee -a $SETUP_LOG
+      echo "1. The GlobusOwner identity ($GLOBUS_OWNER) must have subscription manager role" | tee -a $SETUP_LOG
+      echo "2. The endpoint must be registered in a project created by a subscription manager" | tee -a $SETUP_LOG
+      echo "" | tee -a $SETUP_LOG
+      echo "IMPORTANT: Without proper subscription association, S3 connector will not work!" | tee -a $SETUP_LOG
+      echo "The endpoint has been created, but you cannot use S3 features until this is fixed." | tee -a $SETUP_LOG
+      echo "" | tee -a $SETUP_LOG
+      echo "After deployment, you'll need to have a subscription manager run:" | tee -a $SETUP_LOG
+      echo "globus-connect-server endpoint set-subscription-id DEFAULT" | tee -a $SETUP_LOG
+      echo "" | tee -a $SETUP_LOG
+      echo "Or set it via the Globus web interface under endpoint settings" | tee -a $SETUP_LOG
+      
+      # Create a more prominent warning file
+      cat > /home/ubuntu/SUBSCRIPTION_WARNING.txt << EOF
+=====================================================================
+                   SUBSCRIPTION ASSOCIATION FAILED
+=====================================================================
+
+The endpoint was created successfully, but could not be associated 
+with your Globus subscription. This means the S3 connector will NOT work
+until this is fixed.
+
+ERROR DETAILS:
+- Attempted to set subscription ID: $GLOBUS_SUBSCRIPTION_ID
+- Command failed with exit code: $SUBSCRIPTION_RESULT
+
+PERMISSION REQUIREMENTS:
+To set an endpoint as managed under a subscription, one of these must be true:
+1. The GlobusOwner identity ($GLOBUS_OWNER) must have subscription manager role
+2. The endpoint must be registered in a project created by a subscription manager
+
+HOW TO FIX THIS:
+1. Have a subscription manager log in to the endpoint with SSH
+2. Run: globus-connect-server endpoint set-subscription-id DEFAULT
+3. Or set it via the Globus web interface under endpoint settings
+
+ENDPOINT INFORMATION:
+- UUID: $(cat /home/ubuntu/endpoint-uuid.txt 2>/dev/null || echo "Not available")
+- Display Name: $GLOBUS_DISPLAY_NAME
+- Organization: $GLOBUS_ORGANIZATION
+
+SUBSCRIPTION INFORMATION:
+- Attempted Subscription ID: $GLOBUS_SUBSCRIPTION_ID
+- This ID is saved in: /home/ubuntu/globus-subscription-id.txt
+
+For more details, check the full deployment log: /var/log/globus-setup.log
+=====================================================================
+EOF
+
+      chmod 644 /home/ubuntu/SUBSCRIPTION_WARNING.txt
+    fi
+    
     # Verify the update worked
     echo "Verifying subscription setting..." | tee -a $SETUP_LOG
     globus-connect-server endpoint show | tee -a /home/ubuntu/endpoint-with-subscription.txt
@@ -1138,8 +1232,11 @@ SUBSCRIPTION_STATUS=$(globus-connect-server endpoint show | grep -i "subscriptio
 echo "$SUBSCRIPTION_STATUS"
 
 if ! echo "$SUBSCRIPTION_STATUS" | grep -q -i "subscription id"; then
-  echo "WARNING: No subscription ID found for this endpoint"
+  echo "ERROR: No subscription ID found for this endpoint"
   echo "S3 collections require the endpoint to be part of a subscription"
+  echo ""
+  echo "WITHOUT A SUBSCRIPTION ASSOCIATION, S3 CONNECTOR WILL NOT WORK!"
+  echo ""
   
   # Check if we have a subscription ID saved
   SUBSCRIPTION_ID=""
@@ -1148,23 +1245,68 @@ if ! echo "$SUBSCRIPTION_STATUS" | grep -q -i "subscription id"; then
     echo "Found saved subscription ID: $SUBSCRIPTION_ID"
     
     # Try to set the subscription ID
-    echo "Setting endpoint subscription ID to: $SUBSCRIPTION_ID"
+    echo "Attempting to set endpoint subscription ID to: $SUBSCRIPTION_ID"
     globus-connect-server endpoint set-subscription-id "$SUBSCRIPTION_ID"
     
     if [ $? -ne 0 ]; then
-      echo "Error setting subscription ID. Please contact your subscription manager."
-      echo "You may need to run: globus-connect-server endpoint set-subscription-id DEFAULT"
-      echo "Or provide a specific subscription ID from your organization"
+      echo ""
+      echo "ERROR: Failed to set subscription ID. This is a permissions issue."
+      echo ""
+      echo "PERMISSION REQUIREMENTS:"
+      echo "To set an endpoint as managed under a subscription, one of these must be true:"
+      echo "1. Your Globus identity must have subscription manager role for this subscription"
+      echo "2. The endpoint must be registered in a project created by a subscription manager"
+      echo ""
+      echo "WHAT TO DO NEXT:"
+      echo "1. Contact your organization's Globus subscription manager"
+      echo "2. Ask them to run: globus-connect-server endpoint set-subscription-id DEFAULT"
+      echo "3. Or have them set it via the Globus web interface under endpoint settings"
+      echo ""
+      echo "UNTIL THIS IS RESOLVED, S3 CONNECTOR FEATURES WILL NOT WORK"
+      
+      # Check if the SUBSCRIPTION_WARNING.txt file exists - reference it if so
+      if [ -f /home/ubuntu/SUBSCRIPTION_WARNING.txt ]; then
+        echo ""
+        echo "See the file /home/ubuntu/SUBSCRIPTION_WARNING.txt for more details"
+      fi
+      
+      # Ask if the user wants to continue anyway (with the understanding S3 won't work)
+      echo ""
+      read -p "Do you want to continue with collection creation despite this error? (y/n): " CONTINUE
+      if [[ ! "$CONTINUE" =~ ^[Yy]$ ]]; then
+        echo "Exiting. Please try again after subscription is properly configured."
+        exit 1
+      fi
+      echo "Continuing, but S3 collection will likely not work properly until subscription issue is fixed."
     fi
   else
     echo "No saved subscription ID found."
-    echo "You may need to run: globus-connect-server endpoint set-subscription-id DEFAULT"
-    echo "Or provide a specific subscription ID from your organization"
+    echo "You must specify a subscription ID to use S3 connector features."
+    echo ""
+    read -p "Enter your subscription ID (or 'DEFAULT' for default subscription): " ENTERED_SUB_ID
     
-    # If a parameter was provided, try to use it as subscription ID
-    if [ -n "$3" ]; then
-      echo "Using provided subscription ID: $3"
-      globus-connect-server endpoint set-subscription-id "$3"
+    if [ -n "$ENTERED_SUB_ID" ]; then
+      echo "Trying to set subscription ID to: $ENTERED_SUB_ID"
+      globus-connect-server endpoint set-subscription-id "$ENTERED_SUB_ID"
+      
+      if [ $? -ne 0 ]; then
+        echo ""
+        echo "ERROR: Failed to set subscription ID. This is a permissions issue."
+        echo "See above error messages for details. Contact your Globus subscription manager."
+        echo ""
+        read -p "Do you want to continue anyway (S3 will not work)? (y/n): " CONTINUE
+        if [[ ! "$CONTINUE" =~ ^[Yy]$ ]]; then
+          echo "Exiting. Please try again after subscription is properly configured."
+          exit 1
+        fi
+      fi
+    else
+      echo "No subscription ID entered. S3 connector will not work."
+      read -p "Do you want to continue anyway (S3 will not work)? (y/n): " CONTINUE
+      if [[ ! "$CONTINUE" =~ ^[Yy]$ ]]; then
+        echo "Exiting. Please try again after subscription is properly configured."
+        exit 1
+      fi
     fi
   fi
 fi
@@ -1361,6 +1503,20 @@ if [ "${RESET_ENDPOINT_OWNER}" = "true" ] && [ -n "$ENDPOINT_UUID" ] && [ -n "$O
 else
   echo "- Advertised Owner: Not set (use endpoint set-owner-string command to set)" >> /home/ubuntu/deployment-summary.txt
 fi
+
+# Add subscription status to the deployment summary
+if [ -n "$GLOBUS_SUBSCRIPTION_ID" ]; then
+  # Check if we had a subscription error by looking for the warning file
+  if [ -f /home/ubuntu/SUBSCRIPTION_WARNING.txt ]; then
+    echo "" >> /home/ubuntu/deployment-summary.txt
+    echo "⚠️ SUBSCRIPTION WARNING: Failed to set subscription ID!" >> /home/ubuntu/deployment-summary.txt
+    echo "  - S3 connector features will NOT work until this is fixed" >> /home/ubuntu/deployment-summary.txt
+    echo "  - See /home/ubuntu/SUBSCRIPTION_WARNING.txt for details" >> /home/ubuntu/deployment-summary.txt
+    echo "  - A subscription manager must run: globus-connect-server endpoint set-subscription-id DEFAULT" >> /home/ubuntu/deployment-summary.txt
+  else
+    echo "- Subscription ID: $GLOBUS_SUBSCRIPTION_ID (successfully associated)" >> /home/ubuntu/deployment-summary.txt
+  fi
+fi
 echo "- Web Interface: https://app.globus.org/file-manager?origin_id=$ENDPOINT_UUID" >> /home/ubuntu/deployment-summary.txt
 echo "To view detailed endpoint information, run: /home/ubuntu/show-endpoint.sh" >> /home/ubuntu/deployment-summary.txt
 echo "To see endpoint diagnostics results, run: cat /home/ubuntu/endpoint-diagnosis.txt" >> /home/ubuntu/deployment-summary.txt
@@ -1416,6 +1572,39 @@ echo "Cloud-init status: $(cloud-init status 2>&1 || echo "Could not determine")
 sleep 5
 echo "Deployment complete!"
 
+# Additional debugging information
+echo "Script completed all steps successfully at $(date)" >> /home/ubuntu/install-debug.log
+echo "Final environment state:" >> /home/ubuntu/final-environment.log
+env | sort >> /home/ubuntu/final-environment.log
+
+# Check if the endpoint UUID file exists and has content
+if [ -f /home/ubuntu/endpoint-uuid.txt ] && [ -s /home/ubuntu/endpoint-uuid.txt ]; then
+  FINAL_UUID=$(cat /home/ubuntu/endpoint-uuid.txt)
+  echo "Endpoint UUID successfully captured: $FINAL_UUID" >> /home/ubuntu/install-debug.log
+else
+  echo "WARNING: Endpoint UUID was not captured properly" >> /home/ubuntu/install-debug.log
+  # Try one last time to capture it
+  UUID_ATTEMPT=$(globus-connect-server endpoint show 2>/dev/null | grep -o -E "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
+  if [ -n "$UUID_ATTEMPT" ]; then
+    echo "Final attempt found UUID: $UUID_ATTEMPT" >> /home/ubuntu/install-debug.log
+    echo "$UUID_ATTEMPT" > /home/ubuntu/endpoint-uuid-final.txt
+  fi
+fi
+
+# Write completion marker to a very obvious file
+echo "Installation completed successfully at $(date)" > /home/ubuntu/INSTALLATION_COMPLETE.txt
+echo "If you are seeing this file, the script ran to completion." >> /home/ubuntu/INSTALLATION_COMPLETE.txt
+
+# Extra safety: Make sure Ubuntu user owns all files
+chown -R ubuntu:ubuntu /home/ubuntu/
+
 # Important: Mark the end of our script for tracking
 echo "=== GLOBUS-CONNECT-SERVER-INSTALLATION-COMPLETE ==="
+
+# Final CloudFormation signal (redundant with the UserData signal, but extra safety)
+if [ -n "$AWS_STACK_NAME" ] && [ -n "$AWS_REGION" ]; then
+  echo "Sending final CloudFormation signal" >> /home/ubuntu/install-debug.log
+  /opt/aws/bin/cfn-signal -e 0 --stack $AWS_STACK_NAME --resource GlobusServerInstance --region $AWS_REGION
+fi
+
 exit 0  # Explicitly exit with success code

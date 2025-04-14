@@ -135,8 +135,19 @@ Based on the [Globus endpoint setup CLI documentation](https://docs.globus.org/g
   - Your organization must have a Globus subscription
   - You can use "DEFAULT" to use your organization's default subscription
   - Or provide a specific subscription ID
-  - You must either have the subscription manager role or coordinate with your organization's subscription manager
-  - Without this, the S3 connector will not work properly
+  - ⚠️ **CRITICAL PERMISSION REQUIREMENT**: The GlobusOwner identity (or service identity) MUST either:
+    1. Have subscription manager role for the specified subscription, OR
+    2. Be part of a project created by someone with subscription manager rights
+  - **IMPORTANT**: This is the most common deployment failure point for S3 connector
+  - Symptoms of permission issues:
+    - Deployment succeeds but S3 connector features don't work
+    - `/home/ubuntu/SUBSCRIPTION_WARNING.txt` file is created during deployment
+    - Error messages about failing to set subscription ID
+  - How to fix after deployment if S3 connector fails:
+    1. Have a subscription manager log in to the endpoint with SSH
+    2. Run: `globus-connect-server endpoint set-subscription-id DEFAULT`
+    3. Or have them set it via the Globus web interface under endpoint settings
+  - Without proper subscription management, premium features like S3 connector won't work at all
 - **S3BucketName**: Name of S3 bucket to connect (required when S3 Connector is enabled)
 
 #### Optional S3 Connector Parameters
@@ -425,6 +436,21 @@ These variables can be modified in the CloudFormation template's UserData sectio
 4. **"Credentials environment variables set: 0"**:
    - This indicates the environment variables for authentication aren't being set correctly
    - Solution: The script uses multiple authentication methods for maximum compatibility
+
+5. **Subscription Association Fails / S3 Connector Doesn't Work**:
+   - Error: "Failed to set subscription ID" or S3 connector features don't work
+   - Causes and Solutions:
+     1. **Missing Subscription Manager Role**: The GlobusOwner identity doesn't have subscription manager permissions
+        - Solution: Update the `GlobusOwner` parameter to an identity with subscription manager role
+        - Alternative: Have a subscription manager set the subscription ID after deployment
+     2. **Project Not Created by Subscription Manager**: The project used wasn't created by a subscription manager
+        - Solution: Create a new project where the creator has subscription manager role
+     3. **Missing Project Setup**: Proper project configuration is required for subscription association
+        - Solution: Ensure both `GlobusProjectId` and `GlobusOwner` parameters are set correctly
+   - How to fix after deployment:
+     - Look for the file `/home/ubuntu/SUBSCRIPTION_WARNING.txt` with detailed guidance
+     - Have a subscription manager run: `globus-connect-server endpoint set-subscription-id DEFAULT`
+     - Or have them set it via the Globus web interface under endpoint settings
 
 If you see "WARNING - Failed to run module scripts-user" in the logs, this is likely a cloud-init warning that doesn't affect the deployment. Check these files for diagnostic information:
 

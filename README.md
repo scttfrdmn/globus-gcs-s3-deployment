@@ -38,8 +38,14 @@ This repository contains a CloudFormation template for deploying Globus Connect 
      - Must be a valid email address (cannot be a client ID)
      - Email visible to users who need assistance with your endpoint
      - The template parameter `GlobusContactEmail` defaults to "admin@example.com" but should be customized
+   - **Subscription ID** - REQUIRED FOR S3 CONNECTOR
+     - Must be a valid Globus subscription ID (e.g., "DEFAULT" or specific ID)
+     - ⚠️ **CRITICAL PERMISSION REQUIREMENT**:
+       1. The GlobusOwner identity MUST have subscription manager role, OR
+       2. The endpoint must be registered in a project created by a subscription manager
+     - Without proper subscription permissions, S3 connector features will not work
+     - The template parameter `GlobusSubscriptionId` must be set for S3 connector
    - (Optional) Project ID, Project Name, and Project Admin for organizing endpoints
-   - (Optional) Subscription ID for connector support
    - **IMPORTANT**: Requires Globus Connect Server 5.4.61 or higher (template will verify version)
 
 3. **S3 Storage**:

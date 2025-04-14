@@ -14,7 +14,13 @@ This guide provides concise steps to set up and deploy the Globus Connect Server
    - Get subscription ID (REQUIRED for S3 connector)
      - Your organization needs a Globus subscription
      - Either use "DEFAULT" or a specific subscription ID
-     - You must have subscription manager role or coordinate with one
+     - ⚠️ **CRITICAL PERMISSION REQUIREMENT FOR S3 CONNECTOR**:
+       * The GlobusOwner identity MUST have subscription manager role, OR
+       * The endpoint must be registered in a project created by a subscription manager
+       * Without proper permissions, deployment will succeed but S3 connector will NOT work
+       * After deployment, a warning file will be created: `/home/ubuntu/SUBSCRIPTION_WARNING.txt`
+       * Any subscription manager can fix this post-deployment by running:
+         `globus-connect-server endpoint set-subscription-id DEFAULT`
    - Create S3 bucket
 
 3. **Globus Service Identity Setup**:

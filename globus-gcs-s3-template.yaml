@@ -286,7 +286,7 @@ Resources:
     Type: AWS::EC2::Instance
     CreationPolicy:
       ResourceSignal:
-        Timeout: PT30M
+        Timeout: PT45M
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
@@ -314,6 +314,17 @@ Resources:
           
           # Ensure we log errors and output
           exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+          
+          # Set error handling to ensure CloudFormation is properly signaled
+          function handle_bootstrap_error {
+            echo "ERROR: Bootstrap script failed at line $1 with exit code $2"
+            # Signal CloudFormation of the failure
+            /opt/aws/bin/cfn-signal -e $2 --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}
+            exit $2
+          }
+          # Enable error handling
+          set -e
+          trap 'handle_bootstrap_error $LINENO $?' ERR
           
           echo "=== GLOBUS-CONNECT-SERVER-BOOTSTRAP ==="
           
@@ -366,11 +377,36 @@ Resources:
           # Run the installation script
           echo "Running installation script"
           bash /tmp/globus-setup.sh
+          SETUP_EXIT_CODE=$?
+          
+          # Save important diagnostics for debugging
+          echo "Installation script completed with exit code: $SETUP_EXIT_CODE" > /home/ubuntu/bootstrap-complete.log
+          echo "Timestamp: $(date)" >> /home/ubuntu/bootstrap-complete.log
+          
+          # Verify if the script ran to completion successfully
+          if [ -f /home/ubuntu/INSTALLATION_COMPLETE.txt ]; then
+            echo "Installation marked as complete in INSTALLATION_COMPLETE.txt" >> /home/ubuntu/bootstrap-complete.log
+          else
+            echo "WARNING: INSTALLATION_COMPLETE.txt marker file not found" >> /home/ubuntu/bootstrap-complete.log 
+          fi
+          
+          # Locate endpoint UUID if available
+          if [ -f /home/ubuntu/endpoint-uuid.txt ]; then
+            ENDPOINT_UUID=$(cat /home/ubuntu/endpoint-uuid.txt)
+            echo "Endpoint UUID found: $ENDPOINT_UUID" >> /home/ubuntu/bootstrap-complete.log
+            echo "Endpoint URL: https://app.globus.org/file-manager?origin_id=$ENDPOINT_UUID" >> /home/ubuntu/bootstrap-complete.log
+          else
+            echo "WARNING: endpoint-uuid.txt not found" >> /home/ubuntu/bootstrap-complete.log
+          fi
           
           # Signal CloudFormation of completion
-          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}
+          echo "Signaling CloudFormation with exit code: $SETUP_EXIT_CODE"
+          /opt/aws/bin/cfn-signal -e $SETUP_EXIT_CODE --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}
           
           echo "=== GLOBUS-CONNECT-SERVER-BOOTSTRAP-COMPLETE ==="
+          
+          # Make sure all files are owned by ubuntu user
+          chown -R ubuntu:ubuntu /home/ubuntu/
       Tags:
         - Key: Name
           Value: globus-connect-server
