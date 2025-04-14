@@ -342,6 +342,21 @@ chown ubuntu:ubuntu /home/ubuntu
 cat > /home/ubuntu/run-globus-setup.sh << 'EOF'
 #!/bin/bash
 # Helper script for Globus Connect Server 5.4.61+ setup using automated deployment approach
+
+# Define the handle_error function first so it's available throughout the script
+function handle_error {
+  local error_message=$1
+  echo "ERROR: $error_message" >&2
+  echo "$error_message" > /home/ubuntu/error.txt
+  # Don't exit - just return non-zero
+  return 1
+}
+
+# Setup basic logging
+SETUP_LOG="/home/ubuntu/endpoint-setup.log"
+touch $SETUP_LOG
+chmod 644 $SETUP_LOG
+
 # Get credentials from args or files
 [ -z "$1" ] && [ -f /home/ubuntu/globus-client-id.txt ] && GC_ID=$(cat /home/ubuntu/globus-client-id.txt) || GC_ID="$1"
 [ -z "$2" ] && [ -f /home/ubuntu/globus-client-secret.txt ] && GC_SECRET=$(cat /home/ubuntu/globus-client-secret.txt) || GC_SECRET="$2"
@@ -452,6 +467,7 @@ else
   echo "You must specify a project ID when a service identity has access to multiple projects." | tee -a $SETUP_LOG
   echo "See https://docs.globus.org/globus-connect-server/v5/automated-deployment/ for details." | tee -a $SETUP_LOG
   handle_error "Missing required GlobusProjectId parameter. Please specify a valid project ID."
+  return 1
 fi
 
 # Use the owner parameter (required) - either from argument or explicit owner var
@@ -461,7 +477,8 @@ if [ -n "${GC_OWNER}" ]; then
 else
   echo "ERROR: No owner specified. Owner parameter is required."
   echo "Please provide the owner parameter via the GLOBUS_OWNER environment variable."
-  exit 1
+  handle_error "Missing required GlobusOwner parameter. Please specify a valid owner identity."
+  return 1
 fi
 
 # Contact email is required - use specified email or fallback
@@ -471,7 +488,8 @@ if [ -n "${GC_EMAIL}" ]; then
 else
   echo "ERROR: No contact email specified. Contact email parameter is required."
   echo "Please provide the contact email parameter via the GLOBUS_CONTACT_EMAIL environment variable."
-  exit 1
+  handle_error "Missing required GlobusContactEmail parameter. Please specify a valid contact email."
+  return 1
 fi
 
 # Standard options
@@ -508,7 +526,8 @@ else
   echo "1. Credentials environment variables set: $(env | grep -c GCS_CLI)"
   echo "2. Command that failed: ${SETUP_CMD} \"${GC_NAME}\""
   echo "3. Check Globus documentation: https://docs.globus.org/globus-connect-server/v5/automated-deployment/"
-  exit 1
+  handle_error "Endpoint setup command failed with exit code $SETUP_RESULT"
+  return 1
 fi
 
 # Extract endpoint ID from the setup output

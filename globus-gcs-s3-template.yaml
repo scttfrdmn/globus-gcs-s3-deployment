@@ -448,6 +448,17 @@ Resources:
           export GLOBUS_DISPLAY_NAME='${GlobusDisplayName}'
           export GLOBUS_ORGANIZATION='${GlobusOrganization}'
           export GLOBUS_OWNER="${GlobusOwner}"
+          # CRITICAL: Ensure owner is NOT a client ID but a valid user identity
+          if [[ "${GlobusOwner}" == *"@clients.auth.globus.org" ]]; then
+            echo "WARNING: Owner appears to be a client ID, not a user identity. This will likely fail."
+            echo "CLIENT_ID: ${GlobusClientId}" > /home/ubuntu/debug/client-id.txt
+            echo "OWNER: ${GlobusOwner}" > /home/ubuntu/debug/owner.txt
+            # Try to use contact email as fallback
+            if [[ -n "${GlobusContactEmail}" && "${GlobusContactEmail}" != *"@clients.auth.globus.org" ]]; then
+              echo "Using contact email as fallback for owner: ${GlobusContactEmail}"
+              export GLOBUS_OWNER="${GlobusContactEmail}"
+            fi
+          fi
           export GLOBUS_CONTACT_EMAIL="${GlobusContactEmail}"
           export GLOBUS_PROJECT_ID="${GlobusProjectId}"
           export GLOBUS_PROJECT_NAME="${GlobusProjectName}"
