@@ -8,11 +8,15 @@ set -o pipefail
 
 # Create and use a log file
 LOG_FILE="/var/log/globus-setup.log"
-touch "$LOG_FILE"
+touch "$LOG_FILE" 2>/dev/null || {
+  # If we can't write to /var/log, use a local log file
+  LOG_FILE="/tmp/globus-setup.log"
+  touch "$LOG_FILE"
+}
 
 # Logging function
 log() {
-  echo "$@" | tee -a "$LOG_FILE"
+  echo "$@" | tee -a "$LOG_FILE" 2>/dev/null
 }
 
 # Error handling function
@@ -77,29 +81,52 @@ if [ "$ENABLE_S3_CONNECTOR" = "true" ] && [ -z "$GLOBUS_SUBSCRIPTION_ID" ]; then
   handle_error "S3 connector enabled but GLOBUS_SUBSCRIPTION_ID not provided."
 fi
 
+# Check if we're running as root
+SUDO=""
+if [ "$(id -u)" -ne 0 ]; then
+  if command -v sudo >/dev/null 2>&1; then
+    log "Not running as root, using sudo for installation commands"
+    SUDO="sudo"
+  else
+    handle_error "This script must be run as root or with sudo"
+  fi
+fi
+
 # Install Globus Connect Server
 log "Installing dependencies..."
-apt-get update
-apt-get install -y curl wget apt-transport-https ca-certificates
+$SUDO apt-get update
+$SUDO apt-get install -y curl wget apt-transport-https ca-certificates
 
 # Add Globus repository
 log "Adding Globus repository..."
+cd /tmp
 curl -LOs https://downloads.globus.org/globus-connect-server/stable/installers/repo/deb/globus-repo_latest_all.deb
-if [ ! -f globus-repo_latest_all.deb ]; then
+if [ ! -f /tmp/globus-repo_latest_all.deb ]; then
   handle_error "Failed to download Globus repository package."
 fi
 
-dpkg -i globus-repo_latest_all.deb
-apt-get update
+$SUDO dpkg -i /tmp/globus-repo_latest_all.deb
+$SUDO apt-get update
 
 # Install Globus Connect Server package (correct Ubuntu package)
 log "Installing Globus Connect Server 54 package..."
-apt-get install -y globus-connect-server54
+$SUDO apt-get install -y globus-connect-server54
 
 # Verify installation
 if ! command -v globus-connect-server &> /dev/null; then
-  handle_error "Globus Connect Server installation failed. Command not found."
+  log "Command not found in PATH. Checking common locations..."
+  if [ -x /usr/bin/globus-connect-server ]; then
+    log "Found in /usr/bin/globus-connect-server"
+    export PATH="/usr/bin:$PATH"
+  elif [ -x /usr/local/bin/globus-connect-server ]; then
+    log "Found in /usr/local/bin/globus-connect-server"
+    export PATH="/usr/local/bin:$PATH"
+  else
+    handle_error "Globus Connect Server installation failed. Command not found in common locations."
+  fi
 fi
+
+log "Checking Globus Connect Server binary: $(which globus-connect-server 2>/dev/null || echo 'not found')"
 
 # Check Globus Connect Server version
 log "Checking Globus Connect Server version..."
