@@ -113,9 +113,8 @@ Parameters:
     ConstraintDescription: "Display name can include letters, numbers, spaces, hyphens, underscores, and periods."
     
   GlobusOrganization:
-    Description: Organization name for the Globus endpoint (can include spaces)
+    Description: Organization name for the Globus endpoint (REQUIRED - visible to users)
     Type: String
-    Default: "AWS"
     AllowedPattern: "[A-Za-z0-9\\-_\\.\\s]+"
     ConstraintDescription: "Organization name can include letters, numbers, spaces, hyphens, underscores, and periods."
     

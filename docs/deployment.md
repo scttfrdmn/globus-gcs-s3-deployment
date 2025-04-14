@@ -99,6 +99,11 @@ Based on the [Globus endpoint setup CLI documentation](https://docs.globus.org/g
   - Must be unique across your endpoints to avoid conflicts
   - Used to identify your endpoint in the Globus web interface
   - This is the name that appears in search results
+- **GlobusOrganization**: Organization name for the Globus endpoint
+  - This is a REQUIRED parameter with no default value
+  - Visible to all users who access your endpoint
+  - Used to identify which organization owns or operates the endpoint
+  - Appears in endpoint details and search results
 - **GlobusOwner**: Identity username of the endpoint owner (e.g. user@example.edu)
   - This is a REQUIRED parameter with no default value
   - Must be a valid Globus identity that will own the endpoint
@@ -132,7 +137,6 @@ Based on the [Globus endpoint setup CLI documentation](https://docs.globus.org/g
 #### Optional S3 Connector Parameters
 
 - **EnableS3Connector**: Whether to enable S3 Connector (defaults to true for this template)
-- **GlobusOrganization**: Organization name for the endpoint (defaults to "AWS")
 
 #### Required Globus Project Parameters (GCS 5.4.61+)
 
@@ -250,7 +254,7 @@ For more information on Globus Connect Server options, see the [Globus CLI Refer
   },
   {
     "ParameterKey": "GlobusOrganization",
-    "ParameterValue": "Your Organization Name"  // Optional: Defaults to "AWS"
+    "ParameterValue": "Your Organization Name"  // REQUIRED: Visible to all users
   },
   
   // Required Globus Project parameters (for GCS 5.4.61+)
