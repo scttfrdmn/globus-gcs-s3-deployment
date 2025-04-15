@@ -218,6 +218,85 @@ if [ -n "$ENDPOINT_UUID" ]; then
       log "Checking status of Globus services..."
       systemctl status globus-gridftp-server --no-pager | grep -E "Active:|Main PID:" > /home/ubuntu/gridftp-status.txt
       systemctl status apache2 --no-pager | grep -E "Active:|Main PID:" > /home/ubuntu/apache-status.txt
+      
+      # Setup is successful, now check if POSIX gateway is requested
+      if [ -n "$ENABLE_POSIX_GATEWAY" ] && [ "$ENABLE_POSIX_GATEWAY" = "true" ] && [ -n "$POSIX_GATEWAY_NAME" ]; then
+        log "Creating POSIX storage gateway: $POSIX_GATEWAY_NAME"
+        
+        # Optional domain parameter
+        DOMAIN_PARAM=""
+        if [ -n "$POSIX_GATEWAY_DOMAIN" ]; then
+          DOMAIN_PARAM="--domain \"$POSIX_GATEWAY_DOMAIN\""
+        fi
+        
+        # Create the POSIX gateway command
+        GATEWAY_CMD="globus-connect-server storage-gateway create posix \"$POSIX_GATEWAY_NAME\" $DOMAIN_PARAM"
+        log "Running command: $GATEWAY_CMD"
+        
+        # Execute the command
+        GATEWAY_OUTPUT=$(eval $GATEWAY_CMD 2>&1)
+        GATEWAY_EXIT_CODE=$?
+        
+        # Save output for reference
+        echo "$GATEWAY_OUTPUT" > /home/ubuntu/posix-gateway-output.txt
+        
+        if [ $GATEWAY_EXIT_CODE -eq 0 ]; then
+          log "POSIX gateway created successfully"
+          
+          # Extract the gateway ID from the output
+          GATEWAY_ID=$(echo "$GATEWAY_OUTPUT" | grep -i "id:" | awk '{print $2}' | head -1)
+          if [ -n "$GATEWAY_ID" ]; then
+            log "Extracted POSIX gateway ID: $GATEWAY_ID"
+            echo "$GATEWAY_ID" > /home/ubuntu/posix-gateway-id.txt
+            
+            # Create a collection for this gateway if requested
+            if [ "$CREATE_POSIX_COLLECTION" = "true" ]; then
+              log "Creating collection for POSIX gateway..."
+              
+              # Default collection name if not specified
+              COLLECTION_NAME="${POSIX_COLLECTION_NAME:-$POSIX_GATEWAY_NAME Collection}"
+              
+              # Create the collection
+              COLLECTION_CMD="globus-connect-server collection create --storage-gateway \"$GATEWAY_ID\" --display-name \"$COLLECTION_NAME\""
+              log "Running command: $COLLECTION_CMD"
+              
+              # Execute the command
+              COLLECTION_OUTPUT=$(eval $COLLECTION_CMD 2>&1)
+              COLLECTION_EXIT_CODE=$?
+              
+              # Save output for reference
+              echo "$COLLECTION_OUTPUT" > /home/ubuntu/posix-collection-output.txt
+              
+              if [ $COLLECTION_EXIT_CODE -eq 0 ]; then
+                log "POSIX collection created successfully"
+                
+                # Extract collection ID
+                COLLECTION_ID=$(echo "$COLLECTION_OUTPUT" | grep -i "id:" | awk '{print $2}' | head -1)
+                if [ -n "$COLLECTION_ID" ]; then
+                  log "Extracted collection ID: $COLLECTION_ID"
+                  echo "$COLLECTION_ID" > /home/ubuntu/posix-collection-id.txt
+                  
+                  # Create URL for collection access
+                  echo "https://app.globus.org/file-manager?destination_id=$COLLECTION_ID" > /home/ubuntu/posix-collection-url.txt
+                fi
+              else
+                log "Failed to create POSIX collection"
+                echo "Failed to create POSIX collection with exit code $COLLECTION_EXIT_CODE" > /home/ubuntu/POSIX_COLLECTION_FAILED.txt
+                echo "Please check the output in posix-collection-output.txt" >> /home/ubuntu/POSIX_COLLECTION_FAILED.txt
+              fi
+            fi
+          else
+            log "Could not extract gateway ID from output"
+          fi
+        else
+          log "Failed to create POSIX gateway with exit code $GATEWAY_EXIT_CODE"
+          echo "Failed to create POSIX gateway with exit code $GATEWAY_EXIT_CODE" > /home/ubuntu/POSIX_GATEWAY_FAILED.txt
+          echo "Please check the output in posix-gateway-output.txt" >> /home/ubuntu/POSIX_GATEWAY_FAILED.txt
+          echo "Command attempted: $GATEWAY_CMD" >> /home/ubuntu/POSIX_GATEWAY_FAILED.txt
+        fi
+      else
+        log "POSIX gateway creation not requested (ENABLE_POSIX_GATEWAY=$ENABLE_POSIX_GATEWAY, POSIX_GATEWAY_NAME=$POSIX_GATEWAY_NAME)"
+      fi
     else
       log "WARNING: Node setup failed with exit code $NODE_SETUP_EXIT_CODE"
       echo "Node setup failed with exit code $NODE_SETUP_EXIT_CODE" > /home/ubuntu/NODE_SETUP_FAILED.txt
@@ -347,6 +426,23 @@ chown ubuntu:ubuntu /home/ubuntu/globus-cli-examples.sh
 NODE_SETUP_STATUS=$([ -f /home/ubuntu/node-setup-output.txt ] && echo "Completed" || echo "Not completed")
 PUBLIC_IP=$(cat /home/ubuntu/public-ip.txt 2>/dev/null || echo "Not detected")
 
+# Check if POSIX gateway was created
+POSIX_GATEWAY_STATUS="Not configured"
+POSIX_GATEWAY_ID=""
+POSIX_COLLECTION_URL=""
+
+if [ -f /home/ubuntu/posix-gateway-id.txt ]; then
+  POSIX_GATEWAY_ID=$(cat /home/ubuntu/posix-gateway-id.txt)
+  POSIX_GATEWAY_STATUS="Created - ID: $POSIX_GATEWAY_ID"
+  
+  # Check if collection was created
+  if [ -f /home/ubuntu/posix-collection-id.txt ]; then
+    POSIX_COLLECTION_ID=$(cat /home/ubuntu/posix-collection-id.txt)
+    POSIX_COLLECTION_URL=$(cat /home/ubuntu/posix-collection-url.txt 2>/dev/null || echo "")
+    POSIX_GATEWAY_STATUS="$POSIX_GATEWAY_STATUS, Collection ID: $POSIX_COLLECTION_ID"
+  fi
+fi
+
 cat > /home/ubuntu/deployment-summary.txt << EOF
 === Globus Connect Server Deployment Summary ===
 Deployment completed: $(date)
@@ -364,8 +460,12 @@ Node Setup:
 - Public IP: $PUBLIC_IP
 - Node Command: sudo globus-connect-server node setup --ip-address $PUBLIC_IP
 
+Storage Gateways:
+- POSIX Gateway: $POSIX_GATEWAY_STATUS
+
 Access Information:
-- Web URL: https://app.globus.org/file-manager?origin_id=${ENDPOINT_UUID:-MISSING_UUID}
+- Endpoint URL: https://app.globus.org/file-manager?origin_id=${ENDPOINT_UUID:-MISSING_UUID}
+$([ -n "$POSIX_COLLECTION_URL" ] && echo "- POSIX Collection URL: $POSIX_COLLECTION_URL" || echo "")
 
 Helper Scripts:
 - /home/ubuntu/show-endpoint.sh: Show endpoint details

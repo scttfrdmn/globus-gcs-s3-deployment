@@ -91,7 +91,7 @@ Parameters:
     Description: Globus Subscription ID to join this endpoint to your subscription (REQUIRED for S3 connector)
     Type: String
     
-  # Connector options (always enabled in this template)
+  # Connector options
   EnableS3Connector:
     Description: Whether to enable S3 Connector (defaults to true for this template)
     Type: String
@@ -99,6 +99,37 @@ Parameters:
     AllowedValues:
       - "true"
       - "false"
+      
+  EnablePOSIXGateway:
+    Description: Whether to create a POSIX storage gateway (requires node setup)
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+      
+  POSIXGatewayName:
+    Description: Display name for the POSIX storage gateway (required if EnablePOSIXGateway is true)
+    Type: String
+    Default: "Default POSIX Gateway"
+    
+  POSIXGatewayDomain:
+    Description: Optional domain for the POSIX storage gateway
+    Type: String
+    Default: ""
+    
+  CreatePOSIXCollection:
+    Description: Whether to create a collection for the POSIX gateway
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+      
+  POSIXCollectionName:
+    Description: Display name for the POSIX collection (if CreatePOSIXCollection is true)
+    Type: String
+    Default: ""
     
   # Connector specific parameters
   S3BucketName:
@@ -370,6 +401,13 @@ Resources:
           export GLOBUS_OWNER="${GlobusOwner}"
           export GLOBUS_CONTACT_EMAIL="${GlobusContactEmail}"
           export GLOBUS_PROJECT_ID="${GlobusProjectId}"
+          
+          # Optional POSIX gateway configuration
+          export ENABLE_POSIX_GATEWAY="${EnablePOSIXGateway}"
+          export POSIX_GATEWAY_NAME="${POSIXGatewayName}"
+          export POSIX_GATEWAY_DOMAIN="${POSIXGatewayDomain}"
+          export CREATE_POSIX_COLLECTION="${CreatePOSIXCollection}"
+          export POSIX_COLLECTION_NAME="${POSIXCollectionName}"
           
           # Download the installation script
           echo "Downloading Globus setup script from ${ScriptUrl}"
