@@ -32,6 +32,14 @@ Parameters:
     AllowedValues:
       - "true"
       - "false"
+      
+  DEBUG_PRESERVE_INSTANCE:
+    Description: "Debug mode - keep instances running even when deployment fails (for troubleshooting)"
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
     
   # AuthenticationMethod has been removed to simplify and use Globus Auth only
   # This reduces complexity and focuses on the most modern approach
@@ -311,7 +319,9 @@ Resources:
     CreationPolicy:
       ResourceSignal:
         Timeout: PT30M
-    # Remove DeletionPolicy and UpdateReplacePolicy to ensure instance is deleted if deployment fails
+    # Keep instances on failure for debugging
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       InstanceType: !Ref InstanceType
       KeyName: !Ref KeyName
@@ -410,6 +420,9 @@ Resources:
           export COLLECTION_ADMIN_IDENTITY="${CollectionAdminIdentity}"
           export DEFAULT_ADMIN_IDENTITY="${DefaultAdminIdentity}"
           
+          # Debug configuration
+          export DEBUG_PRESERVE_INSTANCE="${DEBUG_PRESERVE_INSTANCE}"
+          
           # Download the installation script
           echo "Downloading Globus setup script from ${ScriptUrl}"
           curl -s -L -o /tmp/globus-setup.sh "${ScriptUrl}" || wget -q -O /tmp/globus-setup.sh "${ScriptUrl}"
@@ -433,8 +446,18 @@ Resources:
           # Check setup result
           if [ $SETUP_EXIT_CODE -ne 0 ]; then
             echo "Globus setup script failed with exit code: $SETUP_EXIT_CODE" > /home/ubuntu/SETUP_FAILED.txt
-            signal_cf 1
-            exit 1
+            # Don't signal failure to CloudFormation if DEBUG_PRESERVE_INSTANCE=true
+            if [[ "${DEBUG_PRESERVE_INSTANCE:-false}" == "false" ]]; then
+              echo "Signaling failure to CloudFormation (instance will be deleted)" >> /home/ubuntu/SETUP_FAILED.txt
+              signal_cf 1
+              exit 1
+            else
+              echo "Debug mode enabled - preserving instance despite failure" >> /home/ubuntu/SETUP_FAILED.txt
+              echo "You can SSH to this instance to diagnose issues" >> /home/ubuntu/SETUP_FAILED.txt
+              echo "After diagnosis, the instance can be manually terminated" >> /home/ubuntu/SETUP_FAILED.txt
+              # Still signal success to CloudFormation to prevent rollback
+              signal_cf 0
+            fi
           fi
           
           # Mark bootstrap completion

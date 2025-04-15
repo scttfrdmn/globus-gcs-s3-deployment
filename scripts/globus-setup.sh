@@ -19,6 +19,11 @@ log() {
   echo "$(date) - $*" | tee -a "$LOG_FILE"
 }
 
+# Enhanced debug logging
+debug_log() {
+  echo "=== DEBUG: $(date) - $* ===" | tee -a "$LOG_FILE" | tee -a "/home/ubuntu/debug.log"
+}
+
 # Function to set permissions on a collection
 set_collection_permissions() {
   local collection_id=$1
@@ -54,6 +59,37 @@ set_collection_permissions() {
 }
 
 log "=== Starting Simplified Globus Connect Server setup: $(date) ==="
+
+# Log debug information about environment variables
+debug_log "Starting with environment variables:"
+debug_log "GLOBUS_DISPLAY_NAME=$GLOBUS_DISPLAY_NAME"
+debug_log "GLOBUS_ORGANIZATION=$GLOBUS_ORGANIZATION"
+debug_log "GLOBUS_OWNER=$GLOBUS_OWNER"
+debug_log "GLOBUS_CONTACT_EMAIL=$GLOBUS_CONTACT_EMAIL"
+debug_log "GLOBUS_PROJECT_ID=${GLOBUS_PROJECT_ID:0:5}..." # Truncating for security
+debug_log "ENABLE_S3_CONNECTOR=$ENABLE_S3_CONNECTOR"
+debug_log "S3_BUCKET_NAME=$S3_BUCKET_NAME"
+debug_log "GLOBUS_SUBSCRIPTION_ID=$GLOBUS_SUBSCRIPTION_ID"
+debug_log "DEBUG_PRESERVE_INSTANCE=$DEBUG_PRESERVE_INSTANCE"
+
+# Verify critical S3 parameters if S3 connector is enabled
+if [ "$ENABLE_S3_CONNECTOR" = "true" ]; then
+  debug_log "S3 connector is enabled, verifying required parameters"
+  
+  if [ -z "$S3_BUCKET_NAME" ]; then
+    debug_log "ERROR: S3_BUCKET_NAME is empty but S3 connector is enabled"
+    echo "ERROR: S3_BUCKET_NAME parameter is required when S3 connector is enabled" > /home/ubuntu/S3_PARAMETER_ERROR.txt
+  else
+    debug_log "S3_BUCKET_NAME is set to: $S3_BUCKET_NAME"
+  fi
+  
+  if [ -z "$GLOBUS_SUBSCRIPTION_ID" ]; then
+    debug_log "ERROR: GLOBUS_SUBSCRIPTION_ID is empty but S3 connector is enabled"
+    echo "ERROR: GLOBUS_SUBSCRIPTION_ID parameter is required when S3 connector is enabled" > /home/ubuntu/S3_PARAMETER_ERROR.txt
+  else
+    debug_log "GLOBUS_SUBSCRIPTION_ID is set to: $GLOBUS_SUBSCRIPTION_ID"
+  fi
+fi
 
 # Install Globus Connect Server
 log "Installing dependencies..."
@@ -226,17 +262,23 @@ if [ -n "$ENDPOINT_UUID" ]; then
   # Check if a subscription ID was provided to make the endpoint managed
   if [ -n "$GLOBUS_SUBSCRIPTION_ID" ]; then
     log "Associating endpoint with subscription ID: $GLOBUS_SUBSCRIPTION_ID"
+    debug_log "Setting up subscription with ID: $GLOBUS_SUBSCRIPTION_ID"
     
     # Save subscription ID to file for reference
     echo "$GLOBUS_SUBSCRIPTION_ID" > /home/ubuntu/subscription-id.txt
     
     # Run the command to set the subscription ID
     log "Running: globus-connect-server endpoint update --subscription-id $GLOBUS_SUBSCRIPTION_ID"
+    debug_log "Environment for subscription update: GCS_CLI_CLIENT_ID=${GCS_CLI_CLIENT_ID:0:5}..., GCS_CLI_CLIENT_SECRET=${GCS_CLI_CLIENT_SECRET:0:3}..., GCS_CLI_ENDPOINT_ID=$GCS_CLI_ENDPOINT_ID"
+    
+    debug_log "Executing subscription update command..."
     SUBSCRIPTION_OUTPUT=$(globus-connect-server endpoint update --subscription-id "$GLOBUS_SUBSCRIPTION_ID" 2>&1)
     SUBSCRIPTION_EXIT_CODE=$?
+    debug_log "Subscription update completed with exit code: $SUBSCRIPTION_EXIT_CODE"
     
     # Save output to file
     echo "$SUBSCRIPTION_OUTPUT" > /home/ubuntu/subscription-update-output.txt
+    debug_log "Subscription update output (truncated): ${SUBSCRIPTION_OUTPUT:0:200}..."
     
     if [ $SUBSCRIPTION_EXIT_CODE -eq 0 ]; then
       log "Successfully associated endpoint with subscription"
@@ -265,17 +307,30 @@ if [ -n "$ENDPOINT_UUID" ]; then
   log "Now setting up the Globus Connect Server node..."
   
   # Get the instance's public IP address - try multiple methods
+  debug_log "Attempting to determine public IP address using multiple methods"
+  
   # First try the EC2 metadata service
-  PUBLIC_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+  PUBLIC_IP=$(curl -s --connect-timeout 3 http://169.254.169.254/latest/meta-data/public-ipv4 || echo "")
+  debug_log "EC2 metadata service IP result: ${PUBLIC_IP:-none}"
   
   if [ -z "$PUBLIC_IP" ]; then
     # Fallback method - try to get it from public interface
-    PUBLIC_IP=$(curl -s https://checkip.amazonaws.com || curl -s https://api.ipify.org || curl -s https://ipv4.icanhazip.com)
+    PUBLIC_IP=$(curl -s --connect-timeout 3 https://checkip.amazonaws.com || 
+                curl -s --connect-timeout 3 https://api.ipify.org || 
+                curl -s --connect-timeout 3 https://ipv4.icanhazip.com || echo "")
+    debug_log "Public IP service result: ${PUBLIC_IP:-none}"
   fi
   
   if [ -z "$PUBLIC_IP" ]; then
     # Final fallback - try to determine from network interfaces
-    PUBLIC_IP=$(ip -4 addr | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v "^10\." | grep -v "^172\." | grep -v "^192\.168" | head -1)
+    PUBLIC_IP=$(ip -4 addr | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v "^10\." | grep -v "^172\." | grep -v "^192\.168" | head -1 || echo "")
+    debug_log "Network interface IP result: ${PUBLIC_IP:-none}"
+  fi
+  
+  # If all methods fail, try one last desperate attempt with ifconfig
+  if [ -z "$PUBLIC_IP" ]; then
+    PUBLIC_IP=$(ifconfig 2>/dev/null | grep -Eo 'inet (addr:)?([0-9]*\.){3}[0-9]*' | grep -Eo '([0-9]*\.){3}[0-9]*' | grep -v '127.0.0.1' | head -1 || echo "")
+    debug_log "ifconfig IP result: ${PUBLIC_IP:-none}"
   fi
   
   if [ -z "$PUBLIC_IP" ]; then
@@ -308,8 +363,10 @@ if [ -n "$ENDPOINT_UUID" ]; then
       
       # Get the node ID using node list command
       log "Getting node ID using node list command..."
-      NODE_LIST_OUTPUT=$(globus-connect-server node list 2>&1)
+      debug_log "Attempting to get node ID from node list command"
+      NODE_LIST_OUTPUT=$(globus-connect-server node list 2>&1 || echo "Command failed")
       echo "$NODE_LIST_OUTPUT" > /home/ubuntu/node-list-output.txt
+      debug_log "Node list output (truncated): ${NODE_LIST_OUTPUT:0:200}..."
       
       # Extract the node ID from the node list output by matching with our public IP
       # The output format is: ID | IP Addresses | Status
@@ -377,6 +434,7 @@ if [ -n "$ENDPOINT_UUID" ]; then
       # Check if S3 gateway is requested and if subscription is set 
       if [ -n "$ENABLE_S3_CONNECTOR" ] && [ "$ENABLE_S3_CONNECTOR" = "true" ] && [ -n "$S3_BUCKET_NAME" ] && [ -n "$GLOBUS_SUBSCRIPTION_ID" ]; then
         log "Creating S3 storage gateway for bucket: $S3_BUCKET_NAME"
+        debug_log "S3 Connector Variables: ENABLE_S3_CONNECTOR=$ENABLE_S3_CONNECTOR, S3_BUCKET_NAME=$S3_BUCKET_NAME, GLOBUS_SUBSCRIPTION_ID=$GLOBUS_SUBSCRIPTION_ID"
         
         # Save S3 bucket name to file for reference
         echo "$S3_BUCKET_NAME" > /home/ubuntu/s3-bucket-name.txt
@@ -384,13 +442,17 @@ if [ -n "$ENDPOINT_UUID" ]; then
         # Create the S3 gateway command
         S3_CMD="globus-connect-server storage-gateway create s3 \"$S3_BUCKET_NAME\""
         log "Running command: $S3_CMD"
+        debug_log "Environment for S3 gateway creation: GCS_CLI_CLIENT_ID=${GCS_CLI_CLIENT_ID:0:5}..., GCS_CLI_CLIENT_SECRET=${GCS_CLI_CLIENT_SECRET:0:3}..., GCS_CLI_ENDPOINT_ID=$GCS_CLI_ENDPOINT_ID"
         
         # Execute the command
+        debug_log "Executing S3 gateway command now..."
         S3_OUTPUT=$(eval $S3_CMD 2>&1)
         S3_EXIT_CODE=$?
+        debug_log "S3 gateway command completed with exit code: $S3_EXIT_CODE"
         
         # Save output for reference
         echo "$S3_OUTPUT" > /home/ubuntu/s3-gateway-output.txt
+        debug_log "S3 gateway output (truncated): ${S3_OUTPUT:0:200}..."
         
         if [ $S3_EXIT_CODE -eq 0 ]; then
           log "S3 gateway created successfully"
@@ -491,9 +553,15 @@ EOF
           fi
         else
           log "Failed to create S3 gateway with exit code $S3_EXIT_CODE"
+          debug_log "S3 gateway creation FAILED. Full output: $S3_OUTPUT"
+          
+          # Create detailed error file
           echo "Failed to create S3 gateway with exit code $S3_EXIT_CODE" > /home/ubuntu/S3_GATEWAY_FAILED.txt
           echo "Please check the output in s3-gateway-output.txt" >> /home/ubuntu/S3_GATEWAY_FAILED.txt
           echo "Command attempted: $S3_CMD" >> /home/ubuntu/S3_GATEWAY_FAILED.txt
+          echo "" >> /home/ubuntu/S3_GATEWAY_FAILED.txt
+          echo "Full command output:" >> /home/ubuntu/S3_GATEWAY_FAILED.txt
+          echo "$S3_OUTPUT" >> /home/ubuntu/S3_GATEWAY_FAILED.txt
           
           # Create more detailed error file with troubleshooting info
           cat > /home/ubuntu/S3_CONNECTOR_TROUBLESHOOTING.txt << EOF
@@ -984,5 +1052,56 @@ EOF
 # Set permissions
 chown -R ubuntu:ubuntu /home/ubuntu/
 
+# Create a diagnostic file with sanitized environment variables for debugging
+debug_log "Creating diagnostic file with environment information"
+cat > /home/ubuntu/environment-diagnostics.txt << EOF
+=== Globus Connect Server Deployment Diagnostics ===
+Generated: $(date)
+
+Environment Variables (sensitive values partially redacted):
+- GLOBUS_CLIENT_ID: ${GLOBUS_CLIENT_ID:0:8}... (truncated)
+- GLOBUS_CLIENT_SECRET: ${GLOBUS_CLIENT_SECRET:0:3}... (truncated) 
+- GLOBUS_DISPLAY_NAME: $GLOBUS_DISPLAY_NAME
+- GLOBUS_ORGANIZATION: $GLOBUS_ORGANIZATION
+- GLOBUS_OWNER: $GLOBUS_OWNER
+- GLOBUS_CONTACT_EMAIL: $GLOBUS_CONTACT_EMAIL
+- GLOBUS_PROJECT_ID: ${GLOBUS_PROJECT_ID:0:8}... (truncated)
+- GLOBUS_SUBSCRIPTION_ID: $GLOBUS_SUBSCRIPTION_ID
+- ENABLE_S3_CONNECTOR: $ENABLE_S3_CONNECTOR
+- S3_BUCKET_NAME: $S3_BUCKET_NAME
+- ENABLE_POSIX_GATEWAY: $ENABLE_POSIX_GATEWAY
+- POSIX_GATEWAY_NAME: $POSIX_GATEWAY_NAME
+- DEBUG_PRESERVE_INSTANCE: $DEBUG_PRESERVE_INSTANCE
+- COLLECTION_ADMIN: $COLLECTION_ADMIN
+
+CLI Environment Variables:
+- GCS_CLI_CLIENT_ID: ${GCS_CLI_CLIENT_ID:0:8}... (truncated)
+- GCS_CLI_CLIENT_SECRET: ${GCS_CLI_CLIENT_SECRET:0:3}... (truncated)
+- GCS_CLI_ENDPOINT_ID: $GCS_CLI_ENDPOINT_ID
+
+Command Line Check:
+- globus-connect-server location: $(which globus-connect-server 2>/dev/null || echo "NOT FOUND")
+- globus-cli location: $(which globus 2>/dev/null || echo "NOT FOUND")
+
+Major Component Status:
+- Endpoint created: $([ -n "$ENDPOINT_UUID" ] && echo "YES - $ENDPOINT_UUID" || echo "NO")
+- Subscription set: $([ -f /home/ubuntu/SUBSCRIPTION_SUCCESS.txt ] && echo "YES" || echo "NO")
+- S3 Gateway created: $([ -f /home/ubuntu/s3-gateway-id.txt ] && echo "YES - $(cat /home/ubuntu/s3-gateway-id.txt)" || echo "NO")
+- S3 Collection created: $([ -f /home/ubuntu/s3-collection-id.txt ] && echo "YES - $(cat /home/ubuntu/s3-collection-id.txt)" || echo "NO")
+- POSIX Gateway created: $([ -f /home/ubuntu/posix-gateway-id.txt ] && echo "YES - $(cat /home/ubuntu/posix-gateway-id.txt)" || echo "NO")
+- Node setup completed: $([ -f /home/ubuntu/node-setup-output.txt ] && echo "YES" || echo "NO")
+
+For detailed logs, check:
+- /var/log/globus-setup.log
+- /home/ubuntu/debug.log (detailed debug messages)
+- /home/ubuntu/s3-gateway-output.txt (if S3 connector was attempted)
+- /home/ubuntu/subscription-update-output.txt (if subscription was set)
+EOF
+
+# Set proper permissions
+chmod 600 /home/ubuntu/environment-diagnostics.txt
+chown ubuntu:ubuntu /home/ubuntu/environment-diagnostics.txt
+
 log "=== Globus Connect Server setup completed: $(date) ==="
+debug_log "SETUP COMPLETED"
 exit 0
