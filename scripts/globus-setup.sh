@@ -249,42 +249,54 @@ if [ -n "$ENDPOINT_UUID" ]; then
             log "Extracted POSIX gateway ID: $GATEWAY_ID"
             echo "$GATEWAY_ID" > /home/ubuntu/posix-gateway-id.txt
             
-            # Create a collection for this gateway if requested
-            if [ "$CREATE_POSIX_COLLECTION" = "true" ]; then
-              log "Creating collection for POSIX gateway..."
-              
-              # Default collection name if not specified
-              COLLECTION_NAME="${POSIX_COLLECTION_NAME:-$POSIX_GATEWAY_NAME Collection}"
-              
-              # Create the collection
-              COLLECTION_CMD="globus-connect-server collection create --storage-gateway \"$GATEWAY_ID\" --display-name \"$COLLECTION_NAME\""
-              log "Running command: $COLLECTION_CMD"
-              
-              # Execute the command
-              COLLECTION_OUTPUT=$(eval $COLLECTION_CMD 2>&1)
-              COLLECTION_EXIT_CODE=$?
-              
-              # Save output for reference
-              echo "$COLLECTION_OUTPUT" > /home/ubuntu/posix-collection-output.txt
-              
-              if [ $COLLECTION_EXIT_CODE -eq 0 ]; then
-                log "POSIX collection created successfully"
-                
-                # Extract collection ID
-                COLLECTION_ID=$(echo "$COLLECTION_OUTPUT" | grep -i "id:" | awk '{print $2}' | head -1)
-                if [ -n "$COLLECTION_ID" ]; then
-                  log "Extracted collection ID: $COLLECTION_ID"
-                  echo "$COLLECTION_ID" > /home/ubuntu/posix-collection-id.txt
-                  
-                  # Create URL for collection access
-                  echo "https://app.globus.org/file-manager?destination_id=$COLLECTION_ID" > /home/ubuntu/posix-collection-url.txt
-                fi
-              else
-                log "Failed to create POSIX collection"
-                echo "Failed to create POSIX collection with exit code $COLLECTION_EXIT_CODE" > /home/ubuntu/POSIX_COLLECTION_FAILED.txt
-                echo "Please check the output in posix-collection-output.txt" >> /home/ubuntu/POSIX_COLLECTION_FAILED.txt
-              fi
-            fi
+            # Create a helper script to create collections manually
+            cat > /home/ubuntu/create-posix-collection.sh << EOF
+#!/bin/bash
+# Helper script to create a collection for the POSIX gateway
+
+# Check if we have the gateway ID
+GATEWAY_ID=\$(cat /home/ubuntu/posix-gateway-id.txt 2>/dev/null)
+if [ -z "\$GATEWAY_ID" ]; then
+  echo "ERROR: Gateway ID not found. Please make sure the POSIX gateway was created."
+  exit 1
+fi
+
+# Get collection name from argument or prompt
+COLLECTION_NAME="\$1"
+if [ -z "\$COLLECTION_NAME" ]; then
+  echo -n "Enter collection name: "
+  read COLLECTION_NAME
+  if [ -z "\$COLLECTION_NAME" ]; then
+    echo "ERROR: Collection name is required."
+    exit 1
+  fi
+fi
+
+# Set environment variables
+if [ -f /home/ubuntu/globus-client-id.txt ] && [ -f /home/ubuntu/globus-client-secret.txt ]; then
+  export GCS_CLI_CLIENT_ID=\$(cat /home/ubuntu/globus-client-id.txt)
+  export GCS_CLI_CLIENT_SECRET=\$(cat /home/ubuntu/globus-client-secret.txt)
+fi
+
+if [ -f /home/ubuntu/endpoint-uuid.txt ]; then
+  export GCS_CLI_ENDPOINT_ID=\$(cat /home/ubuntu/endpoint-uuid.txt)
+fi
+
+# Create the collection
+echo "Creating collection \"\$COLLECTION_NAME\" for POSIX gateway with ID \$GATEWAY_ID..."
+globus-connect-server collection create --storage-gateway "\$GATEWAY_ID" --display-name "\$COLLECTION_NAME"
+
+# Check the result
+if [ \$? -eq 0 ]; then
+  echo "Collection created successfully!"
+else
+  echo "Failed to create collection."
+  exit 1
+fi
+EOF
+            chmod +x /home/ubuntu/create-posix-collection.sh
+            chown ubuntu:ubuntu /home/ubuntu/create-posix-collection.sh
+            log "Created helper script for manually creating collections: /home/ubuntu/create-posix-collection.sh"
           else
             log "Could not extract gateway ID from output"
           fi
@@ -429,18 +441,10 @@ PUBLIC_IP=$(cat /home/ubuntu/public-ip.txt 2>/dev/null || echo "Not detected")
 # Check if POSIX gateway was created
 POSIX_GATEWAY_STATUS="Not configured"
 POSIX_GATEWAY_ID=""
-POSIX_COLLECTION_URL=""
 
 if [ -f /home/ubuntu/posix-gateway-id.txt ]; then
   POSIX_GATEWAY_ID=$(cat /home/ubuntu/posix-gateway-id.txt)
   POSIX_GATEWAY_STATUS="Created - ID: $POSIX_GATEWAY_ID"
-  
-  # Check if collection was created
-  if [ -f /home/ubuntu/posix-collection-id.txt ]; then
-    POSIX_COLLECTION_ID=$(cat /home/ubuntu/posix-collection-id.txt)
-    POSIX_COLLECTION_URL=$(cat /home/ubuntu/posix-collection-url.txt 2>/dev/null || echo "")
-    POSIX_GATEWAY_STATUS="$POSIX_GATEWAY_STATUS, Collection ID: $POSIX_COLLECTION_ID"
-  fi
 fi
 
 cat > /home/ubuntu/deployment-summary.txt << EOF
@@ -465,11 +469,11 @@ Storage Gateways:
 
 Access Information:
 - Endpoint URL: https://app.globus.org/file-manager?origin_id=${ENDPOINT_UUID:-MISSING_UUID}
-$([ -n "$POSIX_COLLECTION_URL" ] && echo "- POSIX Collection URL: $POSIX_COLLECTION_URL" || echo "")
 
 Helper Scripts:
 - /home/ubuntu/show-endpoint.sh: Show endpoint details
 - /home/ubuntu/globus-cli-examples.sh: Examples of common Globus CLI commands
+$([ -f /home/ubuntu/create-posix-collection.sh ] && echo "- /home/ubuntu/create-posix-collection.sh: Create collections for POSIX gateway" || echo "")
 
 Service Status:
 - Apache2: $(systemctl is-active apache2 2>/dev/null || echo "Unknown")

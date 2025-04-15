@@ -118,19 +118,6 @@ Parameters:
     Type: String
     Default: ""
     
-  CreatePOSIXCollection:
-    Description: Whether to create a collection for the POSIX gateway
-    Type: String
-    Default: "false"
-    AllowedValues:
-      - "true"
-      - "false"
-      
-  POSIXCollectionName:
-    Description: Display name for the POSIX collection (if CreatePOSIXCollection is true)
-    Type: String
-    Default: ""
-    
   # Connector specific parameters
   S3BucketName:
     Description: Name of S3 bucket to connect (required when EnableS3Connector is true)
@@ -406,8 +393,6 @@ Resources:
           export ENABLE_POSIX_GATEWAY="${EnablePOSIXGateway}"
           export POSIX_GATEWAY_NAME="${POSIXGatewayName}"
           export POSIX_GATEWAY_DOMAIN="${POSIXGatewayDomain}"
-          export CREATE_POSIX_COLLECTION="${CreatePOSIXCollection}"
-          export POSIX_COLLECTION_NAME="${POSIXCollectionName}"
           
           # Download the installation script
           echo "Downloading Globus setup script from ${ScriptUrl}"
