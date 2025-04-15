@@ -33,7 +33,7 @@ Parameters:
       - "true"
       - "false"
       
-  DEBUG_PRESERVE_INSTANCE:
+  DebugPreserveInstance:
     Description: "Debug mode - keep instances running even when deployment fails (for troubleshooting)"
     Type: String
     Default: "true"
@@ -421,7 +421,7 @@ Resources:
           export DEFAULT_ADMIN_IDENTITY="${DefaultAdminIdentity}"
           
           # Debug configuration
-          export DEBUG_PRESERVE_INSTANCE="${DEBUG_PRESERVE_INSTANCE}"
+          export DEBUG_PRESERVE_INSTANCE="${DebugPreserveInstance}"
           
           # Download the installation script
           echo "Downloading Globus setup script from ${ScriptUrl}"
