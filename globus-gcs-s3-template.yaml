@@ -287,9 +287,8 @@ Resources:
     Type: AWS::EC2::Instance
     CreationPolicy:
       ResourceSignal:
-        Timeout: PT45M
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+        Timeout: PT30M
+    # Remove DeletionPolicy and UpdateReplacePolicy to ensure instance is deleted if deployment fails
     Properties:
       InstanceType: !Ref InstanceType
       KeyName: !Ref KeyName
@@ -311,8 +310,7 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
-          # Bootstrap script for Globus Connect Server deployment
-          # First make sure logs are captured properly
+          # Simplified bootstrap script for Globus Connect Server deployment
           exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
           set -e
           
@@ -333,11 +331,11 @@ Resources:
               apt-get update -qq && apt-get install -y python3-pip
               pip3 install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz
               echo "Signaling with installed tools..."
-              /usr/local/bin/cfn-signal -e $exit_code --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region} || echo "Failed to signal CloudFormation"
+              /usr/local/bin/cfn-signal -e $exit_code --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}
             fi
           }
           
-          # Error handler - always preserve the instance even on error
+          # Error handler - signal failure to CloudFormation
           handle_error() {
             echo "=============================================================" | tee /home/ubuntu/BOOTSTRAP_ERROR.txt
             echo "ERROR: Bootstrap failed at line $1 with exit code $2" | tee -a /home/ubuntu/BOOTSTRAP_ERROR.txt
@@ -345,17 +343,17 @@ Resources:
             echo "Time: $(date)" >> /home/ubuntu/BOOTSTRAP_ERROR.txt
             echo "=============================================================" | tee -a /home/ubuntu/BOOTSTRAP_ERROR.txt
             
-            # Always signal success to CloudFormation to preserve the instance
-            echo "Signaling success despite error to preserve instance for troubleshooting"
-            signal_cf 0
-            exit 0
+            # Signal failure to CloudFormation so instance is terminated
+            echo "Signaling failure to CloudFormation"
+            signal_cf 1
+            exit 1
           }
           trap 'handle_error $LINENO $?' ERR
           
           # Install dependencies
           echo "Installing dependencies..."
           apt-get update
-          apt-get install -y python3-pip curl wget awscli jq
+          apt-get install -y python3-pip curl wget awscli
           
           # Setup CFN tools
           echo "Setting up CloudFormation tools..."
@@ -364,9 +362,7 @@ Resources:
           ln -sf /usr/local/bin/cfn-* /opt/aws/bin/ 2>/dev/null || true
           
           # Set environment variables
-          echo "Setting environment variables..."
-          export AWS_REGION="${AWS::Region}"
-          export AWS_STACK_NAME="${AWS::StackName}"
+          echo "Setting critical environment variables..."
           export GLOBUS_CLIENT_ID="${GlobusClientId}" 
           export GLOBUS_CLIENT_SECRET="${GlobusClientSecret}"
           export GLOBUS_DISPLAY_NAME="${GlobusDisplayName}"
@@ -374,15 +370,6 @@ Resources:
           export GLOBUS_OWNER="${GlobusOwner}"
           export GLOBUS_CONTACT_EMAIL="${GlobusContactEmail}"
           export GLOBUS_PROJECT_ID="${GlobusProjectId}"
-          export GLOBUS_PROJECT_NAME="${GlobusProjectName}"
-          export GLOBUS_PROJECT_ADMIN="${GlobusProjectAdmin}"
-          export GLOBUS_ALWAYS_CREATE_PROJECT="${GlobusAlwaysCreateProject}"
-          export RESET_ENDPOINT_OWNER="${ResetEndpointOwner}"
-          export ENDPOINT_RESET_OWNER_TARGET="${EndpointResetOwnerTarget}"
-          export GLOBUS_SUBSCRIPTION_ID="${GlobusSubscriptionId}"
-          export ENABLE_S3_CONNECTOR="${EnableS3Connector}"
-          export S3_BUCKET_NAME="${S3BucketName}"
-          export DEFAULT_ADMIN="${DefaultAdminIdentity}"
           
           # Download the installation script
           echo "Downloading Globus setup script from ${ScriptUrl}"
@@ -394,106 +381,21 @@ Resources:
             exit 1
           fi
           
-          # Check script syntax before running
-          echo "Validating script syntax..."
-          if ! bash -n /tmp/globus-setup.sh; then
-            echo "ERROR: Script contains syntax errors" > /home/ubuntu/SYNTAX_ERROR.txt
-            signal_cf 0  # Signal success to preserve instance for troubleshooting
-            exit 0
-          fi
-          
-          # Check script permissions
-          echo "Setting up script permissions..."
-          chmod 755 /tmp/globus-setup.sh
-          ls -la /tmp/globus-setup.sh > /home/ubuntu/script-permissions.txt
-          
           # Prepare for execution
           chmod +x /tmp/globus-setup.sh
           cp /tmp/globus-setup.sh /home/ubuntu/globus-setup.sh
           echo "Starting Globus setup: $(date)" > /home/ubuntu/BOOTSTRAP_STARTED.txt
           
-          # Run the setup script with careful error handling and debug mode enabled
-          echo "Running Globus setup script with sudo and debug mode..."
-          # Create an environment file to pass all variables to the script
-          echo "#!/bin/bash" > /tmp/globus-env.sh
-          echo "export AWS_REGION=\"${AWS::Region}\"" >> /tmp/globus-env.sh
-          echo "export AWS_STACK_NAME=\"${AWS::StackName}\"" >> /tmp/globus-env.sh
-          echo "export GLOBUS_CLIENT_ID=\"${GlobusClientId}\"" >> /tmp/globus-env.sh
-          echo "export GLOBUS_CLIENT_SECRET=\"${GlobusClientSecret}\"" >> /tmp/globus-env.sh
-          echo "export GLOBUS_DISPLAY_NAME=\"${GlobusDisplayName}\"" >> /tmp/globus-env.sh
-          echo "export GLOBUS_ORGANIZATION=\"${GlobusOrganization}\"" >> /tmp/globus-env.sh
-          echo "export GLOBUS_OWNER=\"${GlobusOwner}\"" >> /tmp/globus-env.sh
-          echo "export GLOBUS_CONTACT_EMAIL=\"${GlobusContactEmail}\"" >> /tmp/globus-env.sh
-          echo "export GLOBUS_PROJECT_ID=\"${GlobusProjectId}\"" >> /tmp/globus-env.sh
-          echo "export GLOBUS_PROJECT_NAME=\"${GlobusProjectName}\"" >> /tmp/globus-env.sh
-          echo "export GLOBUS_PROJECT_ADMIN=\"${GlobusProjectAdmin}\"" >> /tmp/globus-env.sh
-          echo "export GLOBUS_ALWAYS_CREATE_PROJECT=\"${GlobusAlwaysCreateProject}\"" >> /tmp/globus-env.sh
-          echo "export RESET_ENDPOINT_OWNER=\"${ResetEndpointOwner}\"" >> /tmp/globus-env.sh
-          echo "export ENDPOINT_RESET_OWNER_TARGET=\"${EndpointResetOwnerTarget}\"" >> /tmp/globus-env.sh
-          echo "export GLOBUS_SUBSCRIPTION_ID=\"${GlobusSubscriptionId}\"" >> /tmp/globus-env.sh
-          echo "export ENABLE_S3_CONNECTOR=\"${EnableS3Connector}\"" >> /tmp/globus-env.sh
-          echo "export S3_BUCKET_NAME=\"${S3BucketName}\"" >> /tmp/globus-env.sh
-          echo "export DEFAULT_ADMIN=\"${DefaultAdminIdentity}\"" >> /tmp/globus-env.sh
-          echo "export DEBUG_MODE=true" >> /tmp/globus-env.sh
-          chmod +x /tmp/globus-env.sh
-          
-          # Verify the environment file was created correctly
-          echo "Checking environment file:"
-          cat /tmp/globus-env.sh > /home/ubuntu/globus-env-debug.txt
-          
-          # Save credential values for debugging
-          echo "Client ID provided: ${GlobusClientId}" > /home/ubuntu/credential-debug.txt
-          echo "Client Secret provided: ${GlobusClientSecret}" >> /home/ubuntu/credential-debug.txt
-          
-          # Modify the script to source the environment file at the top
-          sed -i '3i# Source environment variables\nif [ -f /tmp/globus-env.sh ]; then\n  source /tmp/globus-env.sh\nfi' /tmp/globus-setup.sh
-          
-          # Use sudo with -E to preserve environment variables
-          sudo -E bash /tmp/globus-setup.sh > >(tee /home/ubuntu/globus-setup-output.log) 2>&1
+          # Run the setup script
+          echo "Running Globus setup script..."
+          sudo -E bash /tmp/globus-setup.sh
           SETUP_EXIT_CODE=$?
           
-          # Capture and record script results
-          echo "Script completed with exit code: $SETUP_EXIT_CODE" > /home/ubuntu/SCRIPT_COMPLETED.txt
-          
-          # Copy log files for troubleshooting
-          cp /var/log/globus-setup.log /home/ubuntu/globus-setup.log 2>/dev/null || echo "No setup log found" > /home/ubuntu/globus-setup.log
-          
-          # Create URL files if endpoint was created successfully
-          if [ -f /home/ubuntu/endpoint-uuid.txt ]; then
-            ENDPOINT_UUID=$(cat /home/ubuntu/endpoint-uuid.txt)
-            echo "Endpoint URL: https://app.globus.org/file-manager?origin_id=$ENDPOINT_UUID" > /home/ubuntu/endpoint-url.txt
-            echo "✅ Endpoint UUID successfully created and exported: $ENDPOINT_UUID" >> /home/ubuntu/BOOTSTRAP_COMPLETED.txt
-          else
-            # Try to find the UUID file in case it had permission issues
-            UUID_FILE_SEARCH=$(find /home/ubuntu -name "endpoint-uuid.txt" -o -name "ENDPOINT_UUID.txt" 2>/dev/null)
-            if [ -n "$UUID_FILE_SEARCH" ]; then
-              echo "Found UUID files in unexpected locations:" >> /home/ubuntu/BOOTSTRAP_COMPLETED.txt
-              echo "$UUID_FILE_SEARCH" >> /home/ubuntu/BOOTSTRAP_COMPLETED.txt
-              
-              # Try to get the UUID from any found file
-              for found_file in $UUID_FILE_SEARCH; do
-                FOUND_UUID=$(cat "$found_file" | grep -o -E "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
-                if [ -n "$FOUND_UUID" ]; then
-                  echo "Recovered UUID from $found_file: $FOUND_UUID" >> /home/ubuntu/BOOTSTRAP_COMPLETED.txt
-                  echo "$FOUND_UUID" > /home/ubuntu/endpoint-uuid.txt
-                  echo "Endpoint URL: https://app.globus.org/file-manager?origin_id=$FOUND_UUID" > /home/ubuntu/endpoint-url.txt
-                  break
-                fi
-              done
-            else
-              echo "⚠️ WARNING: No endpoint UUID files found" >> /home/ubuntu/BOOTSTRAP_COMPLETED.txt
-              # Last resort: look in all logs for a UUID
-              echo "Searching logs for UUID pattern..." >> /home/ubuntu/BOOTSTRAP_COMPLETED.txt
-              GREP_RESULT=$(grep -o -E "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" /home/ubuntu/* 2>/dev/null | head -1)
-              if [ -n "$GREP_RESULT" ]; then
-                LOG_UUID=$(echo "$GREP_RESULT" | grep -o -E "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
-                if [ -n "$LOG_UUID" ]; then
-                  echo "Found UUID in logs: $LOG_UUID" >> /home/ubuntu/BOOTSTRAP_COMPLETED.txt
-                  echo "$LOG_UUID" > /home/ubuntu/endpoint-uuid.txt
-                  echo "Endpoint URL: https://app.globus.org/file-manager?origin_id=$LOG_UUID" > /home/ubuntu/endpoint-url.txt
-                fi
-              fi
-            fi
+          # Check setup result
+          if [ $SETUP_EXIT_CODE -ne 0 ]; then
+            echo "Globus setup script failed with exit code: $SETUP_EXIT_CODE" > /home/ubuntu/SETUP_FAILED.txt
+            signal_cf 1
+            exit 1
           fi
           
           # Mark bootstrap completion
@@ -502,7 +404,7 @@ Resources:
           # Set file permissions
           chown -R ubuntu:ubuntu /home/ubuntu/
           
-          # Always signal success to CloudFormation to preserve the instance
+          # Signal success to CloudFormation
           echo "=== BOOTSTRAP COMPLETE: $(date) ==="
           signal_cf 0
       Tags:
