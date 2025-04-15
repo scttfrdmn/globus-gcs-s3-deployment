@@ -16,6 +16,11 @@ Parameters:
     Type: String
     Default: "https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/scripts/globus-setup.sh"
     
+  SetupEnvScriptUrl:
+    Description: URL to the Globus environment setup script for debugging
+    Type: String
+    Default: "https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/scripts/setup-env.sh"
+    
   DeploymentType:
     Description: Type of deployment (affects resource configuration)
     Type: String
@@ -427,6 +432,12 @@ Resources:
           echo "Downloading Globus setup script from ${ScriptUrl}"
           curl -s -L -o /tmp/globus-setup.sh "${ScriptUrl}" || wget -q -O /tmp/globus-setup.sh "${ScriptUrl}"
           
+          # Download the environment setup helper script
+          echo "Downloading Globus environment setup script from ${SetupEnvScriptUrl}"
+          curl -s -L -o /home/ubuntu/setup-env.sh "${SetupEnvScriptUrl}" || wget -q -O /home/ubuntu/setup-env.sh "${SetupEnvScriptUrl}"
+          chmod +x /home/ubuntu/setup-env.sh
+          chown ubuntu:ubuntu /home/ubuntu/setup-env.sh
+          
           if [ ! -s /tmp/globus-setup.sh ]; then
             echo "ERROR: Failed to download script" > /home/ubuntu/DOWNLOAD_FAILED.txt
             signal_cf 1
@@ -463,8 +474,31 @@ Resources:
           # Mark bootstrap completion
           echo "Bootstrap completed at $(date)" > /home/ubuntu/BOOTSTRAP_COMPLETED.txt
           
+          # Set directory permissions first
+          mkdir -p /home/ubuntu
+          chmod 755 /home/ubuntu
+          chown ubuntu:ubuntu /home/ubuntu
+
+          # Create empty files to ensure they exist
+          for var_file in globus-client-id.txt globus-client-secret.txt globus-display-name.txt globus-organization.txt globus-owner.txt globus-contact-email.txt globus-project-id.txt collection-admin-identity.txt default-admin-identity.txt endpoint-uuid.txt subscription-id.txt s3-bucket-name.txt; do
+            touch /home/ubuntu/$var_file
+            chown ubuntu:ubuntu /home/ubuntu/$var_file
+          done
+
           # Set file permissions
-          chown -R ubuntu:ubuntu /home/ubuntu/
+          for f in $(find /home/ubuntu -type f); do
+            chown ubuntu:ubuntu "$f"
+          done
+          
+          # Set restrictive permissions on credential files
+          chmod 600 /home/ubuntu/globus-client-id.txt
+          chmod 600 /home/ubuntu/globus-client-secret.txt
+          
+          # Make scripts executable
+          for f in $(find /home/ubuntu -name "*.sh"); do
+            chmod +x "$f"
+            chown ubuntu:ubuntu "$f"
+          done
           
           # Signal success to CloudFormation
           echo "=== BOOTSTRAP COMPLETE: $(date) ==="

@@ -162,17 +162,24 @@ fi
 
 # Save environment variables to files in Ubuntu home
 mkdir -p /home/ubuntu
-echo "$GLOBUS_CLIENT_ID" > /home/ubuntu/globus-client-id.txt
-echo "$GLOBUS_CLIENT_SECRET" > /home/ubuntu/globus-client-secret.txt
-echo "$GLOBUS_DISPLAY_NAME" > /home/ubuntu/globus-display-name.txt
-echo "$GLOBUS_ORGANIZATION" > /home/ubuntu/globus-organization.txt
-echo "$GLOBUS_OWNER" > /home/ubuntu/globus-owner.txt
-echo "$GLOBUS_CONTACT_EMAIL" > /home/ubuntu/globus-contact-email.txt
-echo "$GLOBUS_PROJECT_ID" > /home/ubuntu/globus-project-id.txt
+chmod 755 /home/ubuntu
+
+# Save environment variables ensuring we don't create empty files
+[ -n "$GLOBUS_CLIENT_ID" ] && echo "$GLOBUS_CLIENT_ID" > /home/ubuntu/globus-client-id.txt || echo "MISSING" > /home/ubuntu/globus-client-id.txt
+[ -n "$GLOBUS_CLIENT_SECRET" ] && echo "$GLOBUS_CLIENT_SECRET" > /home/ubuntu/globus-client-secret.txt || echo "MISSING" > /home/ubuntu/globus-client-secret.txt
+[ -n "$GLOBUS_DISPLAY_NAME" ] && echo "$GLOBUS_DISPLAY_NAME" > /home/ubuntu/globus-display-name.txt || echo "MISSING" > /home/ubuntu/globus-display-name.txt
+[ -n "$GLOBUS_ORGANIZATION" ] && echo "$GLOBUS_ORGANIZATION" > /home/ubuntu/globus-organization.txt || echo "MISSING" > /home/ubuntu/globus-organization.txt
+[ -n "$GLOBUS_OWNER" ] && echo "$GLOBUS_OWNER" > /home/ubuntu/globus-owner.txt || echo "MISSING" > /home/ubuntu/globus-owner.txt
+[ -n "$GLOBUS_CONTACT_EMAIL" ] && echo "$GLOBUS_CONTACT_EMAIL" > /home/ubuntu/globus-contact-email.txt || echo "MISSING" > /home/ubuntu/globus-contact-email.txt
+[ -n "$GLOBUS_PROJECT_ID" ] && echo "$GLOBUS_PROJECT_ID" > /home/ubuntu/globus-project-id.txt || echo "MISSING" > /home/ubuntu/globus-project-id.txt
+
+# Save subscription and S3 information
+[ -n "$GLOBUS_SUBSCRIPTION_ID" ] && echo "$GLOBUS_SUBSCRIPTION_ID" > /home/ubuntu/subscription-id.txt || echo "NONE" > /home/ubuntu/subscription-id.txt
+[ -n "$S3_BUCKET_NAME" ] && echo "$S3_BUCKET_NAME" > /home/ubuntu/s3-bucket-name.txt || echo "NONE" > /home/ubuntu/s3-bucket-name.txt
 
 # Save admin identities
-echo "$COLLECTION_ADMIN_IDENTITY" > /home/ubuntu/collection-admin-identity.txt
-echo "$DEFAULT_ADMIN_IDENTITY" > /home/ubuntu/default-admin-identity.txt
+[ -n "$COLLECTION_ADMIN_IDENTITY" ] && echo "$COLLECTION_ADMIN_IDENTITY" > /home/ubuntu/collection-admin-identity.txt || echo "NONE" > /home/ubuntu/collection-admin-identity.txt
+[ -n "$DEFAULT_ADMIN_IDENTITY" ] && echo "$DEFAULT_ADMIN_IDENTITY" > /home/ubuntu/default-admin-identity.txt || echo "NONE" > /home/ubuntu/default-admin-identity.txt
 
 # Determine which admin identity to use for collections
 # First try collection-specific admin, then default admin
@@ -1049,8 +1056,31 @@ Service Status:
 - GridFTP: $(systemctl is-active globus-gridftp-server 2>/dev/null || echo "Unknown")
 EOF
 
-# Set permissions
-chown -R ubuntu:ubuntu /home/ubuntu/
+# Set permissions for all files
+# Make sure files exist first to avoid errors
+for f in $(find /home/ubuntu -type f); do
+  chown ubuntu:ubuntu "$f"
+done
+
+# Set restrictive permissions on credential files
+if [ -f /home/ubuntu/globus-client-id.txt ]; then
+  chmod 600 /home/ubuntu/globus-client-id.txt
+fi
+
+if [ -f /home/ubuntu/globus-client-secret.txt ]; then
+  chmod 600 /home/ubuntu/globus-client-secret.txt
+fi
+
+# Make scripts executable
+for f in $(find /home/ubuntu -name "*.sh"); do
+  chmod +x "$f"
+  chown ubuntu:ubuntu "$f"
+done
+
+# Verify permissions were set correctly
+log "Verifying file ownership..."
+ls -la /home/ubuntu/ > /home/ubuntu/file-permissions.txt
+chown ubuntu:ubuntu /home/ubuntu/file-permissions.txt
 
 # Create a diagnostic file with sanitized environment variables for debugging
 debug_log "Creating diagnostic file with environment information"
