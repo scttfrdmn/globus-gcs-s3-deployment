@@ -37,7 +37,12 @@ Parameters:
   # This reduces complexity and focuses on the most modern approach
     
   DefaultAdminIdentity:
-    Description: Globus identity to be granted admin access (email@example.org)
+    Description: "Globus identity to be granted admin access to the endpoint (email@example.org). This identity will also have access to collections if CollectionAdminIdentity is not specified."
+    Type: String
+    Default: ""
+    
+  CollectionAdminIdentity:
+    Description: "Globus identity to grant admin access to collections (e.g., user@example.edu). If not specified, DefaultAdminIdentity will be used. If both are empty, only the service account will have access to collections."
     Type: String
     Default: ""
 
@@ -93,7 +98,7 @@ Parameters:
     
   # Connector options
   EnableS3Connector:
-    Description: Whether to enable S3 Connector (defaults to true for this template)
+    Description: "Whether to enable S3 Connector (requires valid S3BucketName and GlobusSubscriptionId). IMPORTANT: S3 connector requires a Globus subscription, and the GlobusOwner must be configured as an administrator in the subscription group."
     Type: String
     Default: "true"
     AllowedValues:
@@ -120,7 +125,7 @@ Parameters:
     
   # Connector specific parameters
   S3BucketName:
-    Description: Name of S3 bucket to connect (required when EnableS3Connector is true)
+    Description: "Name of S3 bucket to connect (REQUIRED when EnableS3Connector is true). IMPORTANT: The bucket must exist in the same region as this deployment, and the instance needs appropriate IAM permissions to access it. The S3 connector additionally requires a valid subscription ID and the GlobusOwner must be a subscription administrator."
     Type: String
     AllowedPattern: "[a-zA-Z0-9\\-\\.]{3,63}"
     ConstraintDescription: Bucket name must be between 3 and 63 characters, contain only letters, numbers, hyphens, and periods.
@@ -396,6 +401,14 @@ Resources:
           export ENABLE_POSIX_GATEWAY="${EnablePOSIXGateway}"
           export POSIX_GATEWAY_NAME="${POSIXGatewayName}"
           export POSIX_GATEWAY_DOMAIN="${POSIXGatewayDomain}"
+          
+          # Optional S3 connector configuration
+          export ENABLE_S3_CONNECTOR="${EnableS3Connector}"
+          export S3_BUCKET_NAME="${S3BucketName}"
+          
+          # Collection access configuration
+          export COLLECTION_ADMIN_IDENTITY="${CollectionAdminIdentity}"
+          export DEFAULT_ADMIN_IDENTITY="${DefaultAdminIdentity}"
           
           # Download the installation script
           echo "Downloading Globus setup script from ${ScriptUrl}"

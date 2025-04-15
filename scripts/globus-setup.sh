@@ -19,6 +19,40 @@ log() {
   echo "$(date) - $*" | tee -a "$LOG_FILE"
 }
 
+# Function to set permissions on a collection
+set_collection_permissions() {
+  local collection_id=$1
+  local admin_identity=$2
+  local collection_name=$3
+  
+  if [ -z "$admin_identity" ]; then
+    log "No admin identity provided for collection $collection_name ($collection_id). Skipping permission setup."
+    return 0
+  fi
+
+  log "Setting permissions for collection $collection_name ($collection_id)..."
+  log "Granting read/write access to $admin_identity"
+  
+  PERM_CMD="globus-connect-server endpoint permission create --identity \"$admin_identity\" --permissions rw --collection $collection_id"
+  log "Running command: $PERM_CMD"
+  
+  PERM_OUTPUT=$(eval $PERM_CMD 2>&1)
+  PERM_EXIT_CODE=$?
+  
+  if [ $PERM_EXIT_CODE -eq 0 ]; then
+    log "Successfully granted permissions to $admin_identity for collection $collection_id"
+    echo "$PERM_OUTPUT" > "/home/ubuntu/$collection_id-permissions.txt"
+    return 0
+  else
+    log "Failed to set permissions for collection $collection_id with exit code $PERM_EXIT_CODE"
+    echo "Failed to set permissions for collection $collection_name ($collection_id)" > "/home/ubuntu/${collection_name}_PERMISSION_FAILED.txt"
+    echo "Command: $PERM_CMD" >> "/home/ubuntu/${collection_name}_PERMISSION_FAILED.txt"
+    echo "Exit code: $PERM_EXIT_CODE" >> "/home/ubuntu/${collection_name}_PERMISSION_FAILED.txt"
+    echo "Output: $PERM_OUTPUT" >> "/home/ubuntu/${collection_name}_PERMISSION_FAILED.txt"
+    return 1
+  fi
+}
+
 log "=== Starting Simplified Globus Connect Server setup: $(date) ==="
 
 # Install Globus Connect Server
@@ -99,6 +133,26 @@ echo "$GLOBUS_ORGANIZATION" > /home/ubuntu/globus-organization.txt
 echo "$GLOBUS_OWNER" > /home/ubuntu/globus-owner.txt
 echo "$GLOBUS_CONTACT_EMAIL" > /home/ubuntu/globus-contact-email.txt
 echo "$GLOBUS_PROJECT_ID" > /home/ubuntu/globus-project-id.txt
+
+# Save admin identities
+echo "$COLLECTION_ADMIN_IDENTITY" > /home/ubuntu/collection-admin-identity.txt
+echo "$DEFAULT_ADMIN_IDENTITY" > /home/ubuntu/default-admin-identity.txt
+
+# Determine which admin identity to use for collections
+# First try collection-specific admin, then default admin
+if [ -n "$COLLECTION_ADMIN_IDENTITY" ]; then
+  COLLECTION_ADMIN="$COLLECTION_ADMIN_IDENTITY"
+  log "Using specified CollectionAdminIdentity: $COLLECTION_ADMIN"
+elif [ -n "$DEFAULT_ADMIN_IDENTITY" ]; then
+  COLLECTION_ADMIN="$DEFAULT_ADMIN_IDENTITY"
+  log "Using DefaultAdminIdentity for collections: $COLLECTION_ADMIN"
+else
+  COLLECTION_ADMIN=""
+  log "WARNING: No admin identity specified for collections. Only the service account ($GLOBUS_OWNER) will have access."
+fi
+
+echo "$COLLECTION_ADMIN" > /home/ubuntu/effective-collection-admin.txt
+
 chmod 600 /home/ubuntu/globus-client-*.txt
 
 # Set environment variables for Globus CLI authentication
@@ -252,12 +306,233 @@ if [ -n "$ENDPOINT_UUID" ]; then
       log "Restarting Apache service..."
       sudo systemctl restart apache2
       
+      # Get the node ID using node list command
+      log "Getting node ID using node list command..."
+      NODE_LIST_OUTPUT=$(globus-connect-server node list 2>&1)
+      echo "$NODE_LIST_OUTPUT" > /home/ubuntu/node-list-output.txt
+      
+      # Extract the node ID from the node list output by matching with our public IP
+      # The output format is: ID | IP Addresses | Status
+      # First try to find a line containing our public IP
+      NODE_ID=$(echo "$NODE_LIST_OUTPUT" | grep -v "^ID" | grep "$PUBLIC_IP" | awk '{print $1}')
+      
+      if [ -n "$NODE_ID" ]; then
+        log "Found node ID for IP $PUBLIC_IP: $NODE_ID"
+        echo "$NODE_ID" > /home/ubuntu/node-id.txt
+        
+        # Get more details about the node
+        log "Getting node details..."
+        NODE_SHOW_OUTPUT=$(globus-connect-server node show "$NODE_ID" 2>&1)
+        echo "$NODE_SHOW_OUTPUT" > /home/ubuntu/node-details.txt
+      else
+        # If IP not found in output, try just getting the first node as fallback
+        NODE_ID=$(echo "$NODE_LIST_OUTPUT" | grep -v "^ID" | head -1 | awk '{print $1}')
+        
+        if [ -n "$NODE_ID" ]; then
+          log "No node found with IP $PUBLIC_IP, using first available node: $NODE_ID"
+          echo "$NODE_ID" > /home/ubuntu/node-id.txt
+          
+          # Get more details about the node
+          log "Getting node details..."
+          NODE_SHOW_OUTPUT=$(globus-connect-server node show "$NODE_ID" 2>&1)
+          echo "$NODE_SHOW_OUTPUT" > /home/ubuntu/node-details.txt
+        else
+          log "Could not find any node ID - will try the node list command again with environment variables"
+          
+          # Try another approach with environment variables explicitly set
+          if [ -n "$GCS_CLI_CLIENT_ID" ] && [ -n "$GCS_CLI_CLIENT_SECRET" ] && [ -n "$GCS_CLI_ENDPOINT_ID" ]; then
+            NODE_LIST_OUTPUT=$(GCS_CLI_CLIENT_ID="$GCS_CLI_CLIENT_ID" GCS_CLI_CLIENT_SECRET="$GCS_CLI_CLIENT_SECRET" GCS_CLI_ENDPOINT_ID="$GCS_CLI_ENDPOINT_ID" globus-connect-server node list 2>&1)
+            
+            # Try to find by IP again
+            NODE_ID=$(echo "$NODE_LIST_OUTPUT" | grep -v "^ID" | grep "$PUBLIC_IP" | awk '{print $1}')
+            
+            if [ -z "$NODE_ID" ]; then
+              # If that fails, just get the first node
+              NODE_ID=$(echo "$NODE_LIST_OUTPUT" | grep -v "^ID" | head -1 | awk '{print $1}')
+            fi
+            
+            if [ -n "$NODE_ID" ]; then
+              log "Found node ID on second attempt: $NODE_ID"
+              echo "$NODE_ID" > /home/ubuntu/node-id.txt
+              
+              # Get more details about the node
+              NODE_SHOW_OUTPUT=$(globus-connect-server node show "$NODE_ID" 2>&1)
+              echo "$NODE_SHOW_OUTPUT" > /home/ubuntu/node-details.txt
+            else
+              log "Could not find node ID after multiple attempts"
+            fi
+          else
+            log "Missing environment variables needed to retry node list command"
+          fi
+        fi
+      fi
+      
       # Check status of key services
       log "Checking status of Globus services..."
       systemctl status globus-gridftp-server --no-pager | grep -E "Active:|Main PID:" > /home/ubuntu/gridftp-status.txt
       systemctl status apache2 --no-pager | grep -E "Active:|Main PID:" > /home/ubuntu/apache-status.txt
       
-      # Setup is successful, now check if POSIX gateway is requested
+      # Setup is successful
+
+      # Check if S3 gateway is requested and if subscription is set 
+      if [ -n "$ENABLE_S3_CONNECTOR" ] && [ "$ENABLE_S3_CONNECTOR" = "true" ] && [ -n "$S3_BUCKET_NAME" ] && [ -n "$GLOBUS_SUBSCRIPTION_ID" ]; then
+        log "Creating S3 storage gateway for bucket: $S3_BUCKET_NAME"
+        
+        # Save S3 bucket name to file for reference
+        echo "$S3_BUCKET_NAME" > /home/ubuntu/s3-bucket-name.txt
+        
+        # Create the S3 gateway command
+        S3_CMD="globus-connect-server storage-gateway create s3 \"$S3_BUCKET_NAME\""
+        log "Running command: $S3_CMD"
+        
+        # Execute the command
+        S3_OUTPUT=$(eval $S3_CMD 2>&1)
+        S3_EXIT_CODE=$?
+        
+        # Save output for reference
+        echo "$S3_OUTPUT" > /home/ubuntu/s3-gateway-output.txt
+        
+        if [ $S3_EXIT_CODE -eq 0 ]; then
+          log "S3 gateway created successfully"
+          
+          # Extract the gateway ID from the output
+          S3_GATEWAY_ID=$(echo "$S3_OUTPUT" | grep -i "id:" | awk '{print $2}' | head -1)
+          if [ -n "$S3_GATEWAY_ID" ]; then
+            log "Extracted S3 gateway ID: $S3_GATEWAY_ID"
+            echo "$S3_GATEWAY_ID" > /home/ubuntu/s3-gateway-id.txt
+            
+            # Automatically create a default collection for the S3 gateway
+            log "Creating default S3 collection..."
+            DEFAULT_S3_COLLECTION_NAME="${S3_BUCKET_NAME}-collection"
+            S3_COLLECTION_CMD="globus-connect-server collection create --storage-gateway \"$S3_GATEWAY_ID\" --display-name \"$DEFAULT_S3_COLLECTION_NAME\""
+            log "Running command: $S3_COLLECTION_CMD"
+            S3_COLLECTION_OUTPUT=$(eval $S3_COLLECTION_CMD 2>&1)
+            S3_COLLECTION_EXIT_CODE=$?
+            
+            # Save output for reference
+            echo "$S3_COLLECTION_OUTPUT" > /home/ubuntu/s3-collection-output.txt
+            
+            if [ $S3_COLLECTION_EXIT_CODE -eq 0 ]; then
+              log "Default S3 collection created successfully"
+              
+              # Extract the collection ID from the output
+              S3_COLLECTION_ID=$(echo "$S3_COLLECTION_OUTPUT" | grep -i "id:" | awk '{print $2}' | head -1)
+              if [ -n "$S3_COLLECTION_ID" ]; then
+                log "Extracted S3 collection ID: $S3_COLLECTION_ID"
+                echo "$S3_COLLECTION_ID" > /home/ubuntu/s3-collection-id.txt
+                echo "$DEFAULT_S3_COLLECTION_NAME" > /home/ubuntu/s3-collection-name.txt
+                
+                # Set permissions for the admin identity (if provided)
+                if [ -n "$COLLECTION_ADMIN" ]; then
+                  set_collection_permissions "$S3_COLLECTION_ID" "$COLLECTION_ADMIN" "$DEFAULT_S3_COLLECTION_NAME"
+                  S3_PERM_STATUS=$?
+                  if [ $S3_PERM_STATUS -eq 0 ]; then
+                    echo "true" > /home/ubuntu/s3-collection-permissions-set.txt
+                    log "Successfully set permissions for S3 collection"
+                  else
+                    echo "false" > /home/ubuntu/s3-collection-permissions-set.txt
+                    log "Failed to set permissions for S3 collection"
+                  fi
+                else
+                  log "No collection admin specified. S3 collection will only be accessible to the service account."
+                  echo "false" > /home/ubuntu/s3-collection-permissions-set.txt
+                fi
+              else
+                log "Could not extract S3 collection ID from output"
+              fi
+            else
+              log "Failed to create default S3 collection with exit code $S3_COLLECTION_EXIT_CODE"
+              echo "$S3_COLLECTION_OUTPUT" > /home/ubuntu/S3_COLLECTION_FAILED.txt
+            fi
+            
+            # Create a helper script to create S3 collections
+            cat > /home/ubuntu/create-s3-collection.sh << EOF
+#!/bin/bash
+# Helper script to create a collection for the S3 gateway
+
+# Setup environment variables for Globus commands
+source /home/ubuntu/globus-env.sh
+
+# Check if we have the gateway ID
+S3_GATEWAY_ID=\$(cat /home/ubuntu/s3-gateway-id.txt 2>/dev/null)
+if [ -z "\$S3_GATEWAY_ID" ]; then
+  echo "ERROR: S3 Gateway ID not found. Please make sure the S3 gateway was created."
+  exit 1
+fi
+
+# Get collection name from argument or prompt
+COLLECTION_NAME="\$1"
+if [ -z "\$COLLECTION_NAME" ]; then
+  echo -n "Enter collection name: "
+  read COLLECTION_NAME
+  if [ -z "\$COLLECTION_NAME" ]; then
+    echo "ERROR: Collection name is required."
+    exit 1
+  fi
+fi
+
+# Create the collection
+echo "Creating collection \"\$COLLECTION_NAME\" for S3 gateway with ID \$S3_GATEWAY_ID..."
+globus-connect-server collection create --storage-gateway "\$S3_GATEWAY_ID" --display-name "\$COLLECTION_NAME"
+
+# Check the result
+if [ \$? -eq 0 ]; then
+  echo "Collection created successfully!"
+else
+  echo "Failed to create collection."
+  exit 1
+fi
+EOF
+            chmod +x /home/ubuntu/create-s3-collection.sh
+            chown ubuntu:ubuntu /home/ubuntu/create-s3-collection.sh
+            log "Created helper script for manually creating S3 collections: /home/ubuntu/create-s3-collection.sh"
+          else
+            log "Could not extract S3 gateway ID from output"
+          fi
+        else
+          log "Failed to create S3 gateway with exit code $S3_EXIT_CODE"
+          echo "Failed to create S3 gateway with exit code $S3_EXIT_CODE" > /home/ubuntu/S3_GATEWAY_FAILED.txt
+          echo "Please check the output in s3-gateway-output.txt" >> /home/ubuntu/S3_GATEWAY_FAILED.txt
+          echo "Command attempted: $S3_CMD" >> /home/ubuntu/S3_GATEWAY_FAILED.txt
+          
+          # Create more detailed error file with troubleshooting info
+          cat > /home/ubuntu/S3_CONNECTOR_TROUBLESHOOTING.txt << EOF
+S3 Connector Setup Failed
+
+Common issues:
+1. Missing subscription ID or not an administrator - the account used for setup 
+   must be a subscription administrator in the subscription membership group.
+2. IAM permissions insufficient - the instance needs access to the S3 bucket
+3. S3 bucket doesn't exist or is in a different region
+4. S3 bucket format is incorrect
+
+Command attempted: $S3_CMD
+Exit code: $S3_EXIT_CODE
+Output: 
+$S3_OUTPUT
+
+To set up manually after fixing the issue, run:
+globus-connect-server storage-gateway create s3 "$S3_BUCKET_NAME"
+EOF
+        fi
+      else
+        if [ -n "$ENABLE_S3_CONNECTOR" ] && [ "$ENABLE_S3_CONNECTOR" = "true" ]; then
+          if [ -z "$S3_BUCKET_NAME" ]; then
+            log "S3 gateway creation requested but S3_BUCKET_NAME not provided"
+            echo "ERROR: S3 gateway creation requested but S3_BUCKET_NAME not provided" > /home/ubuntu/S3_MISSING_BUCKET.txt
+          fi
+          
+          if [ -z "$GLOBUS_SUBSCRIPTION_ID" ]; then
+            log "S3 gateway creation requested but GLOBUS_SUBSCRIPTION_ID not provided (required for S3 connector)"
+            echo "ERROR: S3 gateway creation requested but no subscription ID provided" > /home/ubuntu/S3_MISSING_SUBSCRIPTION.txt
+            echo "The S3 connector requires a Globus subscription" >> /home/ubuntu/S3_MISSING_SUBSCRIPTION.txt
+          fi
+        else
+          log "S3 gateway creation not requested (ENABLE_S3_CONNECTOR=$ENABLE_S3_CONNECTOR)"
+        fi
+      fi
+      
+      # Check if POSIX gateway is requested
       if [ -n "$ENABLE_POSIX_GATEWAY" ] && [ "$ENABLE_POSIX_GATEWAY" = "true" ] && [ -n "$POSIX_GATEWAY_NAME" ]; then
         log "Creating POSIX storage gateway: $POSIX_GATEWAY_NAME"
         
@@ -287,10 +562,57 @@ if [ -n "$ENDPOINT_UUID" ]; then
             log "Extracted POSIX gateway ID: $GATEWAY_ID"
             echo "$GATEWAY_ID" > /home/ubuntu/posix-gateway-id.txt
             
+            # Automatically create a default collection for the POSIX gateway
+            log "Creating default POSIX collection..."
+            DEFAULT_POSIX_COLLECTION_NAME="${POSIX_GATEWAY_NAME}-collection"
+            POSIX_COLLECTION_CMD="globus-connect-server collection create --storage-gateway \"$GATEWAY_ID\" --display-name \"$DEFAULT_POSIX_COLLECTION_NAME\""
+            log "Running command: $POSIX_COLLECTION_CMD"
+            POSIX_COLLECTION_OUTPUT=$(eval $POSIX_COLLECTION_CMD 2>&1)
+            POSIX_COLLECTION_EXIT_CODE=$?
+            
+            # Save output for reference
+            echo "$POSIX_COLLECTION_OUTPUT" > /home/ubuntu/posix-collection-output.txt
+            
+            if [ $POSIX_COLLECTION_EXIT_CODE -eq 0 ]; then
+              log "Default POSIX collection created successfully"
+              
+              # Extract the collection ID from the output
+              POSIX_COLLECTION_ID=$(echo "$POSIX_COLLECTION_OUTPUT" | grep -i "id:" | awk '{print $2}' | head -1)
+              if [ -n "$POSIX_COLLECTION_ID" ]; then
+                log "Extracted POSIX collection ID: $POSIX_COLLECTION_ID"
+                echo "$POSIX_COLLECTION_ID" > /home/ubuntu/posix-collection-id.txt
+                echo "$DEFAULT_POSIX_COLLECTION_NAME" > /home/ubuntu/posix-collection-name.txt
+                
+                # Set permissions for the admin identity (if provided)
+                if [ -n "$COLLECTION_ADMIN" ]; then
+                  set_collection_permissions "$POSIX_COLLECTION_ID" "$COLLECTION_ADMIN" "$DEFAULT_POSIX_COLLECTION_NAME"
+                  POSIX_PERM_STATUS=$?
+                  if [ $POSIX_PERM_STATUS -eq 0 ]; then
+                    echo "true" > /home/ubuntu/posix-collection-permissions-set.txt
+                    log "Successfully set permissions for POSIX collection"
+                  else
+                    echo "false" > /home/ubuntu/posix-collection-permissions-set.txt
+                    log "Failed to set permissions for POSIX collection"
+                  fi
+                else
+                  log "No collection admin specified. POSIX collection will only be accessible to the service account."
+                  echo "false" > /home/ubuntu/posix-collection-permissions-set.txt
+                fi
+              else
+                log "Could not extract POSIX collection ID from output"
+              fi
+            else
+              log "Failed to create default POSIX collection with exit code $POSIX_COLLECTION_EXIT_CODE"
+              echo "$POSIX_COLLECTION_OUTPUT" > /home/ubuntu/POSIX_COLLECTION_FAILED.txt
+            fi
+            
             # Create a helper script to create collections manually
             cat > /home/ubuntu/create-posix-collection.sh << EOF
 #!/bin/bash
 # Helper script to create a collection for the POSIX gateway
+
+# Setup environment variables for Globus commands
+source /home/ubuntu/globus-env.sh
 
 # Check if we have the gateway ID
 GATEWAY_ID=\$(cat /home/ubuntu/posix-gateway-id.txt 2>/dev/null)
@@ -308,16 +630,6 @@ if [ -z "\$COLLECTION_NAME" ]; then
     echo "ERROR: Collection name is required."
     exit 1
   fi
-fi
-
-# Set environment variables
-if [ -f /home/ubuntu/globus-client-id.txt ] && [ -f /home/ubuntu/globus-client-secret.txt ]; then
-  export GCS_CLI_CLIENT_ID=\$(cat /home/ubuntu/globus-client-id.txt)
-  export GCS_CLI_CLIENT_SECRET=\$(cat /home/ubuntu/globus-client-secret.txt)
-fi
-
-if [ -f /home/ubuntu/endpoint-uuid.txt ]; then
-  export GCS_CLI_ENDPOINT_ID=\$(cat /home/ubuntu/endpoint-uuid.txt)
 fi
 
 # Create the collection
@@ -388,16 +700,59 @@ else
   fi
 fi
 
+# Create a script to setup environment variables for Globus commands
+cat > /home/ubuntu/globus-env.sh << 'EOF'
+#!/bin/bash
+# Helper script to set up Globus credentials environment variables
+
+# Set client credentials
+if [ -f /home/ubuntu/globus-client-id.txt ] && [ -f /home/ubuntu/globus-client-secret.txt ]; then
+  export GCS_CLI_CLIENT_ID=$(cat /home/ubuntu/globus-client-id.txt)
+  export GCS_CLI_CLIENT_SECRET=$(cat /home/ubuntu/globus-client-secret.txt)
+  echo "✓ Set GCS_CLI_CLIENT_ID and GCS_CLI_CLIENT_SECRET"
+else
+  echo "⚠️  Warning: Client credentials files not found"
+fi
+
+# Set endpoint ID
+if [ -f /home/ubuntu/endpoint-uuid.txt ]; then
+  export GCS_CLI_ENDPOINT_ID=$(cat /home/ubuntu/endpoint-uuid.txt)
+  echo "✓ Set GCS_CLI_ENDPOINT_ID to $(cat /home/ubuntu/endpoint-uuid.txt)"
+else
+  echo "⚠️  Warning: Endpoint UUID file not found"
+fi
+
+# Set node ID (for reference, not a standard environment variable)
+if [ -f /home/ubuntu/node-id.txt ]; then
+  export GLOBUS_NODE_ID=$(cat /home/ubuntu/node-id.txt)
+  echo "✓ Set GLOBUS_NODE_ID to $(cat /home/ubuntu/node-id.txt)"
+else
+  echo "ℹ️  Node ID file not found (node may not be set up yet)"
+fi
+
+# Show what's been set
+echo ""
+echo "Environment variables set:"
+echo "-------------------------"
+echo "GCS_CLI_CLIENT_ID=${GCS_CLI_CLIENT_ID:0:8}..."
+echo "GCS_CLI_CLIENT_SECRET=${GCS_CLI_CLIENT_SECRET:0:5}..."
+[ -n "$GCS_CLI_ENDPOINT_ID" ] && echo "GCS_CLI_ENDPOINT_ID=$GCS_CLI_ENDPOINT_ID"
+[ -n "$GLOBUS_NODE_ID" ] && echo "GLOBUS_NODE_ID=$GLOBUS_NODE_ID (for reference)"
+echo ""
+echo "You can now run globus-connect-server commands directly."
+echo "Example: globus-connect-server endpoint show"
+EOF
+
+chmod +x /home/ubuntu/globus-env.sh
+chown ubuntu:ubuntu /home/ubuntu/globus-env.sh
+
 # Create a simple helper script to show endpoint details
 cat > /home/ubuntu/show-endpoint.sh << 'EOF'
 #!/bin/bash
 # Helper script to show Globus endpoint details
 
-# Set credentials
-if [ -f /home/ubuntu/globus-client-id.txt ] && [ -f /home/ubuntu/globus-client-secret.txt ]; then
-  export GCS_CLI_CLIENT_ID=$(cat /home/ubuntu/globus-client-id.txt)
-  export GCS_CLI_CLIENT_SECRET=$(cat /home/ubuntu/globus-client-secret.txt)
-fi
+# Source the credentials environment variables
+source /home/ubuntu/globus-env.sh
 
 # Check if we have UUID
 if [ -f /home/ubuntu/endpoint-uuid.txt ]; then
@@ -432,13 +787,14 @@ cat > /home/ubuntu/globus-cli-examples.sh << 'EOF'
 #!/bin/bash
 # Helper script with common Globus CLI commands
 
-ENDPOINT_UUID=""
-if [ -f /home/ubuntu/endpoint-uuid.txt ]; then
-  ENDPOINT_UUID=$(cat /home/ubuntu/endpoint-uuid.txt)
-fi
+# Setup environment variables for Globus commands
+source /home/ubuntu/globus-env.sh
+
+# Get the endpoint UUID
+ENDPOINT_UUID="$GCS_CLI_ENDPOINT_ID"
 
 if [ -z "$ENDPOINT_UUID" ]; then
-  echo "No endpoint UUID found. Run show-endpoint.sh first to get the UUID."
+  echo "No endpoint UUID found. Make sure globus-env.sh properly sets the UUID."
   exit 1
 fi
 
@@ -475,14 +831,85 @@ chown ubuntu:ubuntu /home/ubuntu/globus-cli-examples.sh
 # Create deployment summary
 NODE_SETUP_STATUS=$([ -f /home/ubuntu/node-setup-output.txt ] && echo "Completed" || echo "Not completed")
 PUBLIC_IP=$(cat /home/ubuntu/public-ip.txt 2>/dev/null || echo "Not detected")
+NODE_ID=$(cat /home/ubuntu/node-id.txt 2>/dev/null || echo "Not extracted")
+
+# Determine which admin identity is being used
+if [ -f /home/ubuntu/effective-collection-admin.txt ]; then
+  EFFECTIVE_ADMIN=$(cat /home/ubuntu/effective-collection-admin.txt)
+else
+  EFFECTIVE_ADMIN="none specified"
+fi
+
+# Check if S3 gateway was created
+S3_GATEWAY_STATUS="Not configured"
+S3_GATEWAY_ID=""
+S3_COLLECTION_STATUS="None"
+S3_COLLECTION_ID=""
+S3_COLLECTION_NAME=""
+S3_COLLECTION_PERM_STATUS=""
+
+if [ -f /home/ubuntu/s3-gateway-id.txt ]; then
+  S3_GATEWAY_ID=$(cat /home/ubuntu/s3-gateway-id.txt)
+  S3_GATEWAY_STATUS="Created - ID: $S3_GATEWAY_ID"
+  
+  if [ -f /home/ubuntu/s3-collection-id.txt ] && [ -f /home/ubuntu/s3-collection-name.txt ]; then
+    S3_COLLECTION_ID=$(cat /home/ubuntu/s3-collection-id.txt)
+    S3_COLLECTION_NAME=$(cat /home/ubuntu/s3-collection-name.txt)
+    S3_COLLECTION_STATUS="Created - Name: $S3_COLLECTION_NAME, ID: $S3_COLLECTION_ID"
+    
+    if [ -f /home/ubuntu/s3-collection-permissions-set.txt ]; then
+      S3_PERM_SET=$(cat /home/ubuntu/s3-collection-permissions-set.txt)
+      if [ "$S3_PERM_SET" = "true" ]; then
+        S3_COLLECTION_PERM_STATUS="Permissions granted to $EFFECTIVE_ADMIN"
+      else
+        if [ -f "/home/ubuntu/${S3_COLLECTION_NAME}_PERMISSION_FAILED.txt" ]; then
+          S3_COLLECTION_PERM_STATUS="Failed to set permissions - See ${S3_COLLECTION_NAME}_PERMISSION_FAILED.txt"
+        elif [ -z "$EFFECTIVE_ADMIN" ]; then
+          S3_COLLECTION_PERM_STATUS="No admin identity specified - only service account has access"
+        else
+          S3_COLLECTION_PERM_STATUS="Unknown permission status"
+        fi
+      fi
+    fi
+  elif [ -f /home/ubuntu/S3_COLLECTION_FAILED.txt ]; then
+    S3_COLLECTION_STATUS="Failed to create - See S3_COLLECTION_FAILED.txt"
+  fi
+fi
 
 # Check if POSIX gateway was created
 POSIX_GATEWAY_STATUS="Not configured"
 POSIX_GATEWAY_ID=""
+POSIX_COLLECTION_STATUS="None"
+POSIX_COLLECTION_ID=""
+POSIX_COLLECTION_NAME=""
+POSIX_COLLECTION_PERM_STATUS=""
 
 if [ -f /home/ubuntu/posix-gateway-id.txt ]; then
   POSIX_GATEWAY_ID=$(cat /home/ubuntu/posix-gateway-id.txt)
   POSIX_GATEWAY_STATUS="Created - ID: $POSIX_GATEWAY_ID"
+  
+  if [ -f /home/ubuntu/posix-collection-id.txt ] && [ -f /home/ubuntu/posix-collection-name.txt ]; then
+    POSIX_COLLECTION_ID=$(cat /home/ubuntu/posix-collection-id.txt)
+    POSIX_COLLECTION_NAME=$(cat /home/ubuntu/posix-collection-name.txt)
+    POSIX_COLLECTION_STATUS="Created - Name: $POSIX_COLLECTION_NAME, ID: $POSIX_COLLECTION_ID"
+    
+    if [ -f /home/ubuntu/posix-collection-permissions-set.txt ]; then
+      POSIX_PERM_SET=$(cat /home/ubuntu/posix-collection-permissions-set.txt)
+      if [ "$POSIX_PERM_SET" = "true" ]; then
+        POSIX_COLLECTION_PERM_STATUS="Permissions granted to $EFFECTIVE_ADMIN"
+      else
+        if [ -f "/home/ubuntu/${POSIX_COLLECTION_NAME}_PERMISSION_FAILED.txt" ]; then
+          POSIX_COLLECTION_PERM_STATUS="Failed to set permissions - See ${POSIX_COLLECTION_NAME}_PERMISSION_FAILED.txt"
+        elif [ -z "$EFFECTIVE_ADMIN" ]; then
+          POSIX_COLLECTION_PERM_STATUS="No admin identity specified - only service account has access"
+        else
+          POSIX_COLLECTION_PERM_STATUS="Unknown permission status"
+        fi
+      fi
+    fi
+  elif [ -f /home/ubuntu/POSIX_COLLECTION_FAILED.txt ]; then
+    POSIX_COLLECTION_STATUS="Failed to create - See POSIX_COLLECTION_FAILED.txt"
+  fi
 fi
 
 # Check subscription status
@@ -511,21 +938,43 @@ Endpoint Details:
 Node Setup:
 - Status: $NODE_SETUP_STATUS
 - Public IP: $PUBLIC_IP
+- Node ID: $NODE_ID
+- Node Details: $([ -f /home/ubuntu/node-details.txt ] && echo "Available in /home/ubuntu/node-details.txt" || echo "Not available")
 - Node Command: sudo globus-connect-server node setup --ip-address $PUBLIC_IP
+- Node List Command: globus-connect-server node list
 
 Subscription Status:
 - Status: $SUBSCRIPTION_STATUS
 
+Collection Access:
+- Admin Identity: ${EFFECTIVE_ADMIN:-None specified}
+  $([ -z "$EFFECTIVE_ADMIN" ] && echo "  WARNING: No admin identity specified. Only the service account ($GLOBUS_OWNER) will have access." || echo "")
+
 Storage Gateways:
+- S3 Gateway: $S3_GATEWAY_STATUS
+  $([ -n "$S3_BUCKET_NAME" ] && echo "  S3 Bucket: $S3_BUCKET_NAME" || echo "")
+  $([ -f /home/ubuntu/s3-gateway-id.txt ] && echo "  Gateway ID: $(cat /home/ubuntu/s3-gateway-id.txt)" || echo "")
+  Collection: $S3_COLLECTION_STATUS
+  $([ -n "$S3_COLLECTION_PERM_STATUS" ] && echo "  Permissions: $S3_COLLECTION_PERM_STATUS" || echo "")
+  
 - POSIX Gateway: $POSIX_GATEWAY_STATUS
+  $([ -f /home/ubuntu/posix-gateway-id.txt ] && echo "  Gateway ID: $(cat /home/ubuntu/posix-gateway-id.txt)" || echo "")
+  Collection: $POSIX_COLLECTION_STATUS
+  $([ -n "$POSIX_COLLECTION_PERM_STATUS" ] && echo "  Permissions: $POSIX_COLLECTION_PERM_STATUS" || echo "")
 
 Access Information:
 - Endpoint URL: https://app.globus.org/file-manager?origin_id=${ENDPOINT_UUID:-MISSING_UUID}
 
 Helper Scripts:
+- /home/ubuntu/globus-env.sh: Setup Globus credentials environment variables 
 - /home/ubuntu/show-endpoint.sh: Show endpoint details
 - /home/ubuntu/globus-cli-examples.sh: Examples of common Globus CLI commands
 $([ -f /home/ubuntu/create-posix-collection.sh ] && echo "- /home/ubuntu/create-posix-collection.sh: Create collections for POSIX gateway" || echo "")
+$([ -f /home/ubuntu/create-s3-collection.sh ] && echo "- /home/ubuntu/create-s3-collection.sh: Create collections for S3 gateway" || echo "")
+
+To run Globus commands manually:
+$ source /home/ubuntu/globus-env.sh
+$ globus-connect-server endpoint show
 
 Service Status:
 - Apache2: $(systemctl is-active apache2 2>/dev/null || echo "Unknown")
