@@ -421,7 +421,7 @@ Resources:
           export DEFAULT_ADMIN_IDENTITY="${DefaultAdminIdentity}"
           
           # Debug configuration
-          export DEBUG_PRESERVE_INSTANCE="${DebugPreserveInstance}"
+          export PRESERVE_INSTANCE="${DebugPreserveInstance}"
           
           # Download the installation script
           echo "Downloading Globus setup script from ${ScriptUrl}"
@@ -446,8 +446,8 @@ Resources:
           # Check setup result
           if [ $SETUP_EXIT_CODE -ne 0 ]; then
             echo "Globus setup script failed with exit code: $SETUP_EXIT_CODE" > /home/ubuntu/SETUP_FAILED.txt
-            # Don't signal failure to CloudFormation if DEBUG_PRESERVE_INSTANCE=true
-            if [[ "${DEBUG_PRESERVE_INSTANCE:-false}" == "false" ]]; then
+            # Don't signal failure to CloudFormation if in debug mode
+            if [[ "$PRESERVE_INSTANCE" == "false" ]]; then
               echo "Signaling failure to CloudFormation (instance will be deleted)" >> /home/ubuntu/SETUP_FAILED.txt
               signal_cf 1
               exit 1
