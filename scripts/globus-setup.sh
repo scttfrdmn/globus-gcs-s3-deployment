@@ -169,6 +169,40 @@ if [ -n "$ENDPOINT_UUID" ]; then
   # Create endpoint URL file
   echo "https://app.globus.org/file-manager?origin_id=$ENDPOINT_UUID" > /home/ubuntu/endpoint-url.txt
   
+  # Check if a subscription ID was provided to make the endpoint managed
+  if [ -n "$GLOBUS_SUBSCRIPTION_ID" ]; then
+    log "Associating endpoint with subscription ID: $GLOBUS_SUBSCRIPTION_ID"
+    
+    # Save subscription ID to file for reference
+    echo "$GLOBUS_SUBSCRIPTION_ID" > /home/ubuntu/subscription-id.txt
+    
+    # Run the command to set the subscription ID
+    log "Running: globus-connect-server endpoint update --subscription-id $GLOBUS_SUBSCRIPTION_ID"
+    SUBSCRIPTION_OUTPUT=$(globus-connect-server endpoint update --subscription-id "$GLOBUS_SUBSCRIPTION_ID" 2>&1)
+    SUBSCRIPTION_EXIT_CODE=$?
+    
+    # Save output to file
+    echo "$SUBSCRIPTION_OUTPUT" > /home/ubuntu/subscription-update-output.txt
+    
+    if [ $SUBSCRIPTION_EXIT_CODE -eq 0 ]; then
+      log "Successfully associated endpoint with subscription"
+      echo "Endpoint is now managed under subscription ID: $GLOBUS_SUBSCRIPTION_ID" > /home/ubuntu/SUBSCRIPTION_SUCCESS.txt
+      echo "$SUBSCRIPTION_OUTPUT" >> /home/ubuntu/SUBSCRIPTION_SUCCESS.txt
+    else
+      log "Failed to associate endpoint with subscription"
+      echo "ERROR: Failed to associate endpoint with subscription ID: $GLOBUS_SUBSCRIPTION_ID" > /home/ubuntu/SUBSCRIPTION_FAILED.txt
+      echo "Command: globus-connect-server endpoint update --subscription-id $GLOBUS_SUBSCRIPTION_ID" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
+      echo "Exit code: $SUBSCRIPTION_EXIT_CODE" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
+      echo "Output: $SUBSCRIPTION_OUTPUT" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
+      echo "" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
+      echo "Note: Setting a subscription requires the Globus owner to have subscription manager rights" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
+      echo "To manually set the subscription later, run:" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
+      echo "globus-connect-server endpoint update --subscription-id $GLOBUS_SUBSCRIPTION_ID" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
+    fi
+  else
+    log "No subscription ID provided, endpoint will have basic features only"
+  fi
+  
   # Now run the node setup command with the public IP
   log "Now setting up the Globus Connect Server node..."
   
@@ -447,6 +481,17 @@ if [ -f /home/ubuntu/posix-gateway-id.txt ]; then
   POSIX_GATEWAY_STATUS="Created - ID: $POSIX_GATEWAY_ID"
 fi
 
+# Check subscription status
+SUBSCRIPTION_STATUS="Basic (unmanaged)"
+if [ -f /home/ubuntu/SUBSCRIPTION_SUCCESS.txt ]; then
+  SUBSCRIPTION_ID=$(cat /home/ubuntu/subscription-id.txt 2>/dev/null || echo "Unknown")
+  SUBSCRIPTION_STATUS="Managed - ID: $SUBSCRIPTION_ID"
+elif [ -f /home/ubuntu/SUBSCRIPTION_FAILED.txt ]; then
+  SUBSCRIPTION_STATUS="Failed to set subscription - See SUBSCRIPTION_FAILED.txt"
+elif [ -n "$GLOBUS_SUBSCRIPTION_ID" ]; then
+  SUBSCRIPTION_STATUS="Attempted to set subscription ID: $GLOBUS_SUBSCRIPTION_ID (status unknown)"
+fi
+
 cat > /home/ubuntu/deployment-summary.txt << EOF
 === Globus Connect Server Deployment Summary ===
 Deployment completed: $(date)
@@ -463,6 +508,9 @@ Node Setup:
 - Status: $NODE_SETUP_STATUS
 - Public IP: $PUBLIC_IP
 - Node Command: sudo globus-connect-server node setup --ip-address $PUBLIC_IP
+
+Subscription Status:
+- Status: $SUBSCRIPTION_STATUS
 
 Storage Gateways:
 - POSIX Gateway: $POSIX_GATEWAY_STATUS

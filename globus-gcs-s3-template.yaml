@@ -389,6 +389,9 @@ Resources:
           export GLOBUS_CONTACT_EMAIL="${GlobusContactEmail}"
           export GLOBUS_PROJECT_ID="${GlobusProjectId}"
           
+          # Optional subscription ID for managed endpoint
+          export GLOBUS_SUBSCRIPTION_ID="${GlobusSubscriptionId}"
+          
           # Optional POSIX gateway configuration
           export ENABLE_POSIX_GATEWAY="${EnablePOSIXGateway}"
           export POSIX_GATEWAY_NAME="${POSIXGatewayName}"
