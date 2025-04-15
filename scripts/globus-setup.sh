@@ -495,7 +495,7 @@ if [ -n "$ENDPOINT_UUID" ]; then
         S3_GATEWAY_DOMAIN_VALUE=$(cat /home/ubuntu/s3-gateway-domain.txt)
         
         # Set appropriate S3 command parameters
-        S3_CMD="globus-connect-server storage-gateway create s3 --display-name \"$S3_GATEWAY_DISPLAY_NAME_VALUE\" --s3-endpoint https://s3.amazonaws.com --s3-user-credential"
+        S3_CMD="globus-connect-server storage-gateway create s3 --s3-endpoint https://s3.amazonaws.com --s3-user-credential"
         
         # Add domain parameter if defined and not empty (and not the default "NONE" value)
         if [ -n "$S3_GATEWAY_DOMAIN_VALUE" ] && [ "$S3_GATEWAY_DOMAIN_VALUE" != "NONE" ] && [ "$S3_GATEWAY_DOMAIN_VALUE" != "MISSING" ]; then
@@ -504,9 +504,6 @@ if [ -n "$ENDPOINT_UUID" ]; then
         else
             debug_log "No domain specified, omitting domain parameter"
         fi
-        
-        # Add bucket name
-        S3_CMD="$S3_CMD \"$S3_BUCKET_NAME\""
         
         log "Running command: $S3_CMD"
         debug_log "Environment for S3 gateway creation: GCS_CLI_CLIENT_ID=${GCS_CLI_CLIENT_ID:0:5}..., GCS_CLI_CLIENT_SECRET=${GCS_CLI_CLIENT_SECRET:0:3}..., GCS_CLI_ENDPOINT_ID=$GCS_CLI_ENDPOINT_ID"
@@ -641,6 +638,8 @@ Common issues:
 3. S3 bucket doesn't exist or is in a different region
 4. S3 bucket format is incorrect
 
+Command format: globus-connect-server storage-gateway create s3 [OPTIONS]
+
 Command attempted: $S3_CMD
 Exit code: $S3_EXIT_CODE
 Output: 
@@ -648,6 +647,9 @@ $S3_OUTPUT
 
 To set up manually after fixing the issue, run:
 $S3_CMD
+
+You can also get command help with:
+globus-connect-server storage-gateway create s3 --help
 EOF
         fi
       else
