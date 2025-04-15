@@ -121,10 +121,11 @@ fi
 
 # Execute the setup command and capture output
 log "Running endpoint setup command..."
+log "Command: $SETUP_CMD \"$GLOBUS_DISPLAY_NAME\""
 SETUP_OUTPUT=$(eval $SETUP_CMD "\"$GLOBUS_DISPLAY_NAME\"" 2>&1)
 SETUP_EXIT_CODE=$?
 
-# Save output to file
+# Save raw output to file for debugging
 echo "$SETUP_OUTPUT" > /home/ubuntu/endpoint-setup-output.txt
 
 # Check setup result
@@ -134,21 +135,43 @@ if [ $SETUP_EXIT_CODE -ne 0 ]; then
   exit 1
 fi
 
-# Extract endpoint UUID from output
+# Extract endpoint UUID from output, looking specifically for the "Created endpoint UUID" pattern
 log "Extracting endpoint UUID from command output..."
-ENDPOINT_UUID=$(echo "$SETUP_OUTPUT" | grep -o -E "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
+# First try to find the line with "Created endpoint" which contains the UUID
+CREATED_LINE=$(echo "$SETUP_OUTPUT" | grep "Created endpoint")
+if [ -n "$CREATED_LINE" ]; then
+  # Extract UUID from the Created endpoint line
+  ENDPOINT_UUID=$(echo "$CREATED_LINE" | grep -o -E "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+  log "Found UUID in 'Created endpoint' line: $ENDPOINT_UUID"
+else
+  # Fallback to scanning entire output for UUID pattern
+  ENDPOINT_UUID=$(echo "$SETUP_OUTPUT" | grep -o -E "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
+  log "Extracted UUID using pattern matching: $ENDPOINT_UUID"
+fi
+
+# Save domain name if present
+DOMAIN_NAME=$(echo "$SETUP_OUTPUT" | grep "domain_name" | awk '{print $2}')
+if [ -n "$DOMAIN_NAME" ]; then
+  log "Found domain name: $DOMAIN_NAME"
+  echo "$DOMAIN_NAME" > /home/ubuntu/endpoint-domain.txt
+fi
 
 if [ -n "$ENDPOINT_UUID" ]; then
   log "Successfully extracted endpoint UUID: $ENDPOINT_UUID"
-  # Save UUID to file
+  # Save UUID to various locations for reliability
   echo "$ENDPOINT_UUID" > /home/ubuntu/endpoint-uuid.txt
+  echo "ENDPOINT_UUID=$ENDPOINT_UUID" > /home/ubuntu/endpoint-uuid-export.sh
+  chmod +x /home/ubuntu/endpoint-uuid-export.sh
+  
+  # Set environment variable for current session
   export GCS_CLI_ENDPOINT_ID="$ENDPOINT_UUID"
   
   # Create endpoint URL file
   echo "https://app.globus.org/file-manager?origin_id=$ENDPOINT_UUID" > /home/ubuntu/endpoint-url.txt
 else
-  log "Could not extract endpoint UUID from output"
+  log "Could not extract endpoint UUID from direct output"
   # Try to get endpoint details
+  log "Attempting to retrieve endpoint details with endpoint show command..."
   ENDPOINT_SHOW=$(globus-connect-server endpoint show 2>&1)
   echo "$ENDPOINT_SHOW" > /home/ubuntu/endpoint-details.txt
   
@@ -158,8 +181,16 @@ else
   if [ -n "$ENDPOINT_UUID" ]; then
     log "Found endpoint UUID from show command: $ENDPOINT_UUID"
     echo "$ENDPOINT_UUID" > /home/ubuntu/endpoint-uuid.txt
+    echo "ENDPOINT_UUID=$ENDPOINT_UUID" > /home/ubuntu/endpoint-uuid-export.sh
+    chmod +x /home/ubuntu/endpoint-uuid-export.sh
     export GCS_CLI_ENDPOINT_ID="$ENDPOINT_UUID"
     echo "https://app.globus.org/file-manager?origin_id=$ENDPOINT_UUID" > /home/ubuntu/endpoint-url.txt
+  else
+    log "WARNING: Could not extract endpoint UUID by any method"
+    # Create a file to record this error
+    echo "ERROR: Unable to extract endpoint UUID" > /home/ubuntu/MISSING_UUID.txt
+    echo "Please examine endpoint-setup-output.txt manually to find the UUID" >> /home/ubuntu/MISSING_UUID.txt
+    echo "Example of created endpoint line: 'Created endpoint 6695cdaf-818d-4a5d-b5fc-06e86c8a0a4b'" >> /home/ubuntu/MISSING_UUID.txt
   fi
 fi
 
