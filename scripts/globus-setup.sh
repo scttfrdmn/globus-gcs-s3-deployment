@@ -44,39 +44,9 @@ debug_log() {
   echo "=== DEBUG: $(date) - $* ===" >> "/home/ubuntu/debug.log" 2>/dev/null || true
 }
 
-# Function to set permissions on a collection
-set_collection_permissions() {
-  local collection_id=$1
-  local admin_identity=$2
-  local collection_name=$3
-  
-  if [ -z "$admin_identity" ]; then
-    log "No admin identity provided for collection $collection_name ($collection_id). Skipping permission setup."
-    return 0
-  fi
-
-  log "Setting permissions for collection $collection_name ($collection_id)..."
-  log "Granting read/write access to $admin_identity"
-  
-  PERM_CMD="globus-connect-server endpoint permission create --identity \"$admin_identity\" --permissions rw --collection $collection_id"
-  log "Running command: $PERM_CMD"
-  
-  PERM_OUTPUT=$(eval $PERM_CMD 2>&1)
-  PERM_EXIT_CODE=$?
-  
-  if [ $PERM_EXIT_CODE -eq 0 ]; then
-    log "Successfully granted permissions to $admin_identity for collection $collection_id"
-    echo "$PERM_OUTPUT" > "/home/ubuntu/$collection_id-permissions.txt"
-    return 0
-  else
-    log "Failed to set permissions for collection $collection_id with exit code $PERM_EXIT_CODE"
-    echo "Failed to set permissions for collection $collection_name ($collection_id)" > "/home/ubuntu/${collection_name}_PERMISSION_FAILED.txt"
-    echo "Command: $PERM_CMD" >> "/home/ubuntu/${collection_name}_PERMISSION_FAILED.txt"
-    echo "Exit code: $PERM_EXIT_CODE" >> "/home/ubuntu/${collection_name}_PERMISSION_FAILED.txt"
-    echo "Output: $PERM_OUTPUT" >> "/home/ubuntu/${collection_name}_PERMISSION_FAILED.txt"
-    return 1
-  fi
-}
+# Note: The collection permissions function has been removed as collection setup is 
+# now performed via the web UI. The create-permissions.sh script will be created to help
+# with manual setup of collections after deployment.
 
 # Make sure /home/ubuntu exists and is writable
 mkdir -p /home/ubuntu 2>/dev/null || true
@@ -561,91 +531,38 @@ EOFSUBSCRIPTION
             log "Extracted S3 gateway ID: $S3_GATEWAY_ID"
             echo "$S3_GATEWAY_ID" > /home/ubuntu/s3-gateway-id.txt
             
-            # Automatically create a default collection for the S3 gateway
-            log "Creating default S3 collection..."
-            DEFAULT_S3_COLLECTION_NAME="${S3_BUCKET_NAME}-collection"
-            S3_COLLECTION_CMD="globus-connect-server collection create --storage-gateway \"$S3_GATEWAY_ID\" --display-name \"$DEFAULT_S3_COLLECTION_NAME\""
-            log "Running command: $S3_COLLECTION_CMD"
-            S3_COLLECTION_OUTPUT=$(eval $S3_COLLECTION_CMD 2>&1)
-            S3_COLLECTION_EXIT_CODE=$?
+            # Skip automatic collection creation for S3 gateway
+            log "S3 gateway created successfully. Collection setup skipped - use web UI for collection creation"
+            echo "S3 gateway created successfully. To create collections:" > /home/ubuntu/s3-collection-info.txt
+            echo "1. Log in to https://app.globus.org" >> /home/ubuntu/s3-collection-info.txt
+            echo "2. Go to the Endpoints tab" >> /home/ubuntu/s3-collection-info.txt
+            echo "3. Find and click on your endpoint (${GLOBUS_DISPLAY_NAME})" >> /home/ubuntu/s3-collection-info.txt
+            echo "4. Navigate to the Collections tab" >> /home/ubuntu/s3-collection-info.txt
+            echo "5. Click 'Add a Collection' and follow the instructions" >> /home/ubuntu/s3-collection-info.txt
             
-            # Save output for reference
-            echo "$S3_COLLECTION_OUTPUT" > /home/ubuntu/s3-collection-output.txt
-            
-            if [ $S3_COLLECTION_EXIT_CODE -eq 0 ]; then
-              log "Default S3 collection created successfully"
-              
-              # Extract the collection ID from the output
-              S3_COLLECTION_ID=$(echo "$S3_COLLECTION_OUTPUT" | grep -i "id:" | awk '{print $2}' | head -1)
-              if [ -n "$S3_COLLECTION_ID" ]; then
-                log "Extracted S3 collection ID: $S3_COLLECTION_ID"
-                echo "$S3_COLLECTION_ID" > /home/ubuntu/s3-collection-id.txt
-                echo "$DEFAULT_S3_COLLECTION_NAME" > /home/ubuntu/s3-collection-name.txt
-                
-                # Set permissions for the admin identity (if provided)
-                if [ -n "$COLLECTION_ADMIN" ]; then
-                  set_collection_permissions "$S3_COLLECTION_ID" "$COLLECTION_ADMIN" "$DEFAULT_S3_COLLECTION_NAME"
-                  S3_PERM_STATUS=$?
-                  if [ $S3_PERM_STATUS -eq 0 ]; then
-                    echo "true" > /home/ubuntu/s3-collection-permissions-set.txt
-                    log "Successfully set permissions for S3 collection"
-                  else
-                    echo "false" > /home/ubuntu/s3-collection-permissions-set.txt
-                    log "Failed to set permissions for S3 collection"
-                  fi
-                else
-                  log "No collection admin specified. S3 collection will only be accessible to the service account."
-                  echo "false" > /home/ubuntu/s3-collection-permissions-set.txt
-                fi
-              else
-                log "Could not extract S3 collection ID from output"
-              fi
-            else
-              log "Failed to create default S3 collection with exit code $S3_COLLECTION_EXIT_CODE"
-              echo "$S3_COLLECTION_OUTPUT" > /home/ubuntu/S3_COLLECTION_FAILED.txt
-            fi
-            
-            # Create a helper script to create S3 collections
-            cat > /home/ubuntu/create-s3-collection.sh << EOF
-#!/bin/bash
-# Helper script to create a collection for the S3 gateway
+            # Note about using the general collection helper script
+            cat > /home/ubuntu/s3-helper-readme.txt << EOF
+S3 Gateway has been created. 
 
-# Setup environment variables for Globus commands
-source /home/ubuntu/globus-env.sh
+To create collections and set permissions, use the create-collection.sh script:
 
-# Check if we have the gateway ID
-S3_GATEWAY_ID=\$(cat /home/ubuntu/s3-gateway-id.txt 2>/dev/null)
-if [ -z "\$S3_GATEWAY_ID" ]; then
-  echo "ERROR: S3 Gateway ID not found. Please make sure the S3 gateway was created."
-  exit 1
-fi
+1. First list the gateways:
+   ./create-collection.sh --list-gateways
 
-# Get collection name from argument or prompt
-COLLECTION_NAME="\$1"
-if [ -z "\$COLLECTION_NAME" ]; then
-  echo -n "Enter collection name: "
-  read COLLECTION_NAME
-  if [ -z "\$COLLECTION_NAME" ]; then
-    echo "ERROR: Collection name is required."
-    exit 1
-  fi
-fi
+2. Create a collection using your S3 gateway ID (replace XXX with your gateway ID and name):
+   ./create-collection.sh --create-collection XXX "My S3 Collection"
 
-# Create the collection
-echo "Creating collection \"\$COLLECTION_NAME\" for S3 gateway with ID \$S3_GATEWAY_ID..."
-globus-connect-server collection create --storage-gateway "\$S3_GATEWAY_ID" --display-name "\$COLLECTION_NAME"
+3. List collections to get the collection ID:
+   ./create-collection.sh --show-collections
 
-# Check the result
-if [ \$? -eq 0 ]; then
-  echo "Collection created successfully!"
-else
-  echo "Failed to create collection."
-  exit 1
-fi
+4. Set permissions on the collection (replace YYY with collection ID):
+   ./create-collection.sh --permissions YYY user@example.edu
+
+For more information, run:
+   ./create-collection.sh --help
 EOF
-            chmod +x /home/ubuntu/create-s3-collection.sh
-            chown ubuntu:ubuntu /home/ubuntu/create-s3-collection.sh
-            log "Created helper script for manually creating S3 collections: /home/ubuntu/create-s3-collection.sh"
+            chown ubuntu:ubuntu /home/ubuntu/s3-helper-readme.txt
+            log "Created helper information for using the collection helper script"
           else
             log "Could not extract S3 gateway ID from output"
           fi
@@ -733,87 +650,35 @@ EOF
             log "Extracted POSIX gateway ID: $GATEWAY_ID"
             echo "$GATEWAY_ID" > /home/ubuntu/posix-gateway-id.txt
             
-            # Automatically create a default collection for the POSIX gateway
-            log "Creating default POSIX collection..."
-            DEFAULT_POSIX_COLLECTION_NAME="${POSIX_GATEWAY_NAME}-collection"
-            POSIX_COLLECTION_CMD="globus-connect-server collection create --storage-gateway \"$GATEWAY_ID\" --display-name \"$DEFAULT_POSIX_COLLECTION_NAME\""
-            log "Running command: $POSIX_COLLECTION_CMD"
-            POSIX_COLLECTION_OUTPUT=$(eval $POSIX_COLLECTION_CMD 2>&1)
-            POSIX_COLLECTION_EXIT_CODE=$?
+            # Skip automatic collection creation for POSIX gateway
+            log "POSIX gateway created successfully. Collection setup skipped - use web UI for collection creation"
+            echo "POSIX gateway created successfully. To create collections:" > /home/ubuntu/posix-collection-info.txt
+            echo "1. Log in to https://app.globus.org" >> /home/ubuntu/posix-collection-info.txt
+            echo "2. Go to the Endpoints tab" >> /home/ubuntu/posix-collection-info.txt
+            echo "3. Find and click on your endpoint (${GLOBUS_DISPLAY_NAME})" >> /home/ubuntu/posix-collection-info.txt
+            echo "4. Navigate to the Collections tab" >> /home/ubuntu/posix-collection-info.txt
+            echo "5. Click 'Add a Collection' and follow the instructions" >> /home/ubuntu/posix-collection-info.txt
             
-            # Save output for reference
-            echo "$POSIX_COLLECTION_OUTPUT" > /home/ubuntu/posix-collection-output.txt
-            
-            if [ $POSIX_COLLECTION_EXIT_CODE -eq 0 ]; then
-              log "Default POSIX collection created successfully"
-              
-              # Extract the collection ID from the output
-              POSIX_COLLECTION_ID=$(echo "$POSIX_COLLECTION_OUTPUT" | grep -i "id:" | awk '{print $2}' | head -1)
-              if [ -n "$POSIX_COLLECTION_ID" ]; then
-                log "Extracted POSIX collection ID: $POSIX_COLLECTION_ID"
-                echo "$POSIX_COLLECTION_ID" > /home/ubuntu/posix-collection-id.txt
-                echo "$DEFAULT_POSIX_COLLECTION_NAME" > /home/ubuntu/posix-collection-name.txt
-                
-                # Set permissions for the admin identity (if provided)
-                if [ -n "$COLLECTION_ADMIN" ]; then
-                  set_collection_permissions "$POSIX_COLLECTION_ID" "$COLLECTION_ADMIN" "$DEFAULT_POSIX_COLLECTION_NAME"
-                  POSIX_PERM_STATUS=$?
-                  if [ $POSIX_PERM_STATUS -eq 0 ]; then
-                    echo "true" > /home/ubuntu/posix-collection-permissions-set.txt
-                    log "Successfully set permissions for POSIX collection"
-                  else
-                    echo "false" > /home/ubuntu/posix-collection-permissions-set.txt
-                    log "Failed to set permissions for POSIX collection"
-                  fi
-                else
-                  log "No collection admin specified. POSIX collection will only be accessible to the service account."
-                  echo "false" > /home/ubuntu/posix-collection-permissions-set.txt
-                fi
-              else
-                log "Could not extract POSIX collection ID from output"
-              fi
-            else
-              log "Failed to create default POSIX collection with exit code $POSIX_COLLECTION_EXIT_CODE"
-              echo "$POSIX_COLLECTION_OUTPUT" > /home/ubuntu/POSIX_COLLECTION_FAILED.txt
-            fi
-            
-            # Create a helper script to create collections manually
-            cat > /home/ubuntu/create-posix-collection.sh << EOF
-#!/bin/bash
-# Helper script to create a collection for the POSIX gateway
+            # Note about using the general collection helper script
+            cat > /home/ubuntu/posix-helper-readme.txt << EOF
+POSIX Gateway has been created. 
 
-# Setup environment variables for Globus commands
-source /home/ubuntu/globus-env.sh
+To create collections and set permissions, use the create-collection.sh script:
 
-# Check if we have the gateway ID
-GATEWAY_ID=\$(cat /home/ubuntu/posix-gateway-id.txt 2>/dev/null)
-if [ -z "\$GATEWAY_ID" ]; then
-  echo "ERROR: Gateway ID not found. Please make sure the POSIX gateway was created."
-  exit 1
-fi
+1. First list the gateways:
+   ./create-collection.sh --list-gateways
 
-# Get collection name from argument or prompt
-COLLECTION_NAME="\$1"
-if [ -z "\$COLLECTION_NAME" ]; then
-  echo -n "Enter collection name: "
-  read COLLECTION_NAME
-  if [ -z "\$COLLECTION_NAME" ]; then
-    echo "ERROR: Collection name is required."
-    exit 1
-  fi
-fi
+2. Create a collection using your POSIX gateway ID (replace XXX with your gateway ID and name):
+   ./create-collection.sh --create-collection XXX "My POSIX Collection"
 
-# Create the collection
-echo "Creating collection \"\$COLLECTION_NAME\" for POSIX gateway with ID \$GATEWAY_ID..."
-globus-connect-server collection create --storage-gateway "\$GATEWAY_ID" --display-name "\$COLLECTION_NAME"
+3. List collections to get the collection ID:
+   ./create-collection.sh --show-collections
 
-# Check the result
-if [ \$? -eq 0 ]; then
-  echo "Collection created successfully!"
-else
-  echo "Failed to create collection."
-  exit 1
-fi
+4. Set permissions on the collection (replace YYY with collection ID):
+   ./create-collection.sh --permissions YYY user@example.edu
+
+For more information, run:
+   ./create-collection.sh --help
 EOF
             chmod +x /home/ubuntu/create-posix-collection.sh
             chown ubuntu:ubuntu /home/ubuntu/create-posix-collection.sh

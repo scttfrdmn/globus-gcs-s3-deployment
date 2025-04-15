@@ -31,6 +31,11 @@ Parameters:
     Type: String
     Default: "https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/scripts/debug-deployment.sh"
     
+  CollectionScriptUrl:
+    Description: URL to the collection helper script
+    Type: String
+    Default: "https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/scripts/create-collection.sh"
+    
   DeploymentType:
     Description: Type of deployment (affects resource configuration)
     Type: String
@@ -523,13 +528,14 @@ Resources:
           # Mark bootstrap completion
           echo "Bootstrap completed at $(date)" > /home/ubuntu/BOOTSTRAP_COMPLETED.txt
           
-          # Download the diagnostic scripts for debugging
-          echo "Downloading diagnostics scripts..."
+          # Download the helper scripts
+          echo "Downloading helper scripts..."
           curl -s -L -o /home/ubuntu/collect-diagnostics.sh "${DiagnosticsScriptUrl}" || wget -q -O /home/ubuntu/collect-diagnostics.sh "${DiagnosticsScriptUrl}"
           curl -s -L -o /home/ubuntu/debug-deployment.sh "${DebugScriptUrl}" || wget -q -O /home/ubuntu/debug-deployment.sh "${DebugScriptUrl}"
+          curl -s -L -o /home/ubuntu/create-collection.sh "${CollectionScriptUrl}" || wget -q -O /home/ubuntu/create-collection.sh "${CollectionScriptUrl}"
           
           # Make the scripts executable
-          chmod +x /home/ubuntu/collect-diagnostics.sh /home/ubuntu/debug-deployment.sh
+          chmod +x /home/ubuntu/collect-diagnostics.sh /home/ubuntu/debug-deployment.sh /home/ubuntu/create-collection.sh
           chown ubuntu:ubuntu /home/ubuntu/collect-diagnostics.sh /home/ubuntu/debug-deployment.sh
           
           # Set directory permissions first
