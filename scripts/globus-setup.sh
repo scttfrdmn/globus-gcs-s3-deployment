@@ -176,6 +176,8 @@ chmod 755 /home/ubuntu
 # Save subscription and S3 information
 [ -n "$GLOBUS_SUBSCRIPTION_ID" ] && echo "$GLOBUS_SUBSCRIPTION_ID" > /home/ubuntu/subscription-id.txt || echo "NONE" > /home/ubuntu/subscription-id.txt
 [ -n "$S3_BUCKET_NAME" ] && echo "$S3_BUCKET_NAME" > /home/ubuntu/s3-bucket-name.txt || echo "NONE" > /home/ubuntu/s3-bucket-name.txt
+[ -n "$S3_GATEWAY_DISPLAY_NAME" ] && echo "$S3_GATEWAY_DISPLAY_NAME" > /home/ubuntu/s3-gateway-display-name.txt || echo "S3 Bucket Gateway" > /home/ubuntu/s3-gateway-display-name.txt
+[ -n "$S3_GATEWAY_DOMAIN" ] && echo "$S3_GATEWAY_DOMAIN" > /home/ubuntu/s3-gateway-domain.txt || echo "amazon.com" > /home/ubuntu/s3-gateway-domain.txt
 
 # Save admin identities
 [ -n "$COLLECTION_ADMIN_IDENTITY" ] && echo "$COLLECTION_ADMIN_IDENTITY" > /home/ubuntu/collection-admin-identity.txt || echo "NONE" > /home/ubuntu/collection-admin-identity.txt
@@ -446,8 +448,21 @@ if [ -n "$ENDPOINT_UUID" ]; then
         # Save S3 bucket name to file for reference
         echo "$S3_BUCKET_NAME" > /home/ubuntu/s3-bucket-name.txt
         
-        # Create the S3 gateway command
-        S3_CMD="globus-connect-server storage-gateway create s3 \"$S3_BUCKET_NAME\""
+        # Get S3 gateway display name
+        S3_GATEWAY_DISPLAY_NAME_VALUE=$(cat /home/ubuntu/s3-gateway-display-name.txt)
+        S3_GATEWAY_DOMAIN_VALUE=$(cat /home/ubuntu/s3-gateway-domain.txt)
+        
+        # Set appropriate S3 command parameters
+        S3_CMD="globus-connect-server storage-gateway create s3 --display-name \"$S3_GATEWAY_DISPLAY_NAME_VALUE\" --s3-endpoint https://s3.amazonaws.com --s3-user-credential"
+        
+        # Add domain parameter if defined and not empty
+        if [ -n "$S3_GATEWAY_DOMAIN_VALUE" ] && [ "$S3_GATEWAY_DOMAIN_VALUE" != "NONE" ]; then
+            S3_CMD="$S3_CMD --domain \"$S3_GATEWAY_DOMAIN_VALUE\""
+        fi
+        
+        # Add bucket name
+        S3_CMD="$S3_CMD \"$S3_BUCKET_NAME\""
+        
         log "Running command: $S3_CMD"
         debug_log "Environment for S3 gateway creation: GCS_CLI_CLIENT_ID=${GCS_CLI_CLIENT_ID:0:5}..., GCS_CLI_CLIENT_SECRET=${GCS_CLI_CLIENT_SECRET:0:3}..., GCS_CLI_ENDPOINT_ID=$GCS_CLI_ENDPOINT_ID"
         
@@ -455,7 +470,7 @@ if [ -n "$ENDPOINT_UUID" ]; then
         debug_log "Executing S3 gateway command now..."
         S3_OUTPUT=$(eval $S3_CMD 2>&1)
         S3_EXIT_CODE=$?
-        debug_log "S3 gateway command completed with exit code: $S3_EXIT_CODE"
+        debug_log "S3 gateway command completed with exit code: $S3_EXIT_CODE, bucket: $S3_BUCKET_NAME"
         
         # Save output for reference
         echo "$S3_OUTPUT" > /home/ubuntu/s3-gateway-output.txt
@@ -587,7 +602,7 @@ Output:
 $S3_OUTPUT
 
 To set up manually after fixing the issue, run:
-globus-connect-server storage-gateway create s3 "$S3_BUCKET_NAME"
+$S3_CMD
 EOF
         fi
       else

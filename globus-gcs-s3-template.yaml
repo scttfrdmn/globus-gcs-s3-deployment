@@ -143,6 +143,16 @@ Parameters:
     AllowedPattern: "[a-zA-Z0-9\\-\\.]{3,63}"
     ConstraintDescription: Bucket name must be between 3 and 63 characters, contain only letters, numbers, hyphens, and periods.
     
+  S3GatewayDisplayName:
+    Description: "Display name for the S3 storage gateway (REQUIRED when EnableS3Connector is true)."
+    Type: String
+    Default: "S3 Bucket Gateway"
+    
+  S3GatewayDomain:
+    Description: "Optional domain for the S3 storage gateway (usually 'amazon.com')."
+    Type: String
+    Default: "amazon.com"
+    
   GlobusDisplayName:
     Description: Display name for the Globus endpoint (REQUIRED - must be unique)
     Type: String
@@ -420,6 +430,8 @@ Resources:
           # Optional S3 connector configuration
           export ENABLE_S3_CONNECTOR="${EnableS3Connector}"
           export S3_BUCKET_NAME="${S3BucketName}"
+          export S3_GATEWAY_DISPLAY_NAME="${S3GatewayDisplayName}"
+          export S3_GATEWAY_DOMAIN="${S3GatewayDomain}"
           
           # Collection access configuration
           export COLLECTION_ADMIN_IDENTITY="${CollectionAdminIdentity}"
