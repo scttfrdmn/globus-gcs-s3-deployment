@@ -616,18 +616,71 @@ This complete deployment process gives you a fully functional Globus Connect Ser
 
 ## Cleaning Up Resources
 
-When you delete the CloudFormation stack, the EC2 instance is retained by default (using `DeletionPolicy: Retain`). This allows you to manually clean up the Globus endpoint registration before terminating the instance:
+When you delete the CloudFormation stack, the EC2 instance is retained by default (using `DeletionPolicy: Retain`). This is by design to prevent accidental deletion of Globus resources. 
+
+**IMPORTANT**: You must first clean up the Globus endpoint resources before deleting the CloudFormation stack, or the deletion may fail due to dependent resources. The stack provides a helper script that simplifies this process.
+
+### Using the Teardown Script (Recommended)
+
+1. SSH into the instance:
+   ```bash
+   # Get the public address
+   PUBLIC_DNS=$(aws cloudformation describe-stacks --stack-name globus-gcs \
+     --query "Stacks[0].Outputs[?OutputKey=='PublicDNS'].OutputValue" --output text)
+   
+   # Connect via SSH
+   ssh -i your-key-pair.pem ubuntu@$PUBLIC_DNS
+   ```
+
+2. Run the teardown script:
+   ```bash
+   # Execute the teardown script
+   bash /home/ubuntu/teardown-globus.sh
+   ```
+
+   This script will:
+   - Delete all collections
+   - Remove all storage gateways
+   - Delete the endpoint registration from Globus
+   - Stop Globus services
+   - Create a marker file indicating successful teardown
+
+3. After successful teardown, exit the instance and delete the CloudFormation stack:
+   ```bash
+   aws cloudformation delete-stack --stack-name globus-gcs
+   ```
+
+### Manual Teardown (Alternative)
+
+If the teardown script isn't available or encounters issues, you can manually clean up the Globus resources:
 
 ```bash
 # SSH into the instance
 ssh -i your-key-pair.pem ubuntu@$PUBLIC_DNS
 
-# Get the endpoint ID (either from show command or from the saved file if using existing endpoint)
-if [ -f /home/ubuntu/existing-endpoint-id.txt ]; then
-  ENDPOINT_ID=$(cat /home/ubuntu/existing-endpoint-id.txt)
-else
-  ENDPOINT_ID=$(globus-connect-server endpoint show | grep -E 'UUID|ID' | awk '{print $2}' | head -1)
-fi
+# Source environment variables for proper credentials
+source /home/ubuntu/setup-env.sh
+
+# List and delete all collections
+echo "Deleting collections..."
+globus-connect-server collection list
+COLLECTIONS=$(globus-connect-server collection list 2>/dev/null | grep -v "^ID" | awk '{print $1}')
+for collection in $COLLECTIONS; do
+  echo "Deleting collection: $collection"
+  globus-connect-server collection delete "$collection"
+done
+
+# List and delete all storage gateways
+echo "Deleting storage gateways..."
+globus-connect-server storage-gateway list
+GATEWAYS=$(globus-connect-server storage-gateway list 2>/dev/null | grep -v "^ID" | awk '{print $1}')
+for gateway in $GATEWAYS; do
+  echo "Deleting gateway: $gateway"
+  globus-connect-server storage-gateway delete "$gateway"
+done
+
+# Get the endpoint ID
+ENDPOINT_ID=$(cat /home/ubuntu/endpoint-uuid.txt || globus-connect-server endpoint show | grep -E 'UUID|ID' | awk '{print $2}' | head -1)
 
 # Delete the endpoint from Globus
 [ -n "$ENDPOINT_ID" ] && globus-connect-server endpoint delete
@@ -636,17 +689,39 @@ fi
 globus-connect-server endpoint show
 ```
 
-After manually deleting the Globus endpoint, you can terminate the EC2 instance through the AWS Console or using:
+### Troubleshooting Stack Deletion
 
-```bash
-# Get instance ID
-INSTANCE_ID=$(aws ec2 describe-stacks --stack-name globus-gcs --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue" --output text)
+If CloudFormation stack deletion fails:
 
-# Terminate the instance
-aws ec2 terminate-instances --instance-ids $INSTANCE_ID
-```
+1. Check which resources are causing the failure:
+   ```bash
+   aws cloudformation describe-stack-events --stack-name globus-gcs \
+     --query "StackEvents[?ResourceStatus=='DELETE_FAILED'].{Resource:LogicalResourceId,Reason:ResourceStatusReason}" \
+     --output table
+   ```
 
-This manual cleanup step ensures that the Globus endpoint is properly deleted from Globus's systems.
+2. Common issues:
+   - **Security Group Deletion Failure**: Indicates the EC2 instance is still running
+     - Solution: Manually terminate the EC2 instance first
+   - **IAM Role Deletion Failure**: May indicate permissions issues
+     - Solution: Check for resources still using the role
+
+3. If the EC2 instance needs to be manually terminated:
+   ```bash
+   # Get instance ID
+   INSTANCE_ID=$(aws ec2 describe-stacks --stack-name globus-gcs \
+     --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue" --output text)
+   
+   # Terminate the instance
+   aws ec2 terminate-instances --instance-ids $INSTANCE_ID
+   ```
+
+4. After resolving the specific issues, retry the stack deletion:
+   ```bash
+   aws cloudformation delete-stack --stack-name globus-gcs
+   ```
+
+The teardown process ensures that all Globus resources are properly removed from Globus's systems before the CloudFormation resources are deleted, preventing orphaned resources and failed deletions.
 
 ## Version Compatibility Features
 

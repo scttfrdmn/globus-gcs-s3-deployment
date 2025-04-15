@@ -36,6 +36,11 @@ Parameters:
     Type: String
     Default: "https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/scripts/create-collection.sh"
     
+  TeardownScriptUrl:
+    Description: URL to the teardown script for cleanup before stack deletion
+    Type: String
+    Default: "https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/scripts/teardown-globus.sh"
+    
   DeploymentType:
     Description: Type of deployment (affects resource configuration)
     Type: String
@@ -533,10 +538,23 @@ Resources:
           curl -s -L -o /home/ubuntu/collect-diagnostics.sh "${DiagnosticsScriptUrl}" || wget -q -O /home/ubuntu/collect-diagnostics.sh "${DiagnosticsScriptUrl}"
           curl -s -L -o /home/ubuntu/debug-deployment.sh "${DebugScriptUrl}" || wget -q -O /home/ubuntu/debug-deployment.sh "${DebugScriptUrl}"
           curl -s -L -o /home/ubuntu/create-collection.sh "${CollectionScriptUrl}" || wget -q -O /home/ubuntu/create-collection.sh "${CollectionScriptUrl}"
+          curl -s -L -o /home/ubuntu/teardown-globus.sh "${TeardownScriptUrl}" || wget -q -O /home/ubuntu/teardown-globus.sh "${TeardownScriptUrl}"
           
           # Make the scripts executable
-          chmod +x /home/ubuntu/collect-diagnostics.sh /home/ubuntu/debug-deployment.sh /home/ubuntu/create-collection.sh
-          chown ubuntu:ubuntu /home/ubuntu/collect-diagnostics.sh /home/ubuntu/debug-deployment.sh
+          chmod +x /home/ubuntu/collect-diagnostics.sh /home/ubuntu/debug-deployment.sh /home/ubuntu/create-collection.sh /home/ubuntu/teardown-globus.sh
+          chown ubuntu:ubuntu /home/ubuntu/collect-diagnostics.sh /home/ubuntu/debug-deployment.sh /home/ubuntu/create-collection.sh /home/ubuntu/teardown-globus.sh
+          
+          # Create a simple note about teardown process
+          cat > /home/ubuntu/TEARDOWN_INSTRUCTIONS.txt << 'EOF'
+IMPORTANT: When you're ready to delete this CloudFormation stack, you must first
+clean up the Globus endpoint registration to avoid deletion failures.
+
+Run this command to remove Globus resources before stack deletion:
+  bash /home/ubuntu/teardown-globus.sh
+
+After the teardown script completes successfully, you can delete the CloudFormation stack.
+EOF
+          chown ubuntu:ubuntu /home/ubuntu/TEARDOWN_INSTRUCTIONS.txt
           
           # Set directory permissions first
           mkdir -p /home/ubuntu
