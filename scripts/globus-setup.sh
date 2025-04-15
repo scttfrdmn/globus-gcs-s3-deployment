@@ -24,7 +24,7 @@ log "=== Starting Simplified Globus Connect Server setup: $(date) ==="
 # Install Globus Connect Server
 log "Installing dependencies..."
 apt-get update
-apt-get install -y curl wget apt-transport-https ca-certificates
+apt-get install -y curl wget apt-transport-https ca-certificates python3-pip
 
 # Add Globus repository
 log "Adding Globus repository..."
@@ -41,6 +41,28 @@ apt-get update
 # Install Globus Connect Server package
 log "Installing Globus Connect Server package..."
 apt-get install -y globus-connect-server54
+
+# Install Globus CLI for easier management
+log "Installing Globus CLI..."
+pip3 install -q globus-cli
+
+# Configure Globus CLI with credentials for easier command-line usage
+log "Configuring Globus CLI..."
+mkdir -p ~/.globus
+cat > ~/.globus/globus.cfg << EOF
+[cli]
+default_client_id = ${GLOBUS_CLIENT_ID}
+default_client_secret = ${GLOBUS_CLIENT_SECRET}
+EOF
+
+# Also configure for ubuntu user
+mkdir -p /home/ubuntu/.globus
+cat > /home/ubuntu/.globus/globus.cfg << EOF
+[cli]
+default_client_id = ${GLOBUS_CLIENT_ID}
+default_client_secret = ${GLOBUS_CLIENT_SECRET}
+EOF
+chown -R ubuntu:ubuntu /home/ubuntu/.globus
 
 # Verify installation
 log "Verifying installation..."
@@ -156,7 +178,19 @@ fi
 if [ -f /home/ubuntu/endpoint-uuid.txt ]; then
   export GCS_CLI_ENDPOINT_ID=$(cat /home/ubuntu/endpoint-uuid.txt)
   echo "Endpoint UUID: $GCS_CLI_ENDPOINT_ID"
+  
+  echo "===== Globus Connect Server Details ====="
   globus-connect-server endpoint show
+  
+  echo ""
+  echo "===== Globus CLI Details ====="
+  # Check if globus CLI is installed
+  if command -v globus &> /dev/null; then
+    globus endpoint show "$GCS_CLI_ENDPOINT_ID" || echo "Couldn't retrieve endpoint with Globus CLI"
+  else
+    echo "Globus CLI not found or not configured"
+  fi
+  
   echo ""
   echo "Access the endpoint at: https://app.globus.org/file-manager?origin_id=$GCS_CLI_ENDPOINT_ID"
 else
@@ -167,6 +201,51 @@ EOF
 
 chmod +x /home/ubuntu/show-endpoint.sh
 chown ubuntu:ubuntu /home/ubuntu/show-endpoint.sh
+
+# Create a helper script with common Globus CLI commands
+cat > /home/ubuntu/globus-cli-examples.sh << 'EOF'
+#!/bin/bash
+# Helper script with common Globus CLI commands
+
+ENDPOINT_UUID=""
+if [ -f /home/ubuntu/endpoint-uuid.txt ]; then
+  ENDPOINT_UUID=$(cat /home/ubuntu/endpoint-uuid.txt)
+fi
+
+if [ -z "$ENDPOINT_UUID" ]; then
+  echo "No endpoint UUID found. Run show-endpoint.sh first to get the UUID."
+  exit 1
+fi
+
+echo "===== Globus CLI Examples for Endpoint: $ENDPOINT_UUID ====="
+echo ""
+echo "1. Show endpoint details:"
+echo "   globus endpoint show $ENDPOINT_UUID"
+echo ""
+echo "2. List endpoint's server components:"
+echo "   globus endpoint server list $ENDPOINT_UUID"
+echo ""
+echo "3. List collections on this endpoint:"
+echo "   globus endpoint collection list $ENDPOINT_UUID"
+echo ""
+echo "4. Search for other endpoints:"
+echo "   globus endpoint search \"SEARCH_TERM\""
+echo ""
+echo "5. List your recent transfers:"
+echo "   globus transfer task list"
+echo ""
+echo "6. Start a transfer using the CLI:"
+echo "   globus transfer --dry-run $ENDPOINT_UUID:/path/to/source OTHER_ENDPOINT_UUID:/path/to/dest"
+echo ""
+echo "7. Manage endpoint permissions:"
+echo "   globus endpoint permission list $ENDPOINT_UUID"
+echo ""
+echo "For more information, run: globus --help"
+echo "or visit: https://docs.globus.org/cli/"
+EOF
+
+chmod +x /home/ubuntu/globus-cli-examples.sh
+chown ubuntu:ubuntu /home/ubuntu/globus-cli-examples.sh
 
 # Create deployment summary
 cat > /home/ubuntu/deployment-summary.txt << EOF
@@ -185,6 +264,7 @@ Access Information:
 
 Helper Scripts:
 - /home/ubuntu/show-endpoint.sh: Show endpoint details
+- /home/ubuntu/globus-cli-examples.sh: Examples of common Globus CLI commands
 EOF
 
 # Set permissions
