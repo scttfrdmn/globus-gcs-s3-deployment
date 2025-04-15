@@ -14,8 +14,8 @@ echo "Setting up Globus environment variables for debugging..."
 
 # Load client credentials 
 if [ -f "${GLOBUS_DIR}/globus-client-id.txt" ] && [ -f "${GLOBUS_DIR}/globus-client-secret.txt" ]; then
-  export GCS_CLI_CLIENT_ID=$(cat "${GLOBUS_DIR}/globus-client-id.txt")
-  export GCS_CLI_CLIENT_SECRET=$(cat "${GLOBUS_DIR}/globus-client-secret.txt")
+  export GCS_CLI_CLIENT_ID="$(cat "${GLOBUS_DIR}/globus-client-id.txt")"
+  export GCS_CLI_CLIENT_SECRET="$(cat "${GLOBUS_DIR}/globus-client-secret.txt")"
   echo "✓ Set GCS_CLI_CLIENT_ID and GCS_CLI_CLIENT_SECRET from credentials files"
 else
   echo "⚠️  Warning: Client credentials files not found"
@@ -23,7 +23,7 @@ fi
 
 # Load endpoint ID if available
 if [ -f "${GLOBUS_DIR}/endpoint-uuid.txt" ]; then
-  export GCS_CLI_ENDPOINT_ID=$(cat "${GLOBUS_DIR}/endpoint-uuid.txt")
+  export GCS_CLI_ENDPOINT_ID="$(cat "${GLOBUS_DIR}/endpoint-uuid.txt")"
   echo "✓ Set GCS_CLI_ENDPOINT_ID to $(cat "${GLOBUS_DIR}/endpoint-uuid.txt")"
 else
   echo "⚠️  Warning: Endpoint UUID file not found"
@@ -31,7 +31,7 @@ fi
 
 # Set node ID if available
 if [ -f "${GLOBUS_DIR}/node-id.txt" ]; then
-  export GLOBUS_NODE_ID=$(cat "${GLOBUS_DIR}/node-id.txt")
+  export GLOBUS_NODE_ID="$(cat "${GLOBUS_DIR}/node-id.txt")"
   echo "✓ Set GLOBUS_NODE_ID to $(cat "${GLOBUS_DIR}/node-id.txt")"
 else
   echo "Node ID file not found (node may not be set up yet)"
@@ -44,20 +44,22 @@ echo "Loading additional variables from files..."
 for var_file in globus-display-name.txt globus-organization.txt globus-owner.txt globus-contact-email.txt globus-project-id.txt; do
   if [ -f "${GLOBUS_DIR}/${var_file}" ]; then
     var_name="GLOBUS_$(echo ${var_file%%.txt} | tr 'a-z-' 'A-Z_')"
-    export ${var_name}=$(cat "${GLOBUS_DIR}/${var_file}")
+    # Use read to preserve spaces in the variable value
+    value=$(cat "${GLOBUS_DIR}/${var_file}")
+    export ${var_name}="${value}"
     echo "✓ Set ${var_name}"
   fi
 done
 
 # Load S3 bucket name if available
 if [ -f "${GLOBUS_DIR}/s3-bucket-name.txt" ]; then
-  export S3_BUCKET_NAME=$(cat "${GLOBUS_DIR}/s3-bucket-name.txt")
+  export S3_BUCKET_NAME="$(cat "${GLOBUS_DIR}/s3-bucket-name.txt")"
   echo "✓ Set S3_BUCKET_NAME to $S3_BUCKET_NAME"
 fi
 
 # Load subscription ID if available
 if [ -f "${GLOBUS_DIR}/subscription-id.txt" ]; then
-  export GLOBUS_SUBSCRIPTION_ID=$(cat "${GLOBUS_DIR}/subscription-id.txt")
+  export GLOBUS_SUBSCRIPTION_ID="$(cat "${GLOBUS_DIR}/subscription-id.txt")"
   echo "✓ Set GLOBUS_SUBSCRIPTION_ID to $GLOBUS_SUBSCRIPTION_ID"
 fi
 

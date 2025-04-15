@@ -333,7 +333,7 @@ if [ -f /home/ubuntu/setup-env.sh ]; then
 fi
 
 # Get subscription ID
-SUBSCRIPTION_ID=$(cat /home/ubuntu/subscription-id.txt 2>/dev/null)
+SUBSCRIPTION_ID="$(cat /home/ubuntu/subscription-id.txt 2>/dev/null)"
 if [ -z "$SUBSCRIPTION_ID" ]; then
   echo "Error: No subscription ID found in /home/ubuntu/subscription-id.txt"
   exit 1
@@ -529,8 +529,8 @@ EOFSUBSCRIPTION
         echo "$S3_BUCKET_NAME" > /home/ubuntu/s3-bucket-name.txt
         
         # Get S3 gateway display name
-        S3_GATEWAY_DISPLAY_NAME_VALUE=$(cat /home/ubuntu/s3-gateway-display-name.txt)
-        S3_GATEWAY_DOMAIN_VALUE=$(cat /home/ubuntu/s3-gateway-domain.txt)
+        S3_GATEWAY_DISPLAY_NAME_VALUE="$(cat /home/ubuntu/s3-gateway-display-name.txt)"
+        S3_GATEWAY_DOMAIN_VALUE="$(cat /home/ubuntu/s3-gateway-domain.txt)"
         
         # Set appropriate S3 command parameters
         S3_CMD="globus-connect-server storage-gateway create s3 --s3-endpoint https://s3.amazonaws.com --s3-user-credential"
