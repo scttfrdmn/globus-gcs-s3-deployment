@@ -3,25 +3,45 @@
 # Only performs basic installation and endpoint setup
 # REQUIRES: Globus Connect Server 5.4.61 or higher
 
-# Enable error handling
-set -e
-set -o pipefail
+# NOT using set -e to ensure we continue collecting diagnostics even after errors
+# Instead we'll check error codes at key points and create detailed logs
+# set -e
+# set -o pipefail
 
-# Create log file
+# Create a trap to capture and log information on any error
+trap 'echo "ERROR: Command failed at line $LINENO with exit code $?. Command: $BASH_COMMAND" | tee -a /home/ubuntu/setup-error.log' ERR
+
+# Create log file with multiple fallbacks
 LOG_FILE="/var/log/globus-setup.log"
 touch "$LOG_FILE" 2>/dev/null || {
-  LOG_FILE="/tmp/globus-setup.log"
-  touch "$LOG_FILE"
+  LOG_FILE="/home/ubuntu/globus-setup.log"
+  touch "$LOG_FILE" 2>/dev/null || {
+    LOG_FILE="/tmp/globus-setup.log"
+    touch "$LOG_FILE" 2>/dev/null || {
+      LOG_FILE=""
+      echo "WARNING: Unable to create any log file, proceeding without logging to file"
+    }
+  }
 }
 
 # Logging function
 log() {
-  echo "$(date) - $*" | tee -a "$LOG_FILE"
+  local timestamp=$(date)
+echo "$timestamp - $*" | tee -a "$LOG_FILE" 2>/dev/null || echo "$timestamp - $*"
 }
 
 # Enhanced debug logging
 debug_log() {
-  echo "=== DEBUG: $(date) - $* ===" | tee -a "$LOG_FILE" | tee -a "/home/ubuntu/debug.log"
+  echo "=== DEBUG: $(date) - $* ===" | tee -a "$LOG_FILE" 
+  
+  # Make sure debug.log exists and is writable
+  if [ ! -f "/home/ubuntu/debug.log" ]; then
+    touch "/home/ubuntu/debug.log" 2>/dev/null || true
+    chmod 644 "/home/ubuntu/debug.log" 2>/dev/null || true
+  fi
+  
+  # Append to debug log
+  echo "=== DEBUG: $(date) - $* ===" >> "/home/ubuntu/debug.log" 2>/dev/null || true
 }
 
 # Function to set permissions on a collection
@@ -58,7 +78,12 @@ set_collection_permissions() {
   fi
 }
 
+# Make sure /home/ubuntu exists and is writable
+mkdir -p /home/ubuntu 2>/dev/null || true
+chmod 755 /home/ubuntu 2>/dev/null || true
+
 log "=== Starting Simplified Globus Connect Server setup: $(date) ==="
+debug_log "Starting setup with UID=$(id -u), EUID=$(id -eu), USER=$USER"
 
 # Log debug information about environment variables
 debug_log "Starting with environment variables:"
@@ -221,17 +246,34 @@ fi
 # Execute the setup command and capture output
 log "Running endpoint setup command..."
 log "Command: $SETUP_CMD \"$GLOBUS_DISPLAY_NAME\""
-SETUP_OUTPUT=$(eval $SETUP_CMD "\"$GLOBUS_DISPLAY_NAME\"" 2>&1)
+
+# Create the endpoint-setup-output.txt file to ensure it exists
+touch /home/ubuntu/endpoint-setup-output.txt 2>/dev/null
+chmod 644 /home/ubuntu/endpoint-setup-output.txt 2>/dev/null
+
+# Run the command and save output to a file we know exists
+eval $SETUP_CMD "\"$GLOBUS_DISPLAY_NAME\"" > /home/ubuntu/endpoint-setup-output.txt 2>&1
 SETUP_EXIT_CODE=$?
 
-# Save raw output to file for debugging
-echo "$SETUP_OUTPUT" > /home/ubuntu/endpoint-setup-output.txt
+# Get the output from the file
+SETUP_OUTPUT=$(cat /home/ubuntu/endpoint-setup-output.txt)
 
 # Check setup result
 if [ $SETUP_EXIT_CODE -ne 0 ]; then
   log "Endpoint setup failed with exit code $SETUP_EXIT_CODE"
-  log "Setup Output: $SETUP_OUTPUT"
-  exit 1
+  log "Setup Output (first 200 chars): ${SETUP_OUTPUT:0:200}..."
+  
+  # Save detailed error information
+  echo "Endpoint setup command: $SETUP_CMD \"$GLOBUS_DISPLAY_NAME\"" > /home/ubuntu/ENDPOINT_SETUP_FAILED.txt
+  echo "Exit code: $SETUP_EXIT_CODE" >> /home/ubuntu/ENDPOINT_SETUP_FAILED.txt
+  echo "Full output:" >> /home/ubuntu/ENDPOINT_SETUP_FAILED.txt
+  echo "$SETUP_OUTPUT" >> /home/ubuntu/ENDPOINT_SETUP_FAILED.txt
+  
+  # Continue execution to collect more diagnostic information instead of exiting
+  debug_log "Continuing despite endpoint setup failure to collect diagnostics"
+else
+  log "Endpoint setup completed successfully"
+  debug_log "Endpoint setup output (first 200 chars): ${SETUP_OUTPUT:0:200}..."
 fi
 
 # Extract endpoint UUID from output, looking specifically for the "Created endpoint UUID" pattern

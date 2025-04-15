@@ -21,6 +21,16 @@ Parameters:
     Type: String
     Default: "https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/scripts/setup-env.sh"
     
+  DiagnosticsScriptUrl:
+    Description: URL to the diagnostics collection script
+    Type: String
+    Default: "https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/scripts/collect-diagnostics.sh"
+    
+  DebugScriptUrl:
+    Description: URL to the debug helper script
+    Type: String
+    Default: "https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/scripts/debug-deployment.sh"
+    
   DeploymentType:
     Description: Type of deployment (affects resource configuration)
     Type: String
@@ -461,14 +471,35 @@ Resources:
           cp /tmp/globus-setup.sh /home/ubuntu/globus-setup.sh
           echo "Starting Globus setup: $(date)" > /home/ubuntu/BOOTSTRAP_STARTED.txt
           
-          # Run the setup script
+          # Run the setup script with better error handling
           echo "Running Globus setup script..."
-          sudo -E bash /tmp/globus-setup.sh
+          
+          # Start watching for errors immediately and capture output
+          sudo -E bash /tmp/globus-setup.sh > /var/log/globus-setup-output.log 2>&1
           SETUP_EXIT_CODE=$?
+          
+          # Copy the logs to help with debugging
+          cp /var/log/globus-setup-output.log /home/ubuntu/
+          cp /var/log/globus-setup.log /home/ubuntu/ 2>/dev/null || true
+          cp /var/log/cloud-init-output.log /home/ubuntu/ 2>/dev/null || true
+          
+          # Fix permissions for all files
+          find /home/ubuntu -type f -exec chown ubuntu:ubuntu {} \; 2>/dev/null || true
+          find /home/ubuntu -type f -name "*.sh" -exec chmod +x {} \; 2>/dev/null || true
           
           # Check setup result
           if [ $SETUP_EXIT_CODE -ne 0 ]; then
             echo "Globus setup script failed with exit code: $SETUP_EXIT_CODE" > /home/ubuntu/SETUP_FAILED.txt
+            echo "Running diagnostics collection script..." >> /home/ubuntu/SETUP_FAILED.txt
+            
+            # Run diagnostics collection script
+            bash /home/ubuntu/collect-diagnostics.sh > /home/ubuntu/diagnostics-output.txt 2>&1
+            
+            # Log additional diagnostic information
+            echo "Instance ID: $(curl -s http://169.254.169.254/latest/meta-data/instance-id)" >> /home/ubuntu/diagnostics/instance-info.txt
+            echo "Public IP: $(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)" >> /home/ubuntu/diagnostics/instance-info.txt
+            echo "Public hostname: $(curl -s http://169.254.169.254/latest/meta-data/public-hostname)" >> /home/ubuntu/diagnostics/instance-info.txt
+            
             # Don't signal failure to CloudFormation if in debug mode
             if [[ "$PRESERVE_INSTANCE" == "false" ]]; then
               echo "Signaling failure to CloudFormation (instance will be deleted)" >> /home/ubuntu/SETUP_FAILED.txt
@@ -477,7 +508,13 @@ Resources:
             else
               echo "Debug mode enabled - preserving instance despite failure" >> /home/ubuntu/SETUP_FAILED.txt
               echo "You can SSH to this instance to diagnose issues" >> /home/ubuntu/SETUP_FAILED.txt
-              echo "After diagnosis, the instance can be manually terminated" >> /home/ubuntu/SETUP_FAILED.txt
+              echo "After connecting, run: bash /home/ubuntu/debug-deployment.sh" >> /home/ubuntu/SETUP_FAILED.txt
+              echo "Diagnostics have been collected in: /home/ubuntu/diagnostics/" >> /home/ubuntu/SETUP_FAILED.txt
+              
+              # Set proper ownership so the ubuntu user can access everything
+              find /home/ubuntu -type f -exec chown ubuntu:ubuntu {} \; 2>/dev/null || true
+              find /home/ubuntu -type d -exec chown ubuntu:ubuntu {} \; 2>/dev/null || true
+              
               # Still signal success to CloudFormation to prevent rollback
               signal_cf 0
             fi
@@ -485,6 +522,15 @@ Resources:
           
           # Mark bootstrap completion
           echo "Bootstrap completed at $(date)" > /home/ubuntu/BOOTSTRAP_COMPLETED.txt
+          
+          # Download the diagnostic scripts for debugging
+          echo "Downloading diagnostics scripts..."
+          curl -s -L -o /home/ubuntu/collect-diagnostics.sh "${DiagnosticsScriptUrl}" || wget -q -O /home/ubuntu/collect-diagnostics.sh "${DiagnosticsScriptUrl}"
+          curl -s -L -o /home/ubuntu/debug-deployment.sh "${DebugScriptUrl}" || wget -q -O /home/ubuntu/debug-deployment.sh "${DebugScriptUrl}"
+          
+          # Make the scripts executable
+          chmod +x /home/ubuntu/collect-diagnostics.sh /home/ubuntu/debug-deployment.sh
+          chown ubuntu:ubuntu /home/ubuntu/collect-diagnostics.sh /home/ubuntu/debug-deployment.sh
           
           # Set directory permissions first
           mkdir -p /home/ubuntu
