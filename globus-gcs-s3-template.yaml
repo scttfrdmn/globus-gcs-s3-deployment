@@ -149,9 +149,9 @@ Parameters:
     Default: "S3 Bucket Gateway"
     
   S3GatewayDomain:
-    Description: "Optional domain for the S3 storage gateway (usually 'amazon.com')."
+    Description: "Optional domain for the S3 storage gateway (e.g. 'amazon.com'). Leave empty to omit domain parameter."
     Type: String
-    Default: "amazon.com"
+    Default: ""
     
   GlobusDisplayName:
     Description: Display name for the Globus endpoint (REQUIRED - must be unique)

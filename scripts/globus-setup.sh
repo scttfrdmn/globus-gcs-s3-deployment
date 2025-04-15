@@ -455,9 +455,12 @@ if [ -n "$ENDPOINT_UUID" ]; then
         # Set appropriate S3 command parameters
         S3_CMD="globus-connect-server storage-gateway create s3 --display-name \"$S3_GATEWAY_DISPLAY_NAME_VALUE\" --s3-endpoint https://s3.amazonaws.com --s3-user-credential"
         
-        # Add domain parameter if defined and not empty
-        if [ -n "$S3_GATEWAY_DOMAIN_VALUE" ] && [ "$S3_GATEWAY_DOMAIN_VALUE" != "NONE" ]; then
+        # Add domain parameter if defined and not empty (and not the default "NONE" value)
+        if [ -n "$S3_GATEWAY_DOMAIN_VALUE" ] && [ "$S3_GATEWAY_DOMAIN_VALUE" != "NONE" ] && [ "$S3_GATEWAY_DOMAIN_VALUE" != "MISSING" ]; then
+            debug_log "Adding domain parameter: $S3_GATEWAY_DOMAIN_VALUE"
             S3_CMD="$S3_CMD --domain \"$S3_GATEWAY_DOMAIN_VALUE\""
+        else
+            debug_log "No domain specified, omitting domain parameter"
         fi
         
         # Add bucket name
