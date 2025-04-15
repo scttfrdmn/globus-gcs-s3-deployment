@@ -310,86 +310,9 @@ if [ -n "$ENDPOINT_UUID" ]; then
   # Create endpoint URL file
   echo "https://app.globus.org/file-manager?origin_id=$ENDPOINT_UUID" > /home/ubuntu/endpoint-url.txt
   
-  # Check if a subscription ID was provided to make the endpoint managed
+  # Save subscription ID to file for reference if provided
   if [ -n "$GLOBUS_SUBSCRIPTION_ID" ]; then
-    log "Associating endpoint with subscription ID: $GLOBUS_SUBSCRIPTION_ID"
-    debug_log "Setting up subscription with ID: $GLOBUS_SUBSCRIPTION_ID"
-    
-    # Save subscription ID to file for reference
     echo "$GLOBUS_SUBSCRIPTION_ID" > /home/ubuntu/subscription-id.txt
-    
-    # Add a delay to allow the endpoint to become fully available
-    log "Waiting 30 seconds for endpoint to become fully available before setting subscription..."
-    sleep 30
-    
-    # Create a helper script to set the subscription later if it fails now
-    cat > /home/ubuntu/set-subscription.sh << 'EOFSUBSCRIPTION'
-#!/bin/bash
-# Script to set subscription ID on the endpoint
-
-# Load environment variables
-if [ -f /home/ubuntu/setup-env.sh ]; then
-  source /home/ubuntu/setup-env.sh
-fi
-
-# Get subscription ID
-SUBSCRIPTION_ID="$(cat /home/ubuntu/subscription-id.txt 2>/dev/null)"
-if [ -z "$SUBSCRIPTION_ID" ]; then
-  echo "Error: No subscription ID found in /home/ubuntu/subscription-id.txt"
-  exit 1
-fi
-
-echo "Setting subscription ID: $SUBSCRIPTION_ID"
-globus-connect-server endpoint update --subscription-id "$SUBSCRIPTION_ID"
-EXIT_CODE=$?
-
-if [ $EXIT_CODE -eq 0 ]; then
-  echo "Successfully set subscription ID"
-  echo "Endpoint is now managed under subscription ID: $SUBSCRIPTION_ID" > /home/ubuntu/SUBSCRIPTION_SUCCESS.txt
-else
-  echo "Failed to set subscription ID with exit code: $EXIT_CODE"
-fi
-EOFSUBSCRIPTION
-    chmod +x /home/ubuntu/set-subscription.sh
-    chown ubuntu:ubuntu /home/ubuntu/set-subscription.sh
-    
-    # Run the command to set the subscription ID
-    log "Running: globus-connect-server endpoint update --subscription-id $GLOBUS_SUBSCRIPTION_ID"
-    debug_log "Environment for subscription update: GCS_CLI_CLIENT_ID=${GCS_CLI_CLIENT_ID:0:5}..., GCS_CLI_CLIENT_SECRET=${GCS_CLI_CLIENT_SECRET:0:3}..., GCS_CLI_ENDPOINT_ID=$GCS_CLI_ENDPOINT_ID"
-    
-    debug_log "Executing subscription update command..."
-    SUBSCRIPTION_OUTPUT=$(globus-connect-server endpoint update --subscription-id "$GLOBUS_SUBSCRIPTION_ID" 2>&1)
-    SUBSCRIPTION_EXIT_CODE=$?
-    debug_log "Subscription update completed with exit code: $SUBSCRIPTION_EXIT_CODE"
-    
-    # Save output to file
-    echo "$SUBSCRIPTION_OUTPUT" > /home/ubuntu/subscription-update-output.txt
-    debug_log "Subscription update output (truncated): ${SUBSCRIPTION_OUTPUT:0:200}..."
-    
-    if [ $SUBSCRIPTION_EXIT_CODE -eq 0 ]; then
-      log "Successfully associated endpoint with subscription"
-      echo "Endpoint is now managed under subscription ID: $GLOBUS_SUBSCRIPTION_ID" > /home/ubuntu/SUBSCRIPTION_SUCCESS.txt
-      echo "$SUBSCRIPTION_OUTPUT" >> /home/ubuntu/SUBSCRIPTION_SUCCESS.txt
-    else
-      log "Failed to associate endpoint with subscription"
-      echo "ERROR: Failed to associate endpoint with subscription ID: $GLOBUS_SUBSCRIPTION_ID" > /home/ubuntu/SUBSCRIPTION_FAILED.txt
-      echo "Command: globus-connect-server endpoint update --subscription-id $GLOBUS_SUBSCRIPTION_ID" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
-      echo "Exit code: $SUBSCRIPTION_EXIT_CODE" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
-      echo "Output: $SUBSCRIPTION_OUTPUT" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
-      echo "" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
-      echo "IMPORTANT: Setting a subscription requires proper permissions:" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
-      echo "1. The service account used (${GLOBUS_OWNER}) must be configured as an administrator" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
-      echo "   in the subscription membership group." >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
-      echo "2. This configuration requires an existing membership group administrator to set." >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
-      echo "" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
-      echo "To manually set the subscription later, run:" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
-      echo "/home/ubuntu/set-subscription.sh" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
-      echo "" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
-      echo "NOTE: This error might be temporary. The endpoint may need time to fully initialize." >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
-      echo "Try running the set-subscription.sh script after waiting a few minutes." >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
-    fi
-  else
-    log "No subscription ID provided, endpoint will have basic features only"
   fi
   
   # Now run the node setup command with the public IP
@@ -449,6 +372,76 @@ EOFSUBSCRIPTION
       # Also restart for good measure
       log "Restarting Apache service..."
       sudo systemctl restart apache2
+      
+      # Now that node setup is complete, we can update the subscription if provided
+      if [ -n "$GLOBUS_SUBSCRIPTION_ID" ]; then
+        log "Associating endpoint with subscription ID: $GLOBUS_SUBSCRIPTION_ID"
+        debug_log "Setting up subscription with ID: $GLOBUS_SUBSCRIPTION_ID after node setup"
+        
+        # Create a helper script to set the subscription later if it fails now
+        cat > /home/ubuntu/set-subscription.sh << 'EOFSUBSCRIPTION'
+#!/bin/bash
+# Script to set subscription ID on the endpoint
+
+# Load environment variables
+if [ -f /home/ubuntu/setup-env.sh ]; then
+  source /home/ubuntu/setup-env.sh
+fi
+
+# Get subscription ID
+SUBSCRIPTION_ID="$(cat /home/ubuntu/subscription-id.txt 2>/dev/null)"
+if [ -z "$SUBSCRIPTION_ID" ]; then
+  echo "Error: No subscription ID found in /home/ubuntu/subscription-id.txt"
+  exit 1
+fi
+
+echo "Setting subscription ID: $SUBSCRIPTION_ID"
+globus-connect-server endpoint update --subscription-id "$SUBSCRIPTION_ID"
+EXIT_CODE=$?
+
+if [ $EXIT_CODE -eq 0 ]; then
+  echo "Successfully set subscription ID"
+  echo "Endpoint is now managed under subscription ID: $SUBSCRIPTION_ID" > /home/ubuntu/SUBSCRIPTION_SUCCESS.txt
+else
+  echo "Failed to set subscription ID with exit code: $EXIT_CODE"
+fi
+EOFSUBSCRIPTION
+        chmod +x /home/ubuntu/set-subscription.sh
+        chown ubuntu:ubuntu /home/ubuntu/set-subscription.sh
+        
+        # Run the command to set the subscription ID
+        log "Running: globus-connect-server endpoint update --subscription-id $GLOBUS_SUBSCRIPTION_ID"
+        debug_log "Environment for subscription update: GCS_CLI_CLIENT_ID=${GCS_CLI_CLIENT_ID:0:5}..., GCS_CLI_CLIENT_SECRET=${GCS_CLI_CLIENT_SECRET:0:3}..., GCS_CLI_ENDPOINT_ID=$GCS_CLI_ENDPOINT_ID"
+        
+        debug_log "Executing subscription update command..."
+        SUBSCRIPTION_OUTPUT=$(globus-connect-server endpoint update --subscription-id "$GLOBUS_SUBSCRIPTION_ID" 2>&1)
+        SUBSCRIPTION_EXIT_CODE=$?
+        debug_log "Subscription update completed with exit code: $SUBSCRIPTION_EXIT_CODE"
+        
+        # Save output to file
+        echo "$SUBSCRIPTION_OUTPUT" > /home/ubuntu/subscription-update-output.txt
+        debug_log "Subscription update output (truncated): ${SUBSCRIPTION_OUTPUT:0:200}..."
+        
+        if [ $SUBSCRIPTION_EXIT_CODE -eq 0 ]; then
+          log "Successfully associated endpoint with subscription"
+          echo "Endpoint is now managed under subscription ID: $GLOBUS_SUBSCRIPTION_ID" > /home/ubuntu/SUBSCRIPTION_SUCCESS.txt
+          echo "$SUBSCRIPTION_OUTPUT" >> /home/ubuntu/SUBSCRIPTION_SUCCESS.txt
+        else
+          log "Failed to associate endpoint with subscription"
+          echo "ERROR: Failed to associate endpoint with subscription ID: $GLOBUS_SUBSCRIPTION_ID" > /home/ubuntu/SUBSCRIPTION_FAILED.txt
+          echo "Command: globus-connect-server endpoint update --subscription-id $GLOBUS_SUBSCRIPTION_ID" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
+          echo "Exit code: $SUBSCRIPTION_EXIT_CODE" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
+          echo "Output: $SUBSCRIPTION_OUTPUT" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
+          echo "" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
+          echo "IMPORTANT: Setting a subscription requires proper permissions:" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
+          echo "1. The service account used (${GLOBUS_OWNER}) must be configured as an administrator" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
+          echo "   in the subscription membership group." >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
+          echo "2. This configuration requires an existing membership group administrator to set." >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
+          echo "" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
+          echo "To manually set the subscription later, run:" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
+          echo "/home/ubuntu/set-subscription.sh" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
+        fi
+      fi
       
       # Get the node ID using node list command
       log "Getting node ID using node list command..."
