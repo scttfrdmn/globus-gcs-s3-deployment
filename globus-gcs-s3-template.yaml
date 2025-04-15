@@ -88,7 +88,7 @@ Parameters:
     NoEcho: true
 
   GlobusSubscriptionId:
-    Description: Globus Subscription ID to join this endpoint to your subscription (REQUIRED for S3 connector)
+    Description: "Globus Subscription ID to join this endpoint to your subscription (REQUIRED for S3 connector). IMPORTANT: The GlobusOwner identity must be configured as an administrator in the subscription membership group by an existing administrator for this to work."
     Type: String
     
   # Connector options

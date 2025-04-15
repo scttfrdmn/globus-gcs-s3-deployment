@@ -195,7 +195,11 @@ if [ -n "$ENDPOINT_UUID" ]; then
       echo "Exit code: $SUBSCRIPTION_EXIT_CODE" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
       echo "Output: $SUBSCRIPTION_OUTPUT" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
       echo "" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
-      echo "Note: Setting a subscription requires the Globus owner to have subscription manager rights" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
+      echo "IMPORTANT: Setting a subscription requires proper permissions:" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
+      echo "1. The service account used (${GLOBUS_OWNER}) must be configured as an administrator" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
+      echo "   in the subscription membership group." >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
+      echo "2. This configuration requires an existing membership group administrator to set." >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
+      echo "" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
       echo "To manually set the subscription later, run:" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
       echo "globus-connect-server endpoint update --subscription-id $GLOBUS_SUBSCRIPTION_ID" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
     fi
