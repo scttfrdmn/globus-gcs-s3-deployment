@@ -168,6 +168,64 @@ if [ -n "$ENDPOINT_UUID" ]; then
   
   # Create endpoint URL file
   echo "https://app.globus.org/file-manager?origin_id=$ENDPOINT_UUID" > /home/ubuntu/endpoint-url.txt
+  
+  # Now run the node setup command with the public IP
+  log "Now setting up the Globus Connect Server node..."
+  
+  # Get the instance's public IP address - try multiple methods
+  # First try the EC2 metadata service
+  PUBLIC_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+  
+  if [ -z "$PUBLIC_IP" ]; then
+    # Fallback method - try to get it from public interface
+    PUBLIC_IP=$(curl -s https://checkip.amazonaws.com || curl -s https://api.ipify.org || curl -s https://ipv4.icanhazip.com)
+  fi
+  
+  if [ -z "$PUBLIC_IP" ]; then
+    # Final fallback - try to determine from network interfaces
+    PUBLIC_IP=$(ip -4 addr | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v "^10\." | grep -v "^172\." | grep -v "^192\.168" | head -1)
+  fi
+  
+  if [ -z "$PUBLIC_IP" ]; then
+    log "WARNING: Could not determine public IP address"
+    echo "WARNING: Could not determine public IP address" > /home/ubuntu/MISSING_IP.txt
+    echo "Please run the node setup command manually with your public IP:" >> /home/ubuntu/MISSING_IP.txt
+    echo "sudo globus-connect-server node setup --ip-address YOUR_PUBLIC_IP" >> /home/ubuntu/MISSING_IP.txt
+  else
+    log "Using public IP address: $PUBLIC_IP"
+    echo "$PUBLIC_IP" > /home/ubuntu/public-ip.txt
+    
+    # Run node setup with the detected IP
+    log "Running: sudo globus-connect-server node setup --ip-address $PUBLIC_IP"
+    NODE_SETUP_OUTPUT=$(sudo globus-connect-server node setup --ip-address "$PUBLIC_IP" 2>&1)
+    NODE_SETUP_EXIT_CODE=$?
+    
+    # Save output to file
+    echo "$NODE_SETUP_OUTPUT" > /home/ubuntu/node-setup-output.txt
+    
+    if [ $NODE_SETUP_EXIT_CODE -eq 0 ]; then
+      log "Node setup completed successfully"
+      
+      # Reload Apache as suggested by the output
+      log "Reloading Apache service..."
+      sudo systemctl reload apache2
+      
+      # Also restart for good measure
+      log "Restarting Apache service..."
+      sudo systemctl restart apache2
+      
+      # Check status of key services
+      log "Checking status of Globus services..."
+      systemctl status globus-gridftp-server --no-pager | grep -E "Active:|Main PID:" > /home/ubuntu/gridftp-status.txt
+      systemctl status apache2 --no-pager | grep -E "Active:|Main PID:" > /home/ubuntu/apache-status.txt
+    else
+      log "WARNING: Node setup failed with exit code $NODE_SETUP_EXIT_CODE"
+      echo "Node setup failed with exit code $NODE_SETUP_EXIT_CODE" > /home/ubuntu/NODE_SETUP_FAILED.txt
+      echo "Please examine node-setup-output.txt for details" >> /home/ubuntu/NODE_SETUP_FAILED.txt
+      echo "You may need to run the node setup command manually:" >> /home/ubuntu/NODE_SETUP_FAILED.txt
+      echo "sudo globus-connect-server node setup --ip-address $PUBLIC_IP" >> /home/ubuntu/NODE_SETUP_FAILED.txt
+    fi
+  fi
 else
   log "Could not extract endpoint UUID from direct output"
   # Try to get endpoint details
@@ -185,6 +243,13 @@ else
     chmod +x /home/ubuntu/endpoint-uuid-export.sh
     export GCS_CLI_ENDPOINT_ID="$ENDPOINT_UUID"
     echo "https://app.globus.org/file-manager?origin_id=$ENDPOINT_UUID" > /home/ubuntu/endpoint-url.txt
+    
+    log "Found a UUID, but skipped the original output parsing stage."
+    log "Please run the node setup manually to complete the deployment:"
+    log "sudo globus-connect-server node setup --ip-address YOUR_PUBLIC_IP"
+    
+    echo "Please run the node setup manually to complete the deployment:" > /home/ubuntu/MANUAL_NODE_SETUP.txt
+    echo "sudo globus-connect-server node setup --ip-address YOUR_PUBLIC_IP" >> /home/ubuntu/MANUAL_NODE_SETUP.txt
   else
     log "WARNING: Could not extract endpoint UUID by any method"
     # Create a file to record this error
@@ -279,6 +344,9 @@ chmod +x /home/ubuntu/globus-cli-examples.sh
 chown ubuntu:ubuntu /home/ubuntu/globus-cli-examples.sh
 
 # Create deployment summary
+NODE_SETUP_STATUS=$([ -f /home/ubuntu/node-setup-output.txt ] && echo "Completed" || echo "Not completed")
+PUBLIC_IP=$(cat /home/ubuntu/public-ip.txt 2>/dev/null || echo "Not detected")
+
 cat > /home/ubuntu/deployment-summary.txt << EOF
 === Globus Connect Server Deployment Summary ===
 Deployment completed: $(date)
@@ -289,6 +357,12 @@ Endpoint Details:
 - Organization: $GLOBUS_ORGANIZATION
 - Contact Email: $GLOBUS_CONTACT_EMAIL
 - UUID: ${ENDPOINT_UUID:-Not available}
+- Domain Name: ${DOMAIN_NAME:-Not available}
+
+Node Setup:
+- Status: $NODE_SETUP_STATUS
+- Public IP: $PUBLIC_IP
+- Node Command: sudo globus-connect-server node setup --ip-address $PUBLIC_IP
 
 Access Information:
 - Web URL: https://app.globus.org/file-manager?origin_id=${ENDPOINT_UUID:-MISSING_UUID}
@@ -296,6 +370,10 @@ Access Information:
 Helper Scripts:
 - /home/ubuntu/show-endpoint.sh: Show endpoint details
 - /home/ubuntu/globus-cli-examples.sh: Examples of common Globus CLI commands
+
+Service Status:
+- Apache2: $(systemctl is-active apache2 2>/dev/null || echo "Unknown")
+- GridFTP: $(systemctl is-active globus-gridftp-server 2>/dev/null || echo "Unknown")
 EOF
 
 # Set permissions
