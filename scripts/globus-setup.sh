@@ -505,6 +505,9 @@ if [ -n "$ENDPOINT_UUID" ]; then
             debug_log "No domain specified, omitting domain parameter"
         fi
         
+        # Add display name as the positional argument at the end
+        S3_CMD="$S3_CMD \"$S3_GATEWAY_DISPLAY_NAME_VALUE\""
+        
         log "Running command: $S3_CMD"
         debug_log "Environment for S3 gateway creation: GCS_CLI_CLIENT_ID=${GCS_CLI_CLIENT_ID:0:5}..., GCS_CLI_CLIENT_SECRET=${GCS_CLI_CLIENT_SECRET:0:3}..., GCS_CLI_ENDPOINT_ID=$GCS_CLI_ENDPOINT_ID"
         
@@ -638,7 +641,7 @@ Common issues:
 3. S3 bucket doesn't exist or is in a different region
 4. S3 bucket format is incorrect
 
-Command format: globus-connect-server storage-gateway create s3 [OPTIONS]
+Command format: globus-connect-server storage-gateway create s3 [OPTIONS] DISPLAY_NAME
 
 Command attempted: $S3_CMD
 Exit code: $S3_EXIT_CODE
