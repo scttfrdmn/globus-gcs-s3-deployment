@@ -318,6 +318,41 @@ if [ -n "$ENDPOINT_UUID" ]; then
     # Save subscription ID to file for reference
     echo "$GLOBUS_SUBSCRIPTION_ID" > /home/ubuntu/subscription-id.txt
     
+    # Add a delay to allow the endpoint to become fully available
+    log "Waiting 30 seconds for endpoint to become fully available before setting subscription..."
+    sleep 30
+    
+    # Create a helper script to set the subscription later if it fails now
+    cat > /home/ubuntu/set-subscription.sh << 'EOFSUBSCRIPTION'
+#!/bin/bash
+# Script to set subscription ID on the endpoint
+
+# Load environment variables
+if [ -f /home/ubuntu/setup-env.sh ]; then
+  source /home/ubuntu/setup-env.sh
+fi
+
+# Get subscription ID
+SUBSCRIPTION_ID=$(cat /home/ubuntu/subscription-id.txt 2>/dev/null)
+if [ -z "$SUBSCRIPTION_ID" ]; then
+  echo "Error: No subscription ID found in /home/ubuntu/subscription-id.txt"
+  exit 1
+fi
+
+echo "Setting subscription ID: $SUBSCRIPTION_ID"
+globus-connect-server endpoint update --subscription-id "$SUBSCRIPTION_ID"
+EXIT_CODE=$?
+
+if [ $EXIT_CODE -eq 0 ]; then
+  echo "Successfully set subscription ID"
+  echo "Endpoint is now managed under subscription ID: $SUBSCRIPTION_ID" > /home/ubuntu/SUBSCRIPTION_SUCCESS.txt
+else
+  echo "Failed to set subscription ID with exit code: $EXIT_CODE"
+fi
+EOFSUBSCRIPTION
+    chmod +x /home/ubuntu/set-subscription.sh
+    chown ubuntu:ubuntu /home/ubuntu/set-subscription.sh
+    
     # Run the command to set the subscription ID
     log "Running: globus-connect-server endpoint update --subscription-id $GLOBUS_SUBSCRIPTION_ID"
     debug_log "Environment for subscription update: GCS_CLI_CLIENT_ID=${GCS_CLI_CLIENT_ID:0:5}..., GCS_CLI_CLIENT_SECRET=${GCS_CLI_CLIENT_SECRET:0:3}..., GCS_CLI_ENDPOINT_ID=$GCS_CLI_ENDPOINT_ID"
@@ -348,7 +383,10 @@ if [ -n "$ENDPOINT_UUID" ]; then
       echo "2. This configuration requires an existing membership group administrator to set." >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
       echo "" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
       echo "To manually set the subscription later, run:" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
-      echo "globus-connect-server endpoint update --subscription-id $GLOBUS_SUBSCRIPTION_ID" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
+      echo "/home/ubuntu/set-subscription.sh" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
+      echo "" >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
+      echo "NOTE: This error might be temporary. The endpoint may need time to fully initialize." >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
+      echo "Try running the set-subscription.sh script after waiting a few minutes." >> /home/ubuntu/SUBSCRIPTION_FAILED.txt
     fi
   else
     log "No subscription ID provided, endpoint will have basic features only"
