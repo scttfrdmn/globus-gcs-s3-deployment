@@ -10,25 +10,11 @@ This guide provides concise steps to set up and deploy the Globus Connect Server
    - EC2 key pair
 
 2. **Globus Account Setup**:
-   - Create account at [globus.org](https://www.globus.org/)
-   - Get subscription ID (REQUIRED for S3 connector)
-     - Your organization needs a Globus subscription
-     - Either use "DEFAULT" or a specific subscription ID
-     - ⚠️ **CRITICAL PERMISSION REQUIREMENT FOR S3 CONNECTOR**:
-       * The GlobusOwner identity MUST have subscription manager role, OR
-       * The endpoint must be registered in a project created by a subscription manager
-       * Without proper permissions, deployment will succeed but S3 connector will NOT work
-       * After deployment, a warning file will be created: `/home/ubuntu/SUBSCRIPTION_WARNING.txt`
-       * Any subscription manager can fix this post-deployment by running:
-         `globus-connect-server endpoint set-subscription-id DEFAULT`
-   - Create S3 bucket
+   - Follow the complete instructions in [prerequisites.md](./prerequisites.md) to set up your Globus service account
+   - ⚠️ **IMPORTANT**: The steps in the prerequisites document are **mandatory** and must be completed in the specified order
+   - Create an S3 bucket in your AWS account that you want to connect to Globus
 
-3. **Globus Service Identity Setup**:
-   - Go to [Globus Developer Console](https://app.globus.org/settings/developers)
-   - Create a project, register an application
-   - Record Client UUID and Client Secret
-   - Add service identity as project admin: `CLIENT_UUID@clients.auth.globus.org`
-   - Record Project ID
+> **CRITICAL**: Before proceeding with deployment, you **must** complete the [Globus Service Account Setup](./prerequisites.md) process. This includes creating a project, registering a service account, making the service account a project admin, and granting subscription group access. Without these steps, your deployment will not function correctly, especially for S3 connector features.
 
 ## Deployment
 
@@ -85,11 +71,16 @@ To deploy using the CloudFormation console:
 
 4. **Post-Deployment Configuration**:
    - SSH into the instance: `ssh -i your-key.pem ubuntu@<instance-ip>`
-   - If S3 collection wasn't created automatically:
+   - Review the deployment summary: `cat /home/ubuntu/deployment-summary.txt`
+   - Verify that collections were created and permissions were set correctly
+   - If needed, create additional collections using the helper scripts:
      ```bash
-     /home/ubuntu/create-s3-collection.sh your-s3-bucket
+     # For S3 collections
+     /home/ubuntu/create-s3-collection.sh "My New S3 Collection"
+     
+     # For POSIX collections
+     /home/ubuntu/create-posix-collection.sh "My New POSIX Collection"
      ```
-   - The collection URL will appear in the output
 
 5. **Access your endpoint**:
    - Go to [app.globus.org/file-manager](https://app.globus.org/file-manager)

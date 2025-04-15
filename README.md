@@ -70,9 +70,11 @@ Review the [Quick Start Guide](./docs/quickstart.md) for a concise overview of t
 Before deploying, make sure you have:
 
 1. Completed the [AWS Account and Permissions](#prerequisites) setup
-2. Created a [Globus Account and Service Identity](#prerequisites)
+2. Completed the [Globus Service Account Setup](./docs/prerequisites.md) process - **CRITICAL**
 3. Prepared an S3 bucket for connectivity
 4. Gathered all required parameters (Client ID, Client Secret, Project ID, etc.)
+
+> **IMPORTANT**: The [Prerequisites Guide](./docs/prerequisites.md) contains detailed instructions for setting up the Globus service account, obtaining necessary credentials, and configuring required permissions. These steps are **mandatory** for successfully deploying the template.
 
 ### Deployment Options
 
