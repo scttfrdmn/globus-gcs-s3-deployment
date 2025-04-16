@@ -1,4 +1,4 @@
-#\!/bin/bash
+#!/bin/bash
 # Script to reestablish Globus environment variables for manual debugging
 
 # Set constants
@@ -63,12 +63,39 @@ if [ -f "${GLOBUS_DIR}/subscription-id.txt" ]; then
   echo "✓ Set GLOBUS_SUBSCRIPTION_ID to $GLOBUS_SUBSCRIPTION_ID"
 fi
 
+# Generate a file that can be sourced to set variables in the current shell
+cat > /home/ubuntu/globus-env-exports.sh << EOF
+# Generated environment variables for Globus
+export GCS_CLI_CLIENT_ID="$GCS_CLI_CLIENT_ID"
+export GCS_CLI_CLIENT_SECRET="$GCS_CLI_CLIENT_SECRET"
+export GCS_CLI_ENDPOINT_ID="$GCS_CLI_ENDPOINT_ID"
+export GLOBUS_NODE_ID="$GLOBUS_NODE_ID"
+EOF
+
+# Add the other GLOBUS_ variables
+for var_name in $(compgen -v | grep "^GLOBUS_"); do
+  if [ "$var_name" != "GLOBUS_DIR" ] && [ "$var_name" != "GLOBUS_NODE_ID" ]; then
+    echo "export $var_name=\"${!var_name}\"" >> /home/ubuntu/globus-env-exports.sh
+  fi
+done
+
+# Add S3 bucket name if set
+if [ -n "$S3_BUCKET_NAME" ]; then
+  echo "export S3_BUCKET_NAME=\"$S3_BUCKET_NAME\"" >> /home/ubuntu/globus-env-exports.sh
+fi
+
+# Make sure the file is executable
+chmod +x /home/ubuntu/globus-env-exports.sh
+
 # Show all environment variables that have been set
 echo ""
 echo "Globus environment variables are now set:"
 echo "---------------------------------------------"
 env | grep -E "GCS_CLI_|GLOBUS_|S3_BUCKET_NAME" | sort
 
+echo ""
+echo "To persist these variables in your current shell, run:"
+echo "source /home/ubuntu/globus-env-exports.sh"
 echo ""
 echo "You can now run Globus commands using these credentials."
 echo "Examples:"

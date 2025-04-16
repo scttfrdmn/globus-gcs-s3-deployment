@@ -2,13 +2,31 @@
 # Teardown script for Globus Connect Server before CloudFormation deletion
 # This script helps clean up Globus Connect Server resources before deleting the CloudFormation stack
 
-# Source environment variables
+# First run the setup script to create the exports file
 if [ -f /home/ubuntu/setup-env.sh ]; then
-  source /home/ubuntu/setup-env.sh
+  bash /home/ubuntu/setup-env.sh
+  
+  # Now source the generated exports file to set variables in the current shell
+  if [ -f /home/ubuntu/globus-env-exports.sh ]; then
+    echo "Sourcing exported environment variables..."
+    source /home/ubuntu/globus-env-exports.sh
+  else
+    echo "Error: exports file not created by setup-env.sh"
+    exit 1
+  fi
 else
   echo "Error: environment setup script not found. Please run this from an instance with a deployed Globus Connect Server."
   exit 1
 fi
+
+# Verify that critical variables were set
+if [ -z "$GCS_CLI_CLIENT_ID" ] || [ -z "$GCS_CLI_CLIENT_SECRET" ] || [ -z "$GCS_CLI_ENDPOINT_ID" ]; then
+  echo "Error: Critical environment variables are not set correctly"
+  echo "Please manually run: source /home/ubuntu/globus-env-exports.sh"
+  exit 1
+fi
+
+echo "Environment variables successfully loaded."
 
 echo "=== Starting Globus Connect Server teardown ==="
 echo "This script will remove all Globus Connect Server resources from this endpoint."
@@ -118,3 +136,7 @@ echo "=== Globus Connect Server teardown completed ==="
 echo "You can now safely delete the CloudFormation stack."
 echo "You may want to verify that the endpoint is no longer visible in the Globus web UI."
 echo "To check, visit: https://app.globus.org/endpoints"
+echo
+echo "NOTE: If you need to run any other Globus commands manually, remember to source"
+echo "the environment variables in your current shell first with:"
+echo "  source /home/ubuntu/globus-env-exports.sh"
