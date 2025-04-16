@@ -548,16 +548,14 @@ Resources:
           chmod +x /home/ubuntu/collect-diagnostics.sh /home/ubuntu/debug-deployment.sh /home/ubuntu/create-collection.sh /home/ubuntu/teardown-globus.sh
           chown ubuntu:ubuntu /home/ubuntu/collect-diagnostics.sh /home/ubuntu/debug-deployment.sh /home/ubuntu/create-collection.sh /home/ubuntu/teardown-globus.sh
           
-          # Create a simple note about teardown process
-          cat > /home/ubuntu/TEARDOWN_INSTRUCTIONS.txt << 'EOF'
-IMPORTANT: When you're ready to delete this CloudFormation stack, you must first
-clean up the Globus endpoint registration to avoid deletion failures.
-
-Run this command to remove Globus resources before stack deletion:
-  bash /home/ubuntu/teardown-globus.sh
-
-After the teardown script completes successfully, you can delete the CloudFormation stack.
-EOF
+          # Create a simple note about teardown process using multiple echo statements
+          echo "IMPORTANT: When you're ready to delete this CloudFormation stack, you must first" > /home/ubuntu/TEARDOWN_INSTRUCTIONS.txt
+          echo "clean up the Globus endpoint registration to avoid deletion failures." >> /home/ubuntu/TEARDOWN_INSTRUCTIONS.txt
+          echo "" >> /home/ubuntu/TEARDOWN_INSTRUCTIONS.txt
+          echo "Run this command to remove Globus resources before stack deletion:" >> /home/ubuntu/TEARDOWN_INSTRUCTIONS.txt
+          echo "  bash /home/ubuntu/teardown-globus.sh" >> /home/ubuntu/TEARDOWN_INSTRUCTIONS.txt
+          echo "" >> /home/ubuntu/TEARDOWN_INSTRUCTIONS.txt
+          echo "After the teardown script completes successfully, you can delete the CloudFormation stack." >> /home/ubuntu/TEARDOWN_INSTRUCTIONS.txt
           chown ubuntu:ubuntu /home/ubuntu/TEARDOWN_INSTRUCTIONS.txt
           
           # Set directory permissions first
