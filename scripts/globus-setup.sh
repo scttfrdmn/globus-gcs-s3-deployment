@@ -970,7 +970,10 @@ Endpoint Details:
 - Contact Email: $GLOBUS_CONTACT_EMAIL
 - UUID: ${ENDPOINT_UUID:-Not available}
 - Domain Name: ${DOMAIN_NAME:-Not available}
-- Owner Reset: $([ -f /home/ubuntu/OWNER_RESET_SUCCESS.txt ] && echo "YES - $(cat /home/ubuntu/OWNER_RESET_SUCCESS.txt)" || echo "NO")
+- Owner Reset: $([ -f /home/ubuntu/OWNER_RESET_SUCCESS.txt ] && echo "YES - Successfully updated both owner and owner-string" || 
+                [ -f /home/ubuntu/OWNER_RESET_PARTIAL.txt ] && echo "PARTIAL - Set owner but not owner-string" ||
+                [ -f /home/ubuntu/OWNER_RESET_FAILED.txt ] && echo "FAILED - See logs for details" || 
+                echo "NO")
 
 Node Setup:
 - Status: $NODE_SETUP_STATUS
@@ -1098,39 +1101,39 @@ chown ubuntu:ubuntu /home/ubuntu/environment-diagnostics.txt
 if [ "$RESET_ENDPOINT_OWNER" = "true" ] && [ -n "$ENDPOINT_UUID" ]; then
   log "Executing endpoint owner reset after completion of gateway setup"
   
-  # Determine which identity to use as the advertised owner
+  # Determine which identity to use as the advertised owner and the actual owner
   OWNER_TARGET=""
   
   case "$ENDPOINT_RESET_OWNER_TARGET" in
     "GlobusOwner")
       if [ -n "$GLOBUS_OWNER" ]; then
         OWNER_TARGET="$GLOBUS_OWNER"
-        log "Using GlobusOwner as advertised owner: $OWNER_TARGET"
+        log "Using GlobusOwner as owner: $OWNER_TARGET"
       else
-        log "GlobusOwner is empty, cannot use as advertised owner"
+        log "GlobusOwner is empty, cannot use as owner"
       fi
       ;;
     "DefaultAdminIdentity")
       if [ -n "$DEFAULT_ADMIN_IDENTITY" ]; then
         OWNER_TARGET="$DEFAULT_ADMIN_IDENTITY"
-        log "Using DefaultAdminIdentity as advertised owner: $OWNER_TARGET"
+        log "Using DefaultAdminIdentity as owner: $OWNER_TARGET"
       else
-        log "DefaultAdminIdentity is empty, cannot use as advertised owner"
+        log "DefaultAdminIdentity is empty, cannot use as owner"
       fi
       ;;
     "GlobusContactEmail")
       if [ -n "$GLOBUS_CONTACT_EMAIL" ]; then
         OWNER_TARGET="$GLOBUS_CONTACT_EMAIL"
-        log "Using GlobusContactEmail as advertised owner: $OWNER_TARGET"
+        log "Using GlobusContactEmail as owner: $OWNER_TARGET"
       else
-        log "GlobusContactEmail is empty, cannot use as advertised owner"
+        log "GlobusContactEmail is empty, cannot use as owner"
       fi
       ;;
     *)
       # Default to GlobusOwner if invalid target specified
       if [ -n "$GLOBUS_OWNER" ]; then
         OWNER_TARGET="$GLOBUS_OWNER"
-        log "Using GlobusOwner as default advertised owner: $OWNER_TARGET"
+        log "Using GlobusOwner as default owner: $OWNER_TARGET"
       else
         log "No valid identity found for owner reset"
       fi
@@ -1138,27 +1141,58 @@ if [ "$RESET_ENDPOINT_OWNER" = "true" ] && [ -n "$ENDPOINT_UUID" ]; then
   esac
   
   if [ -n "$OWNER_TARGET" ]; then
-    log "Setting advertised owner string to: $OWNER_TARGET"
+    log "Setting up endpoint ownership for: $OWNER_TARGET"
     
-    # Run the command to set the owner
-    OWNER_CMD="globus-connect-server endpoint set-owner-string \"$OWNER_TARGET\""
-    log "Running command: $OWNER_CMD"
+    # STEP 1: First set the actual owner (must be done first)
+    OWNER_SET_CMD="globus-connect-server endpoint set-owner \"$OWNER_TARGET\""
+    log "Running command to set owner: $OWNER_SET_CMD"
     
-    # Execute the command
-    OWNER_OUTPUT=$(eval $OWNER_CMD 2>&1)
-    OWNER_EXIT_CODE=$?
+    # Execute the command to set owner
+    OWNER_SET_OUTPUT=$(eval $OWNER_SET_CMD 2>&1)
+    OWNER_SET_EXIT_CODE=$?
     
     # Save output for reference
-    echo "$OWNER_OUTPUT" > /home/ubuntu/endpoint-reset-owner.txt
+    echo "$OWNER_SET_OUTPUT" > /home/ubuntu/endpoint-set-owner.txt
     
-    if [ $OWNER_EXIT_CODE -eq 0 ]; then
-      log "Successfully reset endpoint owner to $OWNER_TARGET"
-      echo "Successfully reset endpoint owner to $OWNER_TARGET" > /home/ubuntu/OWNER_RESET_SUCCESS.txt
+    if [ $OWNER_SET_EXIT_CODE -eq 0 ]; then
+      log "Successfully set endpoint owner to $OWNER_TARGET"
+      echo "Successfully set endpoint owner to $OWNER_TARGET" > /home/ubuntu/OWNER_SET_SUCCESS.txt
+      
+      # STEP 2: Now set the owner string (advertised owner)
+      log "Setting advertised owner string to: $OWNER_TARGET"
+      OWNER_STRING_CMD="globus-connect-server endpoint set-owner-string \"$OWNER_TARGET\""
+      log "Running command to set owner string: $OWNER_STRING_CMD"
+      
+      # Execute the command to set owner string
+      OWNER_STRING_OUTPUT=$(eval $OWNER_STRING_CMD 2>&1)
+      OWNER_STRING_EXIT_CODE=$?
+      
+      # Save output for reference
+      echo "$OWNER_STRING_OUTPUT" > /home/ubuntu/endpoint-set-owner-string.txt
+      
+      if [ $OWNER_STRING_EXIT_CODE -eq 0 ]; then
+        log "Successfully set advertised owner string to $OWNER_TARGET"
+        echo "Successfully set advertised owner string to $OWNER_TARGET" > /home/ubuntu/OWNER_STRING_SUCCESS.txt
+        
+        # Overall success
+        echo "Successfully updated both owner and owner-string to $OWNER_TARGET" > /home/ubuntu/OWNER_RESET_SUCCESS.txt
+      else
+        log "Failed to set advertised owner string with exit code $OWNER_STRING_EXIT_CODE"
+        echo "Failed to set advertised owner string with exit code $OWNER_STRING_EXIT_CODE" > /home/ubuntu/OWNER_STRING_FAILED.txt
+        echo "Command: $OWNER_STRING_CMD" >> /home/ubuntu/OWNER_STRING_FAILED.txt
+        echo "Output: $OWNER_STRING_OUTPUT" >> /home/ubuntu/OWNER_STRING_FAILED.txt
+        
+        # Partial success
+        echo "WARNING: Set owner but failed to set advertised owner string" > /home/ubuntu/OWNER_RESET_PARTIAL.txt
+      fi
     else
-      log "Failed to reset endpoint owner with exit code $OWNER_EXIT_CODE"
-      echo "Failed to reset endpoint owner with exit code $OWNER_EXIT_CODE" > /home/ubuntu/OWNER_RESET_FAILED.txt
-      echo "Command: $OWNER_CMD" >> /home/ubuntu/OWNER_RESET_FAILED.txt
-      echo "Output: $OWNER_OUTPUT" >> /home/ubuntu/OWNER_RESET_FAILED.txt
+      log "Failed to set endpoint owner with exit code $OWNER_SET_EXIT_CODE"
+      echo "Failed to set endpoint owner with exit code $OWNER_SET_EXIT_CODE" > /home/ubuntu/OWNER_SET_FAILED.txt
+      echo "Command: $OWNER_SET_CMD" >> /home/ubuntu/OWNER_SET_FAILED.txt
+      echo "Output: $OWNER_SET_OUTPUT" >> /home/ubuntu/OWNER_SET_FAILED.txt
+      
+      # Overall failure
+      echo "Failed to set endpoint owner" > /home/ubuntu/OWNER_RESET_FAILED.txt
     fi
   else
     log "No valid identity found for owner reset, keeping default owner"
