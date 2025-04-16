@@ -970,6 +970,7 @@ Endpoint Details:
 - Contact Email: $GLOBUS_CONTACT_EMAIL
 - UUID: ${ENDPOINT_UUID:-Not available}
 - Domain Name: ${DOMAIN_NAME:-Not available}
+- Owner Reset: $([ -f /home/ubuntu/OWNER_RESET_SUCCESS.txt ] && echo "YES - $(cat /home/ubuntu/OWNER_RESET_SUCCESS.txt)" || echo "NO")
 
 Node Setup:
 - Status: $NODE_SETUP_STATUS
@@ -1092,6 +1093,86 @@ EOF
 # Set proper permissions
 chmod 600 /home/ubuntu/environment-diagnostics.txt
 chown ubuntu:ubuntu /home/ubuntu/environment-diagnostics.txt
+
+# Set the endpoint owner if requested
+if [ "$RESET_ENDPOINT_OWNER" = "true" ] && [ -n "$ENDPOINT_UUID" ]; then
+  log "Executing endpoint owner reset after completion of gateway setup"
+  
+  # Determine which identity to use as the advertised owner
+  OWNER_TARGET=""
+  
+  case "$ENDPOINT_RESET_OWNER_TARGET" in
+    "GlobusOwner")
+      if [ -n "$GLOBUS_OWNER" ]; then
+        OWNER_TARGET="$GLOBUS_OWNER"
+        log "Using GlobusOwner as advertised owner: $OWNER_TARGET"
+      else
+        log "GlobusOwner is empty, cannot use as advertised owner"
+      fi
+      ;;
+    "DefaultAdminIdentity")
+      if [ -n "$DEFAULT_ADMIN_IDENTITY" ]; then
+        OWNER_TARGET="$DEFAULT_ADMIN_IDENTITY"
+        log "Using DefaultAdminIdentity as advertised owner: $OWNER_TARGET"
+      else
+        log "DefaultAdminIdentity is empty, cannot use as advertised owner"
+      fi
+      ;;
+    "GlobusContactEmail")
+      if [ -n "$GLOBUS_CONTACT_EMAIL" ]; then
+        OWNER_TARGET="$GLOBUS_CONTACT_EMAIL"
+        log "Using GlobusContactEmail as advertised owner: $OWNER_TARGET"
+      else
+        log "GlobusContactEmail is empty, cannot use as advertised owner"
+      fi
+      ;;
+    *)
+      # Default to GlobusOwner if invalid target specified
+      if [ -n "$GLOBUS_OWNER" ]; then
+        OWNER_TARGET="$GLOBUS_OWNER"
+        log "Using GlobusOwner as default advertised owner: $OWNER_TARGET"
+      else
+        log "No valid identity found for owner reset"
+      fi
+      ;;
+  esac
+  
+  if [ -n "$OWNER_TARGET" ]; then
+    log "Setting advertised owner string to: $OWNER_TARGET"
+    
+    # Run the command to set the owner
+    OWNER_CMD="globus-connect-server endpoint set-owner-string \"$OWNER_TARGET\""
+    log "Running command: $OWNER_CMD"
+    
+    # Execute the command
+    OWNER_OUTPUT=$(eval $OWNER_CMD 2>&1)
+    OWNER_EXIT_CODE=$?
+    
+    # Save output for reference
+    echo "$OWNER_OUTPUT" > /home/ubuntu/endpoint-reset-owner.txt
+    
+    if [ $OWNER_EXIT_CODE -eq 0 ]; then
+      log "Successfully reset endpoint owner to $OWNER_TARGET"
+      echo "Successfully reset endpoint owner to $OWNER_TARGET" > /home/ubuntu/OWNER_RESET_SUCCESS.txt
+    else
+      log "Failed to reset endpoint owner with exit code $OWNER_EXIT_CODE"
+      echo "Failed to reset endpoint owner with exit code $OWNER_EXIT_CODE" > /home/ubuntu/OWNER_RESET_FAILED.txt
+      echo "Command: $OWNER_CMD" >> /home/ubuntu/OWNER_RESET_FAILED.txt
+      echo "Output: $OWNER_OUTPUT" >> /home/ubuntu/OWNER_RESET_FAILED.txt
+    fi
+  else
+    log "No valid identity found for owner reset, keeping default owner"
+    echo "No valid identity found for owner reset" > /home/ubuntu/OWNER_RESET_SKIPPED.txt
+  fi
+else
+  if [ "$RESET_ENDPOINT_OWNER" != "true" ]; then
+    log "Endpoint owner reset not requested (RESET_ENDPOINT_OWNER=$RESET_ENDPOINT_OWNER)"
+    echo "Endpoint owner reset not requested (RESET_ENDPOINT_OWNER=$RESET_ENDPOINT_OWNER)" > /home/ubuntu/OWNER_RESET_DISABLED.txt
+  elif [ -z "$ENDPOINT_UUID" ]; then
+    log "Cannot reset endpoint owner - no endpoint UUID available"
+    echo "Cannot reset endpoint owner - no endpoint UUID available" > /home/ubuntu/OWNER_RESET_FAILED.txt
+  fi
+fi
 
 log "=== Globus Connect Server setup completed: $(date) ==="
 debug_log "SETUP COMPLETED"

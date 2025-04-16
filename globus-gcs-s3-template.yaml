@@ -460,6 +460,10 @@ Resources:
           # Debug configuration
           export PRESERVE_INSTANCE="${DebugPreserveInstance}"
           
+          # Endpoint owner configuration
+          export RESET_ENDPOINT_OWNER="${ResetEndpointOwner}"
+          export ENDPOINT_RESET_OWNER_TARGET="${EndpointResetOwnerTarget}"
+          
           # Download the installation script
           echo "Downloading Globus setup script from ${ScriptUrl}"
           curl -s -L -o /tmp/globus-setup.sh "${ScriptUrl}" || wget -q -O /tmp/globus-setup.sh "${ScriptUrl}"
