@@ -38,9 +38,22 @@ check_success() {
   fi
 }
 
+# Get collection IDs properly by focusing on the actual UUIDs
+get_collection_ids() {
+  local output=$(globus-connect-server collection list 2>/dev/null)
+  echo "$output" | grep -oE "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" || true
+}
+
+# Get storage gateway IDs properly by focusing on the actual UUIDs
+get_gateway_ids() {
+  local output=$(globus-connect-server storage-gateway list 2>/dev/null)
+  echo "$output" | grep -oE "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" || true
+}
+
 # Step 1: Delete collections first
 echo "Step 1: Deleting collections..."
-COLLECTIONS=$(globus-connect-server collection list 2>/dev/null | grep -v "^ID" | awk '{print $1}')
+# Get all collection IDs
+COLLECTIONS=$(get_collection_ids)
 
 if [ -z "$COLLECTIONS" ]; then
   echo "No collections found to delete."
@@ -55,7 +68,7 @@ fi
 # Step 2: Delete storage gateways
 echo
 echo "Step 2: Deleting storage gateways..."
-GATEWAYS=$(globus-connect-server storage-gateway list 2>/dev/null | grep -v "^ID" | awk '{print $1}')
+GATEWAYS=$(get_gateway_ids)
 
 if [ -z "$GATEWAYS" ]; then
   echo "No storage gateways found to delete."
@@ -67,18 +80,32 @@ else
   done
 fi
 
-# Step 3: Delete the endpoint
+# Step 3: Delete the endpoint (uses "remove" not "delete")
 echo
 echo "Step 3: Deleting endpoint..."
 echo "Endpoint ID: $GCS_CLI_ENDPOINT_ID"
-globus-connect-server endpoint delete
+globus-connect-server endpoint remove
 check_success "Delete endpoint $GCS_CLI_ENDPOINT_ID"
 
 # Step 4: Clean up Globus services
 echo
 echo "Step 4: Cleaning up Globus services..."
-systemctl stop globus-gridftp-server apache2 2>/dev/null
-check_success "Stop Globus services"
+# First try without sudo, and if that fails, try with sudo
+if systemctl stop globus-gridftp-server 2>/dev/null; then
+  check_success "Stop GridFTP service"
+else
+  echo "Regular stop failed, trying with sudo..."
+  sudo systemctl stop globus-gridftp-server 2>/dev/null
+  check_success "Stop GridFTP service with sudo"
+fi
+
+if systemctl stop apache2 2>/dev/null; then
+  check_success "Stop Apache service"
+else
+  echo "Regular stop failed, trying with sudo..."
+  sudo systemctl stop apache2 2>/dev/null
+  check_success "Stop Apache service with sudo"
+fi
 
 # Create a marker file to indicate successful cleanup
 echo
