@@ -43,6 +43,12 @@ The deployment uses Ubuntu 22.04 LTS and installs Globus packages using the Debi
   - Create storage gateway: `globus-connect-server storage-gateway create s3 [OPTIONS]`
     - S3 is a subcommand (positional argument)
   - Show endpoint: `globus-connect-server endpoint show`
+  - Collection management:
+    - List collections: `globus-connect-server collection list`
+    - Create collection: `globus-connect-server collection create --storage-gateway <ID> --display-name "Name"`
+    - Delete collection: `globus-connect-server collection delete <ID>`
+    - Set permissions: `globus-connect-server endpoint permission create --identity <EMAIL> --permissions rw --collection <ID>`
+  - Endpoint removal: `globus-connect-server endpoint remove`
   - **VERSION COMPATIBILITY**:
     - Template requires Globus Connect Server 5.4.61+
     - The script handles various version output formats
@@ -54,6 +60,76 @@ The deployment uses Ubuntu 22.04 LTS and installs Globus packages using the Debi
   - Verify installation: `dpkg -l | grep globus`
   - Check command path: `which globus-connect-server`
   - List available commands: `find /usr/bin -name "*globus*"`
+
+## Helper Scripts
+
+The deployment includes several helper scripts to assist with management and troubleshooting:
+
+- **setup-env.sh**: Sets up Globus environment variables for manual operations
+  - Sources variables from files in `/home/ubuntu/`
+  - Creates a sourceable exports file at `/home/ubuntu/globus-env-exports.sh`
+  - Usage: `source /home/ubuntu/globus-env-exports.sh` to persist variables in your shell
+
+- **create-collection.sh**: Helps create and manage collections
+  - Supports listing gateways, creating collections, and setting permissions
+  - Usage: `./create-collection.sh --help` to see all options
+  - Example: `./create-collection.sh --create-collection <gateway-id> "My Collection"`
+
+- **teardown-globus.sh**: Properly removes Globus resources before stack deletion
+  - Removes collections, storage gateways, and endpoint registration
+  - Should be run before attempting to delete the CloudFormation stack
+  - Usage: `bash /home/ubuntu/teardown-globus.sh`
+  - **IMPORTANT**: Must be run before stack deletion to avoid resource deletion failures
+
+- **collect-diagnostics.sh**: Collects diagnostic information for troubleshooting
+  - Gathers logs, configuration, and system status for debugging
+  - Usage: `bash /home/ubuntu/collect-diagnostics.sh`
+
+## Collection Management
+
+The deployment uses a manual collection creation approach to provide greater flexibility:
+
+1. **Storage Gateway Creation**: Automated during deployment
+   - S3 gateway is created automatically if enabled
+   - POSIX gateway is created automatically if enabled
+   
+2. **Collection Creation**: Manual post-deployment step (one of two methods)
+   - Option 1: Use the Globus web UI (app.globus.org)
+     1. Log in to the Globus web UI
+     2. Navigate to the Endpoints tab
+     3. Find and select your endpoint by name or UUID
+     4. Go to the Collections tab
+     5. Click "Add a Collection" and follow the prompts
+   
+   - Option 2: Use the create-collection.sh helper script
+     1. List available gateways: `./create-collection.sh --list-gateways`
+     2. Create a collection: `./create-collection.sh --create-collection <gateway-id> "My Collection"`
+     3. List collections: `./create-collection.sh --show-collections`
+     4. Set permissions: `./create-collection.sh --permissions <collection-id> user@example.edu`
+
+3. **S3 Collection Requirements**:
+   - S3 gateway requires AWS credentials for collection creation
+   - Web UI provides an easier interface for entering these credentials
+   - When using the script, you still need to authenticate with AWS
+
+This manual approach avoids deployment failures due to auth issues and provides more flexibility in collection configuration.
+
+## Teardown Process
+
+When deleting the CloudFormation stack, follow this sequence to avoid deletion failures:
+
+1. SSH into the instance: `ssh -i key.pem ubuntu@instance-ip`
+2. Run the teardown script: `bash /home/ubuntu/teardown-globus.sh`
+3. Verify that all Globus resources were removed successfully
+4. Delete the CloudFormation stack: `aws cloudformation delete-stack --stack-name <stack-name>`
+
+The teardown script performs the following operations in order:
+1. Deletes all collections associated with the endpoint
+2. Removes all storage gateways (S3, POSIX, etc.)
+3. Removes the endpoint registration from Globus
+4. Stops Globus services on the instance
+
+If the teardown script encounters errors, you may need to manually remove resources from the Globus web UI before stack deletion.
 
 ## Troubleshooting Deployment Issues
 
@@ -124,6 +200,25 @@ The template passes parameters to the setup script as environment variables:
 2. The main setup script uses these variables directly for configuration
 3. For manual troubleshooting, the values are also stored in files like `/home/ubuntu/globus-owner.txt`
 4. The helper script uses these variables with fallbacks to set proper command parameters
+
+### Endpoint Owner Reset
+
+The template includes functionality to reset the endpoint owner after setup:
+
+- **ResetEndpointOwner**: Controls whether to automatically reset the endpoint owner (default: "true")
+- **DefaultAdminIdentity**: The identity to use as the endpoint owner (should be set to a real user, not service identity)
+
+The endpoint owner reset process:
+1. Automatically runs at the end of the setup process after all gateways are created
+2. First sets owner-string with `globus-connect-server endpoint set-owner-string`
+3. Then sets owner with `globus-connect-server endpoint set-owner`
+4. **CRITICAL**: This order is required to maintain permissions throughout the process
+
+The primary owner is set to the value in DefaultAdminIdentity. If DefaultAdminIdentity is not provided, it falls back to:
+1. GlobusOwner (if provided)
+2. GlobusContactEmail (as last resort)
+
+This improves endpoint visibility in the Globus web UI by setting a human-readable owner rather than a service identity.
 
 ## Code Style Guidelines
 
