@@ -27,7 +27,7 @@ touch "$LOG_FILE" 2>/dev/null || {
 # Logging function
 log() {
   local timestamp=$(date)
-echo "$timestamp - $*" | tee -a "$LOG_FILE" 2>/dev/null || echo "$timestamp - $*"
+  echo "$timestamp - $*" | tee -a "$LOG_FILE" 2>/dev/null || echo "$timestamp - $*"
 }
 
 # Enhanced debug logging
@@ -44,10 +44,6 @@ debug_log() {
   echo "=== DEBUG: $(date) - $* ===" >> "/home/ubuntu/debug.log" 2>/dev/null || true
 }
 
-# Note: The collection permissions function has been removed as collection setup is 
-# now performed via the web UI. The create-permissions.sh script will be created to help
-# with manual setup of collections after deployment.
-
 # Make sure /home/ubuntu exists and is writable
 mkdir -p /home/ubuntu 2>/dev/null || true
 chmod 755 /home/ubuntu 2>/dev/null || true
@@ -57,33 +53,23 @@ debug_log "Starting setup with UID=$(id -u), EUID=$(id -eu), USER=$USER"
 
 # Log debug information about environment variables
 debug_log "Starting with environment variables:"
+debug_log "GLOBUS_BASE_NAME=$GLOBUS_BASE_NAME"
 debug_log "GLOBUS_DISPLAY_NAME=$GLOBUS_DISPLAY_NAME"
 debug_log "GLOBUS_ORGANIZATION=$GLOBUS_ORGANIZATION"
 debug_log "GLOBUS_OWNER=$GLOBUS_OWNER"
 debug_log "GLOBUS_CONTACT_EMAIL=$GLOBUS_CONTACT_EMAIL"
 debug_log "GLOBUS_PROJECT_ID=${GLOBUS_PROJECT_ID:0:5}..." # Truncating for security
-debug_log "ENABLE_S3_CONNECTOR=$ENABLE_S3_CONNECTOR"
-debug_log "S3_BUCKET_NAME=$S3_BUCKET_NAME"
+debug_log "S3 gateway will be created with subscription ID"
 debug_log "GLOBUS_SUBSCRIPTION_ID=$GLOBUS_SUBSCRIPTION_ID"
 debug_log "PRESERVE_INSTANCE=$PRESERVE_INSTANCE"
+debug_log "REMOVE_SERVICE_ACCOUNT_ROLE=$REMOVE_SERVICE_ACCOUNT_ROLE"
 
-# Verify critical S3 parameters if S3 connector is enabled
-if [ "$ENABLE_S3_CONNECTOR" = "true" ]; then
-  debug_log "S3 connector is enabled, verifying required parameters"
-  
-  if [ -z "$S3_BUCKET_NAME" ]; then
-    debug_log "ERROR: S3_BUCKET_NAME is empty but S3 connector is enabled"
-    echo "ERROR: S3_BUCKET_NAME parameter is required when S3 connector is enabled" > /home/ubuntu/S3_PARAMETER_ERROR.txt
-  else
-    debug_log "S3_BUCKET_NAME is set to: $S3_BUCKET_NAME"
-  fi
-  
-  if [ -z "$GLOBUS_SUBSCRIPTION_ID" ]; then
-    debug_log "ERROR: GLOBUS_SUBSCRIPTION_ID is empty but S3 connector is enabled"
-    echo "ERROR: GLOBUS_SUBSCRIPTION_ID parameter is required when S3 connector is enabled" > /home/ubuntu/S3_PARAMETER_ERROR.txt
-  else
-    debug_log "GLOBUS_SUBSCRIPTION_ID is set to: $GLOBUS_SUBSCRIPTION_ID"
-  fi
+# Verify that subscription ID is set for S3 gateway
+if [ -z "$GLOBUS_SUBSCRIPTION_ID" ]; then
+  debug_log "ERROR: GLOBUS_SUBSCRIPTION_ID is empty - required for S3 gateway"
+  echo "ERROR: GLOBUS_SUBSCRIPTION_ID parameter is required" > /home/ubuntu/S3_PARAMETER_ERROR.txt
+else
+  debug_log "GLOBUS_SUBSCRIPTION_ID is set to: $GLOBUS_SUBSCRIPTION_ID"
 fi
 
 # Install Globus Connect Server
@@ -162,36 +148,19 @@ chmod 755 /home/ubuntu
 # Save environment variables ensuring we don't create empty files
 [ -n "$GLOBUS_CLIENT_ID" ] && echo "$GLOBUS_CLIENT_ID" > /home/ubuntu/globus-client-id.txt || echo "MISSING" > /home/ubuntu/globus-client-id.txt
 [ -n "$GLOBUS_CLIENT_SECRET" ] && echo "$GLOBUS_CLIENT_SECRET" > /home/ubuntu/globus-client-secret.txt || echo "MISSING" > /home/ubuntu/globus-client-secret.txt
+[ -n "$GLOBUS_BASE_NAME" ] && echo "$GLOBUS_BASE_NAME" > /home/ubuntu/globus-base-name.txt || echo "MISSING" > /home/ubuntu/globus-base-name.txt
 [ -n "$GLOBUS_DISPLAY_NAME" ] && echo "$GLOBUS_DISPLAY_NAME" > /home/ubuntu/globus-display-name.txt || echo "MISSING" > /home/ubuntu/globus-display-name.txt
 [ -n "$GLOBUS_ORGANIZATION" ] && echo "$GLOBUS_ORGANIZATION" > /home/ubuntu/globus-organization.txt || echo "MISSING" > /home/ubuntu/globus-organization.txt
 [ -n "$GLOBUS_OWNER" ] && echo "$GLOBUS_OWNER" > /home/ubuntu/globus-owner.txt || echo "MISSING" > /home/ubuntu/globus-owner.txt
 [ -n "$GLOBUS_CONTACT_EMAIL" ] && echo "$GLOBUS_CONTACT_EMAIL" > /home/ubuntu/globus-contact-email.txt || echo "MISSING" > /home/ubuntu/globus-contact-email.txt
 [ -n "$GLOBUS_PROJECT_ID" ] && echo "$GLOBUS_PROJECT_ID" > /home/ubuntu/globus-project-id.txt || echo "MISSING" > /home/ubuntu/globus-project-id.txt
 
-# Save subscription and S3 information
+# Save subscription and S3 gateway information
 [ -n "$GLOBUS_SUBSCRIPTION_ID" ] && echo "$GLOBUS_SUBSCRIPTION_ID" > /home/ubuntu/subscription-id.txt || echo "NONE" > /home/ubuntu/subscription-id.txt
-[ -n "$S3_BUCKET_NAME" ] && echo "$S3_BUCKET_NAME" > /home/ubuntu/s3-bucket-name.txt || echo "NONE" > /home/ubuntu/s3-bucket-name.txt
-[ -n "$S3_GATEWAY_DISPLAY_NAME" ] && echo "$S3_GATEWAY_DISPLAY_NAME" > /home/ubuntu/s3-gateway-display-name.txt || echo "S3 Bucket Gateway" > /home/ubuntu/s3-gateway-display-name.txt
-[ -n "$S3_GATEWAY_DOMAIN" ] && echo "$S3_GATEWAY_DOMAIN" > /home/ubuntu/s3-gateway-domain.txt || echo "amazon.com" > /home/ubuntu/s3-gateway-domain.txt
+[ -n "$S3_GATEWAY_DISPLAY_NAME" ] && echo "$S3_GATEWAY_DISPLAY_NAME" > /home/ubuntu/s3-gateway-display-name.txt || echo "$GLOBUS_BASE_NAME S3 Gateway" > /home/ubuntu/s3-gateway-display-name.txt
 
-# Save admin identities
-[ -n "$COLLECTION_ADMIN_IDENTITY" ] && echo "$COLLECTION_ADMIN_IDENTITY" > /home/ubuntu/collection-admin-identity.txt || echo "NONE" > /home/ubuntu/collection-admin-identity.txt
-[ -n "$DEFAULT_ADMIN_IDENTITY" ] && echo "$DEFAULT_ADMIN_IDENTITY" > /home/ubuntu/default-admin-identity.txt || echo "NONE" > /home/ubuntu/default-admin-identity.txt
-
-# Determine which admin identity to use for collections
-# First try collection-specific admin, then default admin
-if [ -n "$COLLECTION_ADMIN_IDENTITY" ]; then
-  COLLECTION_ADMIN="$COLLECTION_ADMIN_IDENTITY"
-  log "Using specified CollectionAdminIdentity: $COLLECTION_ADMIN"
-elif [ -n "$DEFAULT_ADMIN_IDENTITY" ]; then
-  COLLECTION_ADMIN="$DEFAULT_ADMIN_IDENTITY"
-  log "Using DefaultAdminIdentity for collections: $COLLECTION_ADMIN"
-else
-  COLLECTION_ADMIN=""
-  log "WARNING: No admin identity specified for collections. Only the service account ($GLOBUS_OWNER) will have access."
-fi
-
-echo "$COLLECTION_ADMIN" > /home/ubuntu/effective-collection-admin.txt
+# Save owner configuration
+[ -n "$REMOVE_SERVICE_ACCOUNT_ROLE" ] && echo "$REMOVE_SERVICE_ACCOUNT_ROLE" > /home/ubuntu/remove-service-account-role.txt || echo "false" > /home/ubuntu/remove-service-account-role.txt
 
 chmod 600 /home/ubuntu/globus-client-*.txt
 
@@ -246,7 +215,7 @@ else
   debug_log "Endpoint setup output (first 200 chars): ${SETUP_OUTPUT:0:200}..."
 fi
 
-# Extract endpoint UUID from output, looking specifically for the "Created endpoint UUID" pattern
+# Extract endpoint UUID from output, looking specifically for the "Created endpoint" pattern
 log "Extracting endpoint UUID from command output..."
 # First try to find the line with "Created endpoint" which contains the UUID
 CREATED_LINE=$(echo "$SETUP_OUTPUT" | grep "Created endpoint")
@@ -483,28 +452,16 @@ EOFSUBSCRIPTION
       
       # Setup is successful
 
-      # Check if S3 gateway is requested and if subscription is set 
-      if [ -n "$ENABLE_S3_CONNECTOR" ] && [ "$ENABLE_S3_CONNECTOR" = "true" ] && [ -n "$S3_BUCKET_NAME" ] && [ -n "$GLOBUS_SUBSCRIPTION_ID" ]; then
-        log "Creating S3 storage gateway for bucket: $S3_BUCKET_NAME"
-        debug_log "S3 Connector Variables: ENABLE_S3_CONNECTOR=$ENABLE_S3_CONNECTOR, S3_BUCKET_NAME=$S3_BUCKET_NAME, GLOBUS_SUBSCRIPTION_ID=$GLOBUS_SUBSCRIPTION_ID"
-        
-        # Save S3 bucket name to file for reference
-        echo "$S3_BUCKET_NAME" > /home/ubuntu/s3-bucket-name.txt
+      # Check if subscription is set for S3 gateway
+      if [ -n "$GLOBUS_SUBSCRIPTION_ID" ]; then
+        log "Creating S3 storage gateway"
+        debug_log "S3 Connector Variables: GLOBUS_SUBSCRIPTION_ID=$GLOBUS_SUBSCRIPTION_ID"
         
         # Get S3 gateway display name
         S3_GATEWAY_DISPLAY_NAME_VALUE="$(cat /home/ubuntu/s3-gateway-display-name.txt)"
-        S3_GATEWAY_DOMAIN_VALUE="$(cat /home/ubuntu/s3-gateway-domain.txt)"
         
-        # Set appropriate S3 command parameters
+        # Set S3 command parameters - simplified to just use AWS credentials
         S3_CMD="globus-connect-server storage-gateway create s3 --s3-endpoint https://s3.amazonaws.com --s3-user-credential"
-        
-        # Add domain parameter if defined and not empty (and not the default "NONE" value)
-        if [ -n "$S3_GATEWAY_DOMAIN_VALUE" ] && [ "$S3_GATEWAY_DOMAIN_VALUE" != "NONE" ] && [ "$S3_GATEWAY_DOMAIN_VALUE" != "MISSING" ]; then
-            debug_log "Adding domain parameter: $S3_GATEWAY_DOMAIN_VALUE"
-            S3_CMD="$S3_CMD --domain \"$S3_GATEWAY_DOMAIN_VALUE\""
-        else
-            debug_log "No domain specified, omitting domain parameter"
-        fi
         
         # Add display name as the positional argument at the end
         S3_CMD="$S3_CMD \"$S3_GATEWAY_DISPLAY_NAME_VALUE\""
@@ -531,38 +488,71 @@ EOFSUBSCRIPTION
             log "Extracted S3 gateway ID: $S3_GATEWAY_ID"
             echo "$S3_GATEWAY_ID" > /home/ubuntu/s3-gateway-id.txt
             
-            # Skip automatic collection creation for S3 gateway
-            log "S3 gateway created successfully. Collection setup skipped - use web UI for collection creation"
-            echo "S3 gateway created successfully. To create collections:" > /home/ubuntu/s3-collection-info.txt
-            echo "1. Log in to https://app.globus.org" >> /home/ubuntu/s3-collection-info.txt
-            echo "2. Go to the Endpoints tab" >> /home/ubuntu/s3-collection-info.txt
-            echo "3. Find and click on your endpoint (${GLOBUS_DISPLAY_NAME})" >> /home/ubuntu/s3-collection-info.txt
-            echo "4. Navigate to the Collections tab" >> /home/ubuntu/s3-collection-info.txt
-            echo "5. Click 'Add a Collection' and follow the instructions" >> /home/ubuntu/s3-collection-info.txt
+            # Automatically create a collection for this gateway
+            log "S3 gateway created successfully. Automatically creating a collection..."
+            S3_COLLECTION_NAME="${GLOBUS_BASE_NAME} S3 Collection"
+            log "Creating collection: $S3_COLLECTION_NAME for gateway $S3_GATEWAY_ID"
             
-            # Note about using the general collection helper script
-            cat > /home/ubuntu/s3-helper-readme.txt << EOF
-S3 Gateway has been created. 
+            COLLECTION_OUTPUT=$(globus-connect-server collection create --storage-gateway "$S3_GATEWAY_ID" --display-name "$S3_COLLECTION_NAME" 2>&1)
+            COLLECTION_EXIT_CODE=$?
+            
+            # Save output for reference
+            echo "$COLLECTION_OUTPUT" > /home/ubuntu/s3-collection-output.txt
+            
+            if [ $COLLECTION_EXIT_CODE -eq 0 ]; then
+              log "S3 collection created successfully"
+              
+              # Extract the collection ID from the output
+              S3_COLLECTION_ID=$(echo "$COLLECTION_OUTPUT" | grep -i "id:" | awk '{print $2}' | head -1)
+              if [ -n "$S3_COLLECTION_ID" ]; then
+                log "Extracted S3 collection ID: $S3_COLLECTION_ID"
+                echo "$S3_COLLECTION_ID" > /home/ubuntu/s3-collection-id.txt
+                
+                # Create reference to the collection URL
+                COLLECTION_URL="https://app.globus.org/file-manager?destination_id=${S3_COLLECTION_ID}"
+                echo "$COLLECTION_URL" > /home/ubuntu/s3-collection-url.txt
+                
+                # Add permissions for the owner if specified
+                if [ -n "$GLOBUS_OWNER" ]; then
+                  log "Setting permissions for owner $GLOBUS_OWNER on collection $S3_COLLECTION_ID"
+                  PERMISSION_OUTPUT=$(globus-connect-server endpoint permission create --identity "$GLOBUS_OWNER" --permissions rw --collection "$S3_COLLECTION_ID" 2>&1)
+                  PERMISSION_EXIT_CODE=$?
+                  
+                  # Save output for reference
+                  echo "$PERMISSION_OUTPUT" > /home/ubuntu/s3-permission-output.txt
+                  
+                  if [ $PERMISSION_EXIT_CODE -eq 0 ]; then
+                    log "Successfully set permissions for $GLOBUS_OWNER on S3 collection"
+                    echo "true" > /home/ubuntu/s3-permissions-set.txt
+                  else
+                    log "Failed to set permissions for $GLOBUS_OWNER on S3 collection with exit code $PERMISSION_EXIT_CODE"
+                    echo "false" > /home/ubuntu/s3-permissions-set.txt
+                    echo "Error details: $PERMISSION_OUTPUT" >> /home/ubuntu/S3_PERMISSION_FAILED.txt
+                  fi
+                fi
+              else
+                log "Could not extract collection ID from output"
+              fi
+            else
+              log "Failed to create S3 collection with exit code $COLLECTION_EXIT_CODE"
+              echo "Failed to create S3 collection with exit code $COLLECTION_EXIT_CODE" > /home/ubuntu/S3_COLLECTION_FAILED.txt
+              echo "Command output: $COLLECTION_OUTPUT" >> /home/ubuntu/S3_COLLECTION_FAILED.txt
+            fi
+            
+            # Still create a summary file with access information
+            cat > /home/ubuntu/s3-collection-info.txt << EOF
+S3 Gateway and Collection Information:
+======================================
+Gateway ID: $S3_GATEWAY_ID
+Collection ID: ${S3_COLLECTION_ID:-Failed to create}
+Collection Name: $S3_COLLECTION_NAME
+Access URL: ${COLLECTION_URL:-Not available}
+Owner Permissions: $([ -f /home/ubuntu/s3-permissions-set.txt ] && cat /home/ubuntu/s3-permissions-set.txt || echo "Not set")
 
-To create collections and set permissions, use the create-collection.sh script:
-
-1. First list the gateways:
-   ./create-collection.sh --list-gateways
-
-2. Create a collection using your S3 gateway ID (replace XXX with your gateway ID and name):
-   ./create-collection.sh --create-collection XXX "My S3 Collection"
-
-3. List collections to get the collection ID:
-   ./create-collection.sh --show-collections
-
-4. Set permissions on the collection (replace YYY with collection ID):
-   ./create-collection.sh --permissions YYY user@example.edu
-
-For more information, run:
-   ./create-collection.sh --help
+You can access this collection through the Globus web interface at:
+https://app.globus.org/file-manager
 EOF
-            chown ubuntu:ubuntu /home/ubuntu/s3-helper-readme.txt
-            log "Created helper information for using the collection helper script"
+            chown ubuntu:ubuntu /home/ubuntu/s3-collection-info.txt
           else
             log "Could not extract S3 gateway ID from output"
           fi
@@ -577,124 +567,16 @@ EOF
           echo "" >> /home/ubuntu/S3_GATEWAY_FAILED.txt
           echo "Full command output:" >> /home/ubuntu/S3_GATEWAY_FAILED.txt
           echo "$S3_OUTPUT" >> /home/ubuntu/S3_GATEWAY_FAILED.txt
-          
-          # Create more detailed error file with troubleshooting info
-          cat > /home/ubuntu/S3_CONNECTOR_TROUBLESHOOTING.txt << EOF
-S3 Connector Setup Failed
-
-Common issues:
-1. Missing subscription ID or not an administrator - the account used for setup 
-   must be a subscription administrator in the subscription membership group.
-2. IAM permissions insufficient - the instance needs access to the S3 bucket
-3. S3 bucket doesn't exist or is in a different region
-4. S3 bucket format is incorrect
-
-Command format: globus-connect-server storage-gateway create s3 [OPTIONS] DISPLAY_NAME
-
-Command attempted: $S3_CMD
-Exit code: $S3_EXIT_CODE
-Output: 
-$S3_OUTPUT
-
-To set up manually after fixing the issue, run:
-$S3_CMD
-
-You can also get command help with:
-globus-connect-server storage-gateway create s3 --help
-EOF
         fi
       else
-        if [ -n "$ENABLE_S3_CONNECTOR" ] && [ "$ENABLE_S3_CONNECTOR" = "true" ]; then
-          if [ -z "$S3_BUCKET_NAME" ]; then
-            log "S3 gateway creation requested but S3_BUCKET_NAME not provided"
-            echo "ERROR: S3 gateway creation requested but S3_BUCKET_NAME not provided" > /home/ubuntu/S3_MISSING_BUCKET.txt
-          fi
-          
-          if [ -z "$GLOBUS_SUBSCRIPTION_ID" ]; then
-            log "S3 gateway creation requested but GLOBUS_SUBSCRIPTION_ID not provided (required for S3 connector)"
-            echo "ERROR: S3 gateway creation requested but no subscription ID provided" > /home/ubuntu/S3_MISSING_SUBSCRIPTION.txt
-            echo "The S3 connector requires a Globus subscription" >> /home/ubuntu/S3_MISSING_SUBSCRIPTION.txt
-          fi
-        else
-          log "S3 gateway creation not requested (ENABLE_S3_CONNECTOR=$ENABLE_S3_CONNECTOR)"
+        if [ -z "$GLOBUS_SUBSCRIPTION_ID" ]; then
+          log "S3 gateway creation failed: GLOBUS_SUBSCRIPTION_ID not provided (required for S3 connector)"
+          echo "ERROR: S3 gateway creation failed - no subscription ID provided" > /home/ubuntu/S3_MISSING_SUBSCRIPTION.txt
+          echo "The S3 connector requires a Globus subscription" >> /home/ubuntu/S3_MISSING_SUBSCRIPTION.txt
         fi
       fi
       
-      # Check if POSIX gateway is requested
-      if [ -n "$ENABLE_POSIX_GATEWAY" ] && [ "$ENABLE_POSIX_GATEWAY" = "true" ] && [ -n "$POSIX_GATEWAY_NAME" ]; then
-        log "Creating POSIX storage gateway: $POSIX_GATEWAY_NAME"
-        
-        # Optional domain parameter
-        DOMAIN_PARAM=""
-        if [ -n "$POSIX_GATEWAY_DOMAIN" ]; then
-          DOMAIN_PARAM="--domain \"$POSIX_GATEWAY_DOMAIN\""
-        fi
-        
-        # Create the POSIX gateway command
-        GATEWAY_CMD="globus-connect-server storage-gateway create posix \"$POSIX_GATEWAY_NAME\" $DOMAIN_PARAM"
-        log "Running command: $GATEWAY_CMD"
-        
-        # Execute the command
-        GATEWAY_OUTPUT=$(eval $GATEWAY_CMD 2>&1)
-        GATEWAY_EXIT_CODE=$?
-        
-        # Save output for reference
-        echo "$GATEWAY_OUTPUT" > /home/ubuntu/posix-gateway-output.txt
-        
-        if [ $GATEWAY_EXIT_CODE -eq 0 ]; then
-          log "POSIX gateway created successfully"
-          
-          # Extract the gateway ID from the output
-          GATEWAY_ID=$(echo "$GATEWAY_OUTPUT" | grep -i "id:" | awk '{print $2}' | head -1)
-          if [ -n "$GATEWAY_ID" ]; then
-            log "Extracted POSIX gateway ID: $GATEWAY_ID"
-            echo "$GATEWAY_ID" > /home/ubuntu/posix-gateway-id.txt
-            
-            # Skip automatic collection creation for POSIX gateway
-            log "POSIX gateway created successfully. Collection setup skipped - use web UI for collection creation"
-            echo "POSIX gateway created successfully. To create collections:" > /home/ubuntu/posix-collection-info.txt
-            echo "1. Log in to https://app.globus.org" >> /home/ubuntu/posix-collection-info.txt
-            echo "2. Go to the Endpoints tab" >> /home/ubuntu/posix-collection-info.txt
-            echo "3. Find and click on your endpoint (${GLOBUS_DISPLAY_NAME})" >> /home/ubuntu/posix-collection-info.txt
-            echo "4. Navigate to the Collections tab" >> /home/ubuntu/posix-collection-info.txt
-            echo "5. Click 'Add a Collection' and follow the instructions" >> /home/ubuntu/posix-collection-info.txt
-            
-            # Note about using the general collection helper script
-            cat > /home/ubuntu/posix-helper-readme.txt << EOF
-POSIX Gateway has been created. 
-
-To create collections and set permissions, use the create-collection.sh script:
-
-1. First list the gateways:
-   ./create-collection.sh --list-gateways
-
-2. Create a collection using your POSIX gateway ID (replace XXX with your gateway ID and name):
-   ./create-collection.sh --create-collection XXX "My POSIX Collection"
-
-3. List collections to get the collection ID:
-   ./create-collection.sh --show-collections
-
-4. Set permissions on the collection (replace YYY with collection ID):
-   ./create-collection.sh --permissions YYY user@example.edu
-
-For more information, run:
-   ./create-collection.sh --help
-EOF
-            chmod +x /home/ubuntu/create-posix-collection.sh
-            chown ubuntu:ubuntu /home/ubuntu/create-posix-collection.sh
-            log "Created helper script for manually creating collections: /home/ubuntu/create-posix-collection.sh"
-          else
-            log "Could not extract gateway ID from output"
-          fi
-        else
-          log "Failed to create POSIX gateway with exit code $GATEWAY_EXIT_CODE"
-          echo "Failed to create POSIX gateway with exit code $GATEWAY_EXIT_CODE" > /home/ubuntu/POSIX_GATEWAY_FAILED.txt
-          echo "Please check the output in posix-gateway-output.txt" >> /home/ubuntu/POSIX_GATEWAY_FAILED.txt
-          echo "Command attempted: $GATEWAY_CMD" >> /home/ubuntu/POSIX_GATEWAY_FAILED.txt
-        fi
-      else
-        log "POSIX gateway creation not requested (ENABLE_POSIX_GATEWAY=$ENABLE_POSIX_GATEWAY, POSIX_GATEWAY_NAME=$POSIX_GATEWAY_NAME)"
-      fi
+      # POSIX gateway support removed to focus on S3 connectivity
     else
       log "WARNING: Node setup failed with exit code $NODE_SETUP_EXIT_CODE"
       echo "Node setup failed with exit code $NODE_SETUP_EXIT_CODE" > /home/ubuntu/NODE_SETUP_FAILED.txt
@@ -869,84 +751,40 @@ NODE_SETUP_STATUS=$([ -f /home/ubuntu/node-setup-output.txt ] && echo "Completed
 PUBLIC_IP=$(cat /home/ubuntu/public-ip.txt 2>/dev/null || echo "Not detected")
 NODE_ID=$(cat /home/ubuntu/node-id.txt 2>/dev/null || echo "Not extracted")
 
-# Determine which admin identity is being used
-if [ -f /home/ubuntu/effective-collection-admin.txt ]; then
-  EFFECTIVE_ADMIN=$(cat /home/ubuntu/effective-collection-admin.txt)
-else
-  EFFECTIVE_ADMIN="none specified"
-fi
-
 # Check if S3 gateway was created
 S3_GATEWAY_STATUS="Not configured"
 S3_GATEWAY_ID=""
-S3_COLLECTION_STATUS="None"
 S3_COLLECTION_ID=""
-S3_COLLECTION_NAME=""
-S3_COLLECTION_PERM_STATUS=""
+S3_COLLECTION_URL=""
 
 if [ -f /home/ubuntu/s3-gateway-id.txt ]; then
   S3_GATEWAY_ID=$(cat /home/ubuntu/s3-gateway-id.txt)
   S3_GATEWAY_STATUS="Created - ID: $S3_GATEWAY_ID"
   
-  if [ -f /home/ubuntu/s3-collection-id.txt ] && [ -f /home/ubuntu/s3-collection-name.txt ]; then
+  # Check if collection was created
+  if [ -f /home/ubuntu/s3-collection-id.txt ]; then
     S3_COLLECTION_ID=$(cat /home/ubuntu/s3-collection-id.txt)
-    S3_COLLECTION_NAME=$(cat /home/ubuntu/s3-collection-name.txt)
-    S3_COLLECTION_STATUS="Created - Name: $S3_COLLECTION_NAME, ID: $S3_COLLECTION_ID"
+    S3_COLLECTION_STATUS="Created - ID: $S3_COLLECTION_ID"
     
-    if [ -f /home/ubuntu/s3-collection-permissions-set.txt ]; then
-      S3_PERM_SET=$(cat /home/ubuntu/s3-collection-permissions-set.txt)
-      if [ "$S3_PERM_SET" = "true" ]; then
-        S3_COLLECTION_PERM_STATUS="Permissions granted to $EFFECTIVE_ADMIN"
-      else
-        if [ -f "/home/ubuntu/${S3_COLLECTION_NAME}_PERMISSION_FAILED.txt" ]; then
-          S3_COLLECTION_PERM_STATUS="Failed to set permissions - See ${S3_COLLECTION_NAME}_PERMISSION_FAILED.txt"
-        elif [ -z "$EFFECTIVE_ADMIN" ]; then
-          S3_COLLECTION_PERM_STATUS="No admin identity specified - only service account has access"
-        else
-          S3_COLLECTION_PERM_STATUS="Unknown permission status"
-        fi
-      fi
+    # Check if we have a URL
+    if [ -f /home/ubuntu/s3-collection-url.txt ]; then
+      S3_COLLECTION_URL=$(cat /home/ubuntu/s3-collection-url.txt)
     fi
-  elif [ -f /home/ubuntu/S3_COLLECTION_FAILED.txt ]; then
-    S3_COLLECTION_STATUS="Failed to create - See S3_COLLECTION_FAILED.txt"
+    
+    # Check if permissions were set
+    if [ -f /home/ubuntu/s3-permissions-set.txt ] && [ "$(cat /home/ubuntu/s3-permissions-set.txt)" = "true" ]; then
+      S3_PERMISSIONS_STATUS="Permissions granted to $GLOBUS_OWNER"
+    else
+      S3_PERMISSIONS_STATUS="No permissions set or permission setting failed"
+    fi
+  else
+    S3_COLLECTION_STATUS="Failed to create collection"
   fi
+else
+  S3_COLLECTION_STATUS="No gateway created"
 fi
 
-# Check if POSIX gateway was created
-POSIX_GATEWAY_STATUS="Not configured"
-POSIX_GATEWAY_ID=""
-POSIX_COLLECTION_STATUS="None"
-POSIX_COLLECTION_ID=""
-POSIX_COLLECTION_NAME=""
-POSIX_COLLECTION_PERM_STATUS=""
-
-if [ -f /home/ubuntu/posix-gateway-id.txt ]; then
-  POSIX_GATEWAY_ID=$(cat /home/ubuntu/posix-gateway-id.txt)
-  POSIX_GATEWAY_STATUS="Created - ID: $POSIX_GATEWAY_ID"
-  
-  if [ -f /home/ubuntu/posix-collection-id.txt ] && [ -f /home/ubuntu/posix-collection-name.txt ]; then
-    POSIX_COLLECTION_ID=$(cat /home/ubuntu/posix-collection-id.txt)
-    POSIX_COLLECTION_NAME=$(cat /home/ubuntu/posix-collection-name.txt)
-    POSIX_COLLECTION_STATUS="Created - Name: $POSIX_COLLECTION_NAME, ID: $POSIX_COLLECTION_ID"
-    
-    if [ -f /home/ubuntu/posix-collection-permissions-set.txt ]; then
-      POSIX_PERM_SET=$(cat /home/ubuntu/posix-collection-permissions-set.txt)
-      if [ "$POSIX_PERM_SET" = "true" ]; then
-        POSIX_COLLECTION_PERM_STATUS="Permissions granted to $EFFECTIVE_ADMIN"
-      else
-        if [ -f "/home/ubuntu/${POSIX_COLLECTION_NAME}_PERMISSION_FAILED.txt" ]; then
-          POSIX_COLLECTION_PERM_STATUS="Failed to set permissions - See ${POSIX_COLLECTION_NAME}_PERMISSION_FAILED.txt"
-        elif [ -z "$EFFECTIVE_ADMIN" ]; then
-          POSIX_COLLECTION_PERM_STATUS="No admin identity specified - only service account has access"
-        else
-          POSIX_COLLECTION_PERM_STATUS="Unknown permission status"
-        fi
-      fi
-    fi
-  elif [ -f /home/ubuntu/POSIX_COLLECTION_FAILED.txt ]; then
-    POSIX_COLLECTION_STATUS="Failed to create - See POSIX_COLLECTION_FAILED.txt"
-  fi
-fi
+# POSIX gateway support removed to focus on S3 connectivity
 
 # Check subscription status
 SUBSCRIPTION_STATUS="Basic (unmanaged)"
@@ -970,10 +808,7 @@ Endpoint Details:
 - Contact Email: $GLOBUS_CONTACT_EMAIL
 - UUID: ${ENDPOINT_UUID:-Not available}
 - Domain Name: ${DOMAIN_NAME:-Not available}
-- Owner Reset: $([ -f /home/ubuntu/OWNER_RESET_SUCCESS.txt ] && echo "YES - Owner set to: $OWNER_TARGET" || 
-                [ -f /home/ubuntu/OWNER_RESET_PARTIAL.txt ] && echo "PARTIAL - Set owner-string but owner update failed" ||
-                [ -f /home/ubuntu/OWNER_RESET_FAILED.txt ] && echo "FAILED - See logs for details" || 
-                echo "NO")
+- Service Account Role: $([ "$REMOVE_SERVICE_ACCOUNT_ROLE" = "true" ] && echo "Will be removed" || echo "Kept")
 
 Node Setup:
 - Status: $NODE_SETUP_STATUS
@@ -986,21 +821,13 @@ Node Setup:
 Subscription Status:
 - Status: $SUBSCRIPTION_STATUS
 
-Collection Access:
-- Admin Identity: ${EFFECTIVE_ADMIN:-None specified}
-  $([ -z "$EFFECTIVE_ADMIN" ] && echo "  WARNING: No admin identity specified. Only the service account ($GLOBUS_OWNER) will have access." || echo "")
-
-Storage Gateways:
-- S3 Gateway: $S3_GATEWAY_STATUS
-  $([ -n "$S3_BUCKET_NAME" ] && echo "  S3 Bucket: $S3_BUCKET_NAME" || echo "")
+S3 Gateway and Collection:
+- Gateway: $S3_GATEWAY_STATUS
   $([ -f /home/ubuntu/s3-gateway-id.txt ] && echo "  Gateway ID: $(cat /home/ubuntu/s3-gateway-id.txt)" || echo "")
-  Collection: $S3_COLLECTION_STATUS
-  $([ -n "$S3_COLLECTION_PERM_STATUS" ] && echo "  Permissions: $S3_COLLECTION_PERM_STATUS" || echo "")
-  
-- POSIX Gateway: $POSIX_GATEWAY_STATUS
-  $([ -f /home/ubuntu/posix-gateway-id.txt ] && echo "  Gateway ID: $(cat /home/ubuntu/posix-gateway-id.txt)" || echo "")
-  Collection: $POSIX_COLLECTION_STATUS
-  $([ -n "$POSIX_COLLECTION_PERM_STATUS" ] && echo "  Permissions: $POSIX_COLLECTION_PERM_STATUS" || echo "")
+  $([ -n "$S3_COLLECTION_STATUS" ] && echo "  Collection: $S3_COLLECTION_STATUS" || echo "")
+  $([ -n "$S3_COLLECTION_ID" ] && echo "  Collection ID: $S3_COLLECTION_ID" || echo "")
+  $([ -n "$S3_PERMISSIONS_STATUS" ] && echo "  Permissions: $S3_PERMISSIONS_STATUS" || echo "")
+  $([ -n "$S3_COLLECTION_URL" ] && echo "  Access URL: $S3_COLLECTION_URL" || echo "")
 
 Access Information:
 - Endpoint URL: https://app.globus.org/file-manager?origin_id=${ENDPOINT_UUID:-MISSING_UUID}
@@ -1009,8 +836,6 @@ Helper Scripts:
 - /home/ubuntu/globus-env.sh: Setup Globus credentials environment variables 
 - /home/ubuntu/show-endpoint.sh: Show endpoint details
 - /home/ubuntu/globus-cli-examples.sh: Examples of common Globus CLI commands
-$([ -f /home/ubuntu/create-posix-collection.sh ] && echo "- /home/ubuntu/create-posix-collection.sh: Create collections for POSIX gateway" || echo "")
-$([ -f /home/ubuntu/create-s3-collection.sh ] && echo "- /home/ubuntu/create-s3-collection.sh: Create collections for S3 gateway" || echo "")
 
 To run Globus commands manually:
 $ source /home/ubuntu/globus-env.sh
@@ -1056,18 +881,17 @@ Generated: $(date)
 Environment Variables (sensitive values partially redacted):
 - GLOBUS_CLIENT_ID: ${GLOBUS_CLIENT_ID:0:8}... (truncated)
 - GLOBUS_CLIENT_SECRET: ${GLOBUS_CLIENT_SECRET:0:3}... (truncated) 
+- GLOBUS_BASE_NAME: $GLOBUS_BASE_NAME
 - GLOBUS_DISPLAY_NAME: $GLOBUS_DISPLAY_NAME
 - GLOBUS_ORGANIZATION: $GLOBUS_ORGANIZATION
 - GLOBUS_OWNER: $GLOBUS_OWNER
 - GLOBUS_CONTACT_EMAIL: $GLOBUS_CONTACT_EMAIL
 - GLOBUS_PROJECT_ID: ${GLOBUS_PROJECT_ID:0:8}... (truncated)
 - GLOBUS_SUBSCRIPTION_ID: $GLOBUS_SUBSCRIPTION_ID
-- ENABLE_S3_CONNECTOR: $ENABLE_S3_CONNECTOR
-- S3_BUCKET_NAME: $S3_BUCKET_NAME
-- ENABLE_POSIX_GATEWAY: $ENABLE_POSIX_GATEWAY
-- POSIX_GATEWAY_NAME: $POSIX_GATEWAY_NAME
+- S3 Gateway: Enabled with subscription
+# POSIX gateway support removed to focus on S3 connectivity
 - PRESERVE_INSTANCE: $PRESERVE_INSTANCE
-- COLLECTION_ADMIN: $COLLECTION_ADMIN
+- REMOVE_SERVICE_ACCOUNT_ROLE: $REMOVE_SERVICE_ACCOUNT_ROLE
 
 CLI Environment Variables:
 - GCS_CLI_CLIENT_ID: ${GCS_CLI_CLIENT_ID:0:8}... (truncated)
@@ -1082,8 +906,7 @@ Major Component Status:
 - Endpoint created: $([ -n "$ENDPOINT_UUID" ] && echo "YES - $ENDPOINT_UUID" || echo "NO")
 - Subscription set: $([ -f /home/ubuntu/SUBSCRIPTION_SUCCESS.txt ] && echo "YES" || echo "NO")
 - S3 Gateway created: $([ -f /home/ubuntu/s3-gateway-id.txt ] && echo "YES - $(cat /home/ubuntu/s3-gateway-id.txt)" || echo "NO")
-- S3 Collection created: $([ -f /home/ubuntu/s3-collection-id.txt ] && echo "YES - $(cat /home/ubuntu/s3-collection-id.txt)" || echo "NO")
-- POSIX Gateway created: $([ -f /home/ubuntu/posix-gateway-id.txt ] && echo "YES - $(cat /home/ubuntu/posix-gateway-id.txt)" || echo "NO")
+# POSIX gateway support removed to focus on S3 connectivity
 - Node setup completed: $([ -f /home/ubuntu/node-setup-output.txt ] && echo "YES" || echo "NO")
 
 For detailed logs, check:
@@ -1098,76 +921,59 @@ chmod 600 /home/ubuntu/environment-diagnostics.txt
 chown ubuntu:ubuntu /home/ubuntu/environment-diagnostics.txt
 
 # Set the endpoint owner if requested
-if [ "$RESET_ENDPOINT_OWNER" = "true" ] && [ -n "$ENDPOINT_UUID" ]; then
-  log "Executing endpoint owner reset after completion of gateway setup"
+if [ "$RESET_ENDPOINT_OWNER" = "true" ] && [ -n "$ENDPOINT_UUID" ] && [ -n "$GLOBUS_OWNER" ]; then
+  log "Setting up endpoint ownership for: $GLOBUS_OWNER"
   
-  # ONLY use DefaultAdminIdentity for owner reset - no fallbacks
-  if [ -n "$DEFAULT_ADMIN_IDENTITY" ]; then
-    OWNER_TARGET="$DEFAULT_ADMIN_IDENTITY"
-    log "Setting owner to DefaultAdminIdentity value: $OWNER_TARGET"
-  else
-    log "DefaultAdminIdentity is empty, skipping owner reset"
-    log "No fallbacks will be used - owner reset requires DefaultAdminIdentity to be set"
-    OWNER_TARGET=""
-  fi
+  # STEP 1: IMPORTANT - MUST set owner-string FIRST while service identity still has permissions
+  log "Setting advertised owner string to: $GLOBUS_OWNER"
+  OWNER_STRING_CMD="globus-connect-server endpoint set-owner-string \"$GLOBUS_OWNER\""
+  log "Running command to set owner string: $OWNER_STRING_CMD"
   
-  if [ -n "$OWNER_TARGET" ]; then
-    log "Setting up endpoint ownership for: $OWNER_TARGET"
+  # Execute the command to set owner string
+  OWNER_STRING_OUTPUT=$(eval $OWNER_STRING_CMD 2>&1)
+  OWNER_STRING_EXIT_CODE=$?
+  
+  # Save output for reference
+  echo "$OWNER_STRING_OUTPUT" > /home/ubuntu/endpoint-set-owner-string.txt
+  
+  if [ $OWNER_STRING_EXIT_CODE -eq 0 ]; then
+    log "Successfully set advertised owner string to $GLOBUS_OWNER"
+    echo "Successfully set advertised owner string to $GLOBUS_OWNER" > /home/ubuntu/OWNER_STRING_SUCCESS.txt
     
-    # STEP 1: IMPORTANT - MUST set owner-string FIRST while service identity still has permissions
-    log "Setting advertised owner string to: $OWNER_TARGET"
-    OWNER_STRING_CMD="globus-connect-server endpoint set-owner-string \"$OWNER_TARGET\""
-    log "Running command to set owner string: $OWNER_STRING_CMD"
+    # STEP 2: Now set the actual owner (must be done AFTER setting owner-string)
+    OWNER_SET_CMD="globus-connect-server endpoint set-owner \"$GLOBUS_OWNER\""
+    log "Running command to set owner: $OWNER_SET_CMD"
     
-    # Execute the command to set owner string
-    OWNER_STRING_OUTPUT=$(eval $OWNER_STRING_CMD 2>&1)
-    OWNER_STRING_EXIT_CODE=$?
+    # Execute the command to set owner
+    OWNER_SET_OUTPUT=$(eval $OWNER_SET_CMD 2>&1)
+    OWNER_SET_EXIT_CODE=$?
     
     # Save output for reference
-    echo "$OWNER_STRING_OUTPUT" > /home/ubuntu/endpoint-set-owner-string.txt
+    echo "$OWNER_SET_OUTPUT" > /home/ubuntu/endpoint-set-owner.txt
     
-    if [ $OWNER_STRING_EXIT_CODE -eq 0 ]; then
-      log "Successfully set advertised owner string to $OWNER_TARGET"
-      echo "Successfully set advertised owner string to $OWNER_TARGET" > /home/ubuntu/OWNER_STRING_SUCCESS.txt
+    if [ $OWNER_SET_EXIT_CODE -eq 0 ]; then
+      log "Successfully set endpoint owner to $GLOBUS_OWNER"
+      echo "Successfully set endpoint owner to $GLOBUS_OWNER" > /home/ubuntu/OWNER_SET_SUCCESS.txt
       
-      # STEP 2: Now set the actual owner (must be done AFTER setting owner-string)
-      OWNER_SET_CMD="globus-connect-server endpoint set-owner \"$OWNER_TARGET\""
-      log "Running command to set owner: $OWNER_SET_CMD"
-      
-      # Execute the command to set owner
-      OWNER_SET_OUTPUT=$(eval $OWNER_SET_CMD 2>&1)
-      OWNER_SET_EXIT_CODE=$?
-      
-      # Save output for reference
-      echo "$OWNER_SET_OUTPUT" > /home/ubuntu/endpoint-set-owner.txt
-      
-      if [ $OWNER_SET_EXIT_CODE -eq 0 ]; then
-        log "Successfully set endpoint owner to $OWNER_TARGET"
-        echo "Successfully set endpoint owner to $OWNER_TARGET" > /home/ubuntu/OWNER_SET_SUCCESS.txt
-        
-        # Overall success
-        echo "Successfully updated both owner-string and owner to DefaultAdminIdentity value: $OWNER_TARGET" > /home/ubuntu/OWNER_RESET_SUCCESS.txt
-      else
-        log "Failed to set endpoint owner with exit code $OWNER_SET_EXIT_CODE"
-        echo "Failed to set endpoint owner with exit code $OWNER_SET_EXIT_CODE" > /home/ubuntu/OWNER_SET_FAILED.txt
-        echo "Command: $OWNER_SET_CMD" >> /home/ubuntu/OWNER_SET_FAILED.txt
-        echo "Output: $OWNER_SET_OUTPUT" >> /home/ubuntu/OWNER_SET_FAILED.txt
-        
-        # Partial success
-        echo "WARNING: Set owner-string but failed to set owner" > /home/ubuntu/OWNER_RESET_PARTIAL.txt
-      fi
+      # Overall success
+      echo "Successfully updated both owner-string and owner to $GLOBUS_OWNER" > /home/ubuntu/OWNER_RESET_SUCCESS.txt
     else
-      log "Failed to set advertised owner string with exit code $OWNER_STRING_EXIT_CODE"
-      echo "Failed to set advertised owner string with exit code $OWNER_STRING_EXIT_CODE" > /home/ubuntu/OWNER_STRING_FAILED.txt
-      echo "Command: $OWNER_STRING_CMD" >> /home/ubuntu/OWNER_STRING_FAILED.txt
-      echo "Output: $OWNER_STRING_OUTPUT" >> /home/ubuntu/OWNER_STRING_FAILED.txt
+      log "Failed to set endpoint owner with exit code $OWNER_SET_EXIT_CODE"
+      echo "Failed to set endpoint owner with exit code $OWNER_SET_EXIT_CODE" > /home/ubuntu/OWNER_SET_FAILED.txt
+      echo "Command: $OWNER_SET_CMD" >> /home/ubuntu/OWNER_SET_FAILED.txt
+      echo "Output: $OWNER_SET_OUTPUT" >> /home/ubuntu/OWNER_SET_FAILED.txt
       
-      # Overall failure - don't even try to set owner if owner-string fails
-      echo "Failed to set advertised owner string, not attempting to set owner" > /home/ubuntu/OWNER_RESET_FAILED.txt
+      # Partial success
+      echo "WARNING: Set owner-string but failed to set owner" > /home/ubuntu/OWNER_RESET_PARTIAL.txt
     fi
   else
-    log "No valid identity found for owner reset, keeping default owner"
-    echo "No valid identity found for owner reset" > /home/ubuntu/OWNER_RESET_SKIPPED.txt
+    log "Failed to set advertised owner string with exit code $OWNER_STRING_EXIT_CODE"
+    echo "Failed to set advertised owner string with exit code $OWNER_STRING_EXIT_CODE" > /home/ubuntu/OWNER_STRING_FAILED.txt
+    echo "Command: $OWNER_STRING_CMD" >> /home/ubuntu/OWNER_STRING_FAILED.txt
+    echo "Output: $OWNER_STRING_OUTPUT" >> /home/ubuntu/OWNER_STRING_FAILED.txt
+    
+    # Overall failure - don't even try to set owner if owner-string fails
+    echo "Failed to set advertised owner string, not attempting to set owner" > /home/ubuntu/OWNER_RESET_FAILED.txt
   fi
 else
   if [ "$RESET_ENDPOINT_OWNER" != "true" ]; then
@@ -1176,6 +982,53 @@ else
   elif [ -z "$ENDPOINT_UUID" ]; then
     log "Cannot reset endpoint owner - no endpoint UUID available"
     echo "Cannot reset endpoint owner - no endpoint UUID available" > /home/ubuntu/OWNER_RESET_FAILED.txt
+  elif [ -z "$GLOBUS_OWNER" ]; then
+    log "Cannot reset endpoint owner - GLOBUS_OWNER not specified"
+    echo "Cannot reset endpoint owner - GLOBUS_OWNER not specified" > /home/ubuntu/OWNER_RESET_FAILED.txt
+  fi
+fi
+
+# Handle removing service account role if requested
+if [ "$REMOVE_SERVICE_ACCOUNT_ROLE" = "true" ] && [ -n "$ENDPOINT_UUID" ] && [ -n "$GLOBUS_OWNER" ]; then
+  log "RemoveServiceAccountRole is enabled, will attempt to remove service account role"
+  
+  # First, need to find the service account
+  log "Checking for service account roles..."
+  ROLES_OUTPUT=$(globus-connect-server role list 2>&1)
+  echo "$ROLES_OUTPUT" > /home/ubuntu/role-list-output.txt
+  
+  # Look for a role with the "service" type
+  SERVICE_ROLE_ID=$(echo "$ROLES_OUTPUT" | grep -i "service" | awk '{print $1}' | head -1)
+  
+  if [ -n "$SERVICE_ROLE_ID" ]; then
+    log "Found service role with ID: $SERVICE_ROLE_ID"
+    echo "$SERVICE_ROLE_ID" > /home/ubuntu/service-role-id.txt
+    
+    # Remove the service role
+    log "Removing service role: $SERVICE_ROLE_ID"
+    REMOVE_ROLE_CMD="globus-connect-server role delete $SERVICE_ROLE_ID"
+    REMOVE_ROLE_OUTPUT=$(eval $REMOVE_ROLE_CMD 2>&1)
+    REMOVE_ROLE_EXIT_CODE=$?
+    
+    # Save output for reference
+    echo "$REMOVE_ROLE_OUTPUT" > /home/ubuntu/remove-service-role-output.txt
+    
+    if [ $REMOVE_ROLE_EXIT_CODE -eq 0 ]; then
+      log "Successfully removed service role"
+      echo "Successfully removed service role with ID: $SERVICE_ROLE_ID" > /home/ubuntu/SERVICE_ROLE_REMOVED.txt
+    else
+      log "Failed to remove service role with exit code $REMOVE_ROLE_EXIT_CODE"
+      echo "Failed to remove service role with exit code $REMOVE_ROLE_EXIT_CODE" > /home/ubuntu/SERVICE_ROLE_REMOVE_FAILED.txt
+      echo "Command: $REMOVE_ROLE_CMD" >> /home/ubuntu/SERVICE_ROLE_REMOVE_FAILED.txt
+      echo "Output: $REMOVE_ROLE_OUTPUT" >> /home/ubuntu/SERVICE_ROLE_REMOVE_FAILED.txt
+    fi
+  else
+    log "No service role found to remove"
+    echo "No service role found to remove" > /home/ubuntu/NO_SERVICE_ROLE.txt
+  fi
+else
+  if [ "$REMOVE_SERVICE_ACCOUNT_ROLE" != "true" ]; then
+    log "Service role removal not requested (REMOVE_SERVICE_ACCOUNT_ROLE=$REMOVE_SERVICE_ACCOUNT_ROLE)"
   fi
 fi
 

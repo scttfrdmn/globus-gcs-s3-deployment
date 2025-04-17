@@ -41,7 +41,7 @@ fi
 echo "Loading additional variables from files..."
 
 # Set up basic variables
-for var_file in globus-display-name.txt globus-organization.txt globus-owner.txt globus-contact-email.txt globus-project-id.txt; do
+for var_file in globus-base-name.txt globus-display-name.txt globus-organization.txt globus-owner.txt globus-contact-email.txt globus-project-id.txt; do
   if [ -f "${GLOBUS_DIR}/${var_file}" ]; then
     var_name="GLOBUS_$(echo ${var_file%%.txt} | tr 'a-z-' 'A-Z_')"
     # Use read to preserve spaces in the variable value
@@ -61,6 +61,12 @@ fi
 if [ -f "${GLOBUS_DIR}/subscription-id.txt" ]; then
   export GLOBUS_SUBSCRIPTION_ID="$(cat "${GLOBUS_DIR}/subscription-id.txt")"
   echo "✓ Set GLOBUS_SUBSCRIPTION_ID to $GLOBUS_SUBSCRIPTION_ID"
+fi
+
+# Load service account role configuration
+if [ -f "${GLOBUS_DIR}/remove-service-account-role.txt" ]; then
+  export REMOVE_SERVICE_ACCOUNT_ROLE="$(cat "${GLOBUS_DIR}/remove-service-account-role.txt")"
+  echo "✓ Set REMOVE_SERVICE_ACCOUNT_ROLE to $REMOVE_SERVICE_ACCOUNT_ROLE"
 fi
 
 # Generate a file that can be sourced to set variables in the current shell
@@ -84,6 +90,11 @@ if [ -n "$S3_BUCKET_NAME" ]; then
   echo "export S3_BUCKET_NAME=\"$S3_BUCKET_NAME\"" >> /home/ubuntu/globus-env-exports.sh
 fi
 
+# Add service account role config if set
+if [ -n "$REMOVE_SERVICE_ACCOUNT_ROLE" ]; then
+  echo "export REMOVE_SERVICE_ACCOUNT_ROLE=\"$REMOVE_SERVICE_ACCOUNT_ROLE\"" >> /home/ubuntu/globus-env-exports.sh
+fi
+
 # Make sure the file is executable
 chmod +x /home/ubuntu/globus-env-exports.sh
 
@@ -91,7 +102,7 @@ chmod +x /home/ubuntu/globus-env-exports.sh
 echo ""
 echo "Globus environment variables are now set:"
 echo "---------------------------------------------"
-env | grep -E "GCS_CLI_|GLOBUS_|S3_BUCKET_NAME" | sort
+env | grep -E "GCS_CLI_|GLOBUS_|S3_BUCKET_NAME|REMOVE_SERVICE_ACCOUNT_ROLE" | sort
 
 echo ""
 echo "To persist these variables in your current shell, run:"
@@ -102,6 +113,26 @@ echo "Examples:"
 echo "  globus-connect-server endpoint show"
 echo "  globus-connect-server node list"
 
+# Summary of the deployment configuration
+echo ""
+echo "Deployment Configuration Summary:"
+echo "---------------------------------------------"
+echo "Base Name: $GLOBUS_BASE_NAME"
+echo "Endpoint Display Name: $GLOBUS_DISPLAY_NAME"
+echo "Endpoint Owner: $GLOBUS_OWNER"
+if [ "$REMOVE_SERVICE_ACCOUNT_ROLE" = "true" ]; then
+  echo "Service Account Role: Will be removed"
+else
+  echo "Service Account Role: Kept (used for automation)"
+fi
+if [ -n "$S3_BUCKET_NAME" ]; then
+  echo "S3 Bucket: $S3_BUCKET_NAME"
+  echo "S3 Gateway Display Name: $GLOBUS_BASE_NAME S3 Gateway"
+fi
+if [ -n "$GLOBUS_SUBSCRIPTION_ID" ]; then
+  echo "Subscription ID: $GLOBUS_SUBSCRIPTION_ID"
+fi
+
 # Example commands for debugging
 echo ""
 echo "Debugging commands:"
@@ -109,7 +140,8 @@ echo "---------------------------------------------"
 echo "Check endpoint status: globus-connect-server endpoint show"
 echo "List nodes: globus-connect-server node list"
 echo "Get subscription status: globus-connect-server endpoint show | grep subscription"
-echo "Test S3 connector: globus-connect-server storage-gateway create s3 \"$S3_BUCKET_NAME\""
+echo "List storage gateways: globus-connect-server storage-gateway list"
+echo "List collections: globus-connect-server collection list"
 echo "View CloudFormation logs: tail -n 100 /var/log/cloud-init-output.log"
 echo "View Globus setup logs: tail -n 100 /var/log/globus-setup.log"
 echo "View detailed debug logs: tail -n 100 ${GLOBUS_DIR}/debug.log"

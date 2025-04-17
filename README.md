@@ -5,14 +5,16 @@ This repository contains a CloudFormation template for deploying Globus Connect 
 ## Features
 
 - **AWS CloudFormation Template**: Infrastructure-as-code deployment
-- **S3 Integration**: Connect S3 buckets directly to the Globus ecosystem
+- **S3 Integration**: Connect to S3 storage directly using instance credentials
 - **Security**: IAM roles and policies for secure access
 - **Globus Auth Integration**: Identity federation using Globus Auth
 - **Automated Authentication**: Uses environment-based service credentials for non-interactive deployment
+- **Automatic Collection Creation**: Collections are automatically created during deployment
 - **Production & Testing Modes**: Configurable deployment types
 - **Optimized Deployment**: Streamlined UserData script stays within AWS limits
 - **Multi-word Parameters**: Support for spaces in organization and display names
 - **Version Validation**: Ensures compatibility with Globus Connect Server 5.4.61+
+- **Simplified Parameters**: Reduced parameter set for easier deployment
 
 ## Prerequisites
 
@@ -33,7 +35,9 @@ This repository contains a CloudFormation template for deploying Globus Connect 
      - Must be an actual Globus user identity that exists (cannot be a client ID)
      - The template parameter `GlobusOwner` has no default value and must be set
      - Deployment will fail if this is not a valid Globus identity
-     - The template uses `--dont-set-advertised-owner` to prevent showing the service identity as the owner
+   - **Base name** for consistent naming - CRITICAL REQUIRED PARAMETER
+     - The template parameter `GlobusBaseName` has no default value and must be set
+     - Used for naming the endpoint and collections consistently
    - **Contact email** for support requests - CRITICAL REQUIRED PARAMETER
      - Must be a valid email address (cannot be a client ID)
      - Email visible to users who need assistance with your endpoint
@@ -45,11 +49,7 @@ This repository contains a CloudFormation template for deploying Globus Connect 
        2. The endpoint must be registered in a project created by a subscription manager
      - Without proper subscription permissions, S3 connector features will not work
      - The template parameter `GlobusSubscriptionId` must be set for S3 connector
-   - (Optional) Project ID, Project Name, and Project Admin for organizing endpoints
    - **IMPORTANT**: Requires Globus Connect Server 5.4.61 or higher (template will verify version)
-
-3. **S3 Storage**:
-   - Existing S3 bucket or plan to create one
 
 ## Documentation
 
@@ -71,8 +71,7 @@ Before deploying, make sure you have:
 
 1. Completed the [AWS Account and Permissions](#prerequisites) setup
 2. Completed the [Globus Service Account Setup](./docs/prerequisites.md) process - **CRITICAL**
-3. Prepared an S3 bucket for connectivity
-4. Gathered all required parameters (Client ID, Client Secret, Project ID, etc.)
+3. Gathered all required parameters (GlobusBaseName, GlobusOwner, etc.)
 
 > **IMPORTANT**: The [Prerequisites Guide](./docs/prerequisites.md) contains detailed instructions for setting up the Globus service account, obtaining necessary credentials, and configuring required permissions. These steps are **mandatory** for successfully deploying the template.
 
@@ -118,10 +117,10 @@ To deploy using the CloudFormation console:
    aws cloudformation wait stack-create-complete --stack-name globus-gcs
    ```
 
-   Note: Boolean parameters in the template (like EnableS3Connector) must be specified as strings:
+   Note: Boolean parameters in the template must be specified as strings:
    ```json
    {
-     "ParameterKey": "EnableS3Connector",
+     "ParameterKey": "RemoveServiceAccountRole",
      "ParameterValue": "true"
    }
    ```
@@ -137,11 +136,11 @@ The CloudFormation template includes the following reliability features:
 - **Comprehensive Diagnostics**: Detailed logs and validation files for troubleshooting
 - **Robust Error Handling**: Comprehensive error handling in all deployment steps
 - **Resource Signaling**: Proper CloudFormation resource signaling with timeouts
-- **S3 Bucket Validation**: Verifies S3 bucket existence before attempting connections
 - **IAM Permission Controls**: Appropriate IAM permissions for all operations
 - **Deployment Logs**: Detailed logging for troubleshooting
 - **Admin Setup Retries**: Automatic retry logic for key configuration steps
 - **Deployment Summary**: Generates a deployment summary file on the instance for quick reference
+- **Automatic Collection Creation**: Automatically creates collections for the S3 gateway
 - **Troubleshooting Mode**: Keeps instances running even when Globus setup fails for easier troubleshooting
 - **Diagnostic Scripts**: Creates diagnostic and manual setup scripts to help resolve issues
 - **Version Compatibility**: Handles different Globus Connect Server versions automatically
@@ -153,7 +152,7 @@ The template deploys Globus Connect Server with the following configuration:
 
 1. **Operating System**: Ubuntu Server 22.04 LTS
 2. **Authentication**: Uses Globus Auth for identity federation
-3. **Storage**: Connects to Amazon S3 buckets for scalable, managed cloud storage
+3. **Storage**: Connects to Amazon S3 using instance credentials
 4. **Networking**: The template ensures the Globus Connect Server is publicly accessible through one of two approaches:
    - **For Production Deployments**: Uses an Elastic IP address for persistent, static public IP
    - **For Integration Deployments**: Either:

@@ -6,10 +6,9 @@ Conditions:
   HasSubscription: !Not [!Equals [!Ref GlobusSubscriptionId, ""]]
   IsProduction: !Equals [!Ref DeploymentType, "Production"]
   UseElasticIP: !Or [!Equals [!Ref DeploymentType, "Production"], !Equals [!Ref ForceElasticIP, "true"]]
-  HasS3BucketName: !Not [!Equals [!Ref S3BucketName, ""]]
-  DeployS3Connector: !And [!Equals [!Ref EnableS3Connector, "true"], !Condition HasSubscription, !Condition HasS3BucketName]
-  HasDefaultAdmin: !Not [!Equals [!Ref DefaultAdminIdentity, ""]]
-
+  DeployS3Connector: !Condition HasSubscription
+  HasOwner: !Not [!Equals [!Ref GlobusOwner, ""]]
+  RemoveRole: !Equals [!Ref RemoveServiceAccountRole, "true"]
 Parameters:
   ScriptUrl:
     Description: URL to the Globus installation script (e.g., GitHub raw URL)
@@ -31,10 +30,7 @@ Parameters:
     Type: String
     Default: "https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/scripts/debug-deployment.sh"
     
-  CollectionScriptUrl:
-    Description: URL to the collection helper script
-    Type: String
-    Default: "https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/scripts/create-collection.sh"
+# Collection script removed (integrated into main script)
     
   TeardownScriptUrl:
     Description: URL to the teardown script for cleanup before stack deletion
@@ -65,19 +61,20 @@ Parameters:
     AllowedValues:
       - "true"
       - "false"
-    
-  # AuthenticationMethod has been removed to simplify and use Globus Auth only
-  # This reduces complexity and focuses on the most modern approach
-    
-  DefaultAdminIdentity:
-    Description: "Globus identity to be granted admin access to the endpoint (email@example.org). This identity will also have access to collections if CollectionAdminIdentity is not specified."
+
+  GlobusBaseName:
+    Description: "Base name used for all Globus components (endpoint, gateways, collections). A descriptive name that will be used across all components."
     Type: String
-    Default: ""
-    
-  CollectionAdminIdentity:
-    Description: "Globus identity to grant admin access to collections (e.g., user@example.edu). If not specified, DefaultAdminIdentity will be used. If both are empty, only the service account will have access to collections."
+    AllowedPattern: "[A-Za-z0-9\\-_\\.\\s]+"
+    ConstraintDescription: "Base name can include letters, numbers, spaces, hyphens, underscores, and periods."
+  
+  RemoveServiceAccountRole:
+    Description: "If true, removes the service account role from the endpoint after creating it. Use this if you want the endpoint to only be accessible by the GlobusOwner."
     Type: String
-    Default: ""
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
 
   InstanceType:
     Description: EC2 instance type for Globus Connect Server
@@ -129,55 +126,11 @@ Parameters:
     Description: "Globus Subscription ID to join this endpoint to your subscription (REQUIRED for S3 connector). IMPORTANT: The GlobusOwner identity must be configured as an administrator in the subscription membership group by an existing administrator for this to work."
     Type: String
     
-  # Connector options
-  EnableS3Connector:
-    Description: "Whether to enable S3 Connector (requires valid S3BucketName and GlobusSubscriptionId). IMPORTANT: S3 connector requires a Globus subscription, and the GlobusOwner must be configured as an administrator in the subscription group."
-    Type: String
-    Default: "true"
-    AllowedValues:
-      - "true"
-      - "false"
+# S3 connector is always enabled in this implementation
       
-  EnablePOSIXGateway:
-    Description: Whether to create a POSIX storage gateway (requires node setup)
-    Type: String
-    Default: "false"
-    AllowedValues:
-      - "true"
-      - "false"
-      
-  POSIXGatewayName:
-    Description: Display name for the POSIX storage gateway (required if EnablePOSIXGateway is true)
-    Type: String
-    Default: "Default POSIX Gateway"
+# POSIX gateway support removed to focus on S3 connectivity
     
-  POSIXGatewayDomain:
-    Description: Optional domain for the POSIX storage gateway
-    Type: String
-    Default: ""
-    
-  # Connector specific parameters
-  S3BucketName:
-    Description: "Name of S3 bucket to connect (REQUIRED when EnableS3Connector is true). IMPORTANT: The bucket must exist in the same region as this deployment, and the instance needs appropriate IAM permissions to access it. The S3 connector additionally requires a valid subscription ID and the GlobusOwner must be a subscription administrator."
-    Type: String
-    AllowedPattern: "[a-zA-Z0-9\\-\\.]{3,63}"
-    ConstraintDescription: Bucket name must be between 3 and 63 characters, contain only letters, numbers, hyphens, and periods.
-    
-  S3GatewayDisplayName:
-    Description: "Display name for the S3 storage gateway (REQUIRED when EnableS3Connector is true)."
-    Type: String
-    Default: "S3 Bucket Gateway"
-    
-  S3GatewayDomain:
-    Description: "Optional domain for the S3 storage gateway (e.g. 'amazon.com'). Leave empty to omit domain parameter."
-    Type: String
-    Default: ""
-    
-  GlobusDisplayName:
-    Description: Display name for the Globus endpoint (REQUIRED - must be unique)
-    Type: String
-    AllowedPattern: "[A-Za-z0-9\\-_\\.\\s]+"
-    ConstraintDescription: "Display name can include letters, numbers, spaces, hyphens, underscores, and periods."
+# S3 bucket parameters removed - not required for this implementation
     
   GlobusOrganization:
     Description: Organization name for the Globus endpoint (REQUIRED - visible to users)
@@ -198,41 +151,6 @@ Parameters:
   GlobusProjectId:
     Description: Globus Auth project ID where this endpoint will be registered (REQUIRED for service identity authentication)
     Type: String
-    
-  GlobusProjectName:
-    Description: (Optional) Name of the Auth project for the new endpoint client 
-    Type: String
-    Default: ""
-    
-  GlobusProjectAdmin:
-    Description: (Optional) Globus username of the admin of the Auth project
-    Type: String
-    Default: ""
-    
-  GlobusAlwaysCreateProject:
-    Description: Create a new auth project for this endpoint even if you already have one
-    Type: String
-    Default: "false"
-    AllowedValues:
-      - "true"
-      - "false"
-      
-  ResetEndpointOwner:
-    Description: Reset the endpoint's advertised owner after setup for better visibility (runs automatically after deployment)
-    Type: String
-    Default: "true"
-    AllowedValues:
-      - "true"
-      - "false"
-      
-  EndpointResetOwnerTarget:
-    Description: Which identity to set as the advertised owner (if ResetEndpointOwner is true)
-    Type: String
-    Default: "GlobusOwner"
-    AllowedValues:
-      - "GlobusOwner"
-      - "DefaultAdminIdentity"
-      - "GlobusContactEmail"
 
 Mappings:
   RegionMap:
@@ -324,9 +242,10 @@ Resources:
         Statement:
           - Effect: Allow
             Action:
+              - s3:ListAllMyBuckets
               - s3:ListBucket
               - s3:GetBucketLocation
-            Resource: !Sub "arn:aws:s3:::${S3BucketName}"
+            Resource: "*"
           - Effect: Allow
             Action:
               - s3:PutObject
@@ -334,7 +253,7 @@ Resources:
               - s3:DeleteObject
               - s3:ListMultipartUploadParts
               - s3:AbortMultipartUpload
-            Resource: !Sub "arn:aws:s3:::${S3BucketName}/*"
+            Resource: "*"
           - Effect: Allow
             Action:
               - ec2:CreateTags
@@ -433,36 +352,26 @@ Resources:
           echo "Setting critical environment variables..."
           export GLOBUS_CLIENT_ID="${GlobusClientId}" 
           export GLOBUS_CLIENT_SECRET="${GlobusClientSecret}"
-          export GLOBUS_DISPLAY_NAME="${GlobusDisplayName}"
+          export GLOBUS_BASE_NAME="${GlobusBaseName}"
+          export GLOBUS_DISPLAY_NAME="${GlobusBaseName} Endpoint"
           export GLOBUS_ORGANIZATION="${GlobusOrganization}"
           export GLOBUS_OWNER="${GlobusOwner}"
           export GLOBUS_CONTACT_EMAIL="${GlobusContactEmail}"
           export GLOBUS_PROJECT_ID="${GlobusProjectId}"
+          export REMOVE_SERVICE_ACCOUNT_ROLE="${RemoveServiceAccountRole}"
           
           # Optional subscription ID for managed endpoint
           export GLOBUS_SUBSCRIPTION_ID="${GlobusSubscriptionId}"
           
-          # Optional POSIX gateway configuration
-          export ENABLE_POSIX_GATEWAY="${EnablePOSIXGateway}"
-          export POSIX_GATEWAY_NAME="${POSIXGatewayName}"
-          export POSIX_GATEWAY_DOMAIN="${POSIXGatewayDomain}"
-          
-          # Optional S3 connector configuration
-          export ENABLE_S3_CONNECTOR="${EnableS3Connector}"
-          export S3_BUCKET_NAME="${S3BucketName}"
-          export S3_GATEWAY_DISPLAY_NAME="${S3GatewayDisplayName}"
-          export S3_GATEWAY_DOMAIN="${S3GatewayDomain}"
-          
-          # Collection access configuration
-          export COLLECTION_ADMIN_IDENTITY="${CollectionAdminIdentity}"
-          export DEFAULT_ADMIN_IDENTITY="${DefaultAdminIdentity}"
+          # S3 gateway name - derived from GlobusBaseName
+          export S3_GATEWAY_DISPLAY_NAME="${GlobusBaseName} S3 Gateway"
           
           # Debug configuration
           export PRESERVE_INSTANCE="${DebugPreserveInstance}"
           
-          # Endpoint owner configuration
-          export RESET_ENDPOINT_OWNER="${ResetEndpointOwner}"
-          export ENDPOINT_RESET_OWNER_TARGET="${EndpointResetOwnerTarget}"
+          # Set owner reset to always true
+          export RESET_ENDPOINT_OWNER="true"
+          export ENDPOINT_RESET_OWNER_TARGET="GlobusOwner"
           
           # Download the installation script
           echo "Downloading Globus setup script from ${ScriptUrl}"
@@ -541,12 +450,11 @@ Resources:
           echo "Downloading helper scripts..."
           curl -s -L -o /home/ubuntu/collect-diagnostics.sh "${DiagnosticsScriptUrl}" || wget -q -O /home/ubuntu/collect-diagnostics.sh "${DiagnosticsScriptUrl}"
           curl -s -L -o /home/ubuntu/debug-deployment.sh "${DebugScriptUrl}" || wget -q -O /home/ubuntu/debug-deployment.sh "${DebugScriptUrl}"
-          curl -s -L -o /home/ubuntu/create-collection.sh "${CollectionScriptUrl}" || wget -q -O /home/ubuntu/create-collection.sh "${CollectionScriptUrl}"
           curl -s -L -o /home/ubuntu/teardown-globus.sh "${TeardownScriptUrl}" || wget -q -O /home/ubuntu/teardown-globus.sh "${TeardownScriptUrl}"
           
           # Make the scripts executable
-          chmod +x /home/ubuntu/collect-diagnostics.sh /home/ubuntu/debug-deployment.sh /home/ubuntu/create-collection.sh /home/ubuntu/teardown-globus.sh
-          chown ubuntu:ubuntu /home/ubuntu/collect-diagnostics.sh /home/ubuntu/debug-deployment.sh /home/ubuntu/create-collection.sh /home/ubuntu/teardown-globus.sh
+          chmod +x /home/ubuntu/collect-diagnostics.sh /home/ubuntu/debug-deployment.sh /home/ubuntu/teardown-globus.sh
+          chown ubuntu:ubuntu /home/ubuntu/collect-diagnostics.sh /home/ubuntu/debug-deployment.sh /home/ubuntu/teardown-globus.sh
           
           # Create a teardown instructions file
           echo "TEARDOWN INSTRUCTIONS" > /home/ubuntu/TEARDOWN_INSTRUCTIONS.txt
@@ -628,10 +536,10 @@ Outputs:
       - !Join ["", ["https://", !GetAtt GlobusServerElasticIP.PublicIp]]
       - !Sub "https://${GlobusServerInstance.PublicDnsName}"
 
-  S3BucketConnected:
-    Description: S3 Bucket connected to Globus
+  S3GatewayEnabled:
+    Description: S3 Gateway Status
     Condition: DeployS3Connector
-    Value: !Ref S3BucketName
+    Value: "Enabled - S3 Gateway will be created"
     
   ConnectorsEnabled:
     Description: Connectors that were enabled for this deployment
@@ -654,6 +562,6 @@ Outputs:
   InitialAccessInfo:
     Description: Initial access configuration
     Value: !If 
-      - HasDefaultAdmin
-      - !Join ["", ["Admin access granted to ", !Ref DefaultAdminIdentity]]
-      - "No default admin configured - access policies must be set manually"
+      - HasOwner
+      - !If [RemoveRole, "Owner identity only - service account removed", "Owner identity with service account"]
+      - "Service account only - no owner identity specified"

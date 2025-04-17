@@ -70,11 +70,6 @@ The deployment includes several helper scripts to assist with management and tro
   - Creates a sourceable exports file at `/home/ubuntu/globus-env-exports.sh`
   - Usage: `source /home/ubuntu/globus-env-exports.sh` to persist variables in your shell
 
-- **create-collection.sh**: Helps create and manage collections
-  - Supports listing gateways, creating collections, and setting permissions
-  - Usage: `./create-collection.sh --help` to see all options
-  - Example: `./create-collection.sh --create-collection <gateway-id> "My Collection"`
-
 - **teardown-globus.sh**: Properly removes Globus resources before stack deletion
   - Removes collections, storage gateways, and endpoint registration
   - Should be run before attempting to delete the CloudFormation stack
@@ -87,32 +82,22 @@ The deployment includes several helper scripts to assist with management and tro
 
 ## Collection Management
 
-The deployment uses a manual collection creation approach to provide greater flexibility:
+The deployment now uses an automated collection creation approach:
 
 1. **Storage Gateway Creation**: Automated during deployment
-   - S3 gateway is created automatically if enabled
-   - POSIX gateway is created automatically if enabled
+   - S3 gateway is created automatically using instance credentials
    
-2. **Collection Creation**: Manual post-deployment step (one of two methods)
-   - Option 1: Use the Globus web UI (app.globus.org)
-     1. Log in to the Globus web UI
-     2. Navigate to the Endpoints tab
-     3. Find and select your endpoint by name or UUID
-     4. Go to the Collections tab
-     5. Click "Add a Collection" and follow the prompts
+2. **Collection Creation**: Automatically created during deployment
+   - Collections are named using the GlobusBaseName parameter with appropriate suffixes
+   - Permissions are automatically set for the GlobusOwner identity
+   - Collection information is saved in the deployment summary
    
-   - Option 2: Use the create-collection.sh helper script
-     1. List available gateways: `./create-collection.sh --list-gateways`
-     2. Create a collection: `./create-collection.sh --create-collection <gateway-id> "My Collection"`
-     3. List collections: `./create-collection.sh --show-collections`
-     4. Set permissions: `./create-collection.sh --permissions <collection-id> user@example.edu`
+3. **S3 Collection Details**:
+   - S3 collections use AWS instance credentials for authentication
+   - No specific bucket is configured in the template
+   - Access is controlled by IAM permissions assigned to the instance role
 
-3. **S3 Collection Requirements**:
-   - S3 gateway requires AWS credentials for collection creation
-   - Web UI provides an easier interface for entering these credentials
-   - When using the script, you still need to authenticate with AWS
-
-This manual approach avoids deployment failures due to auth issues and provides more flexibility in collection configuration.
+This automated approach streamlines the deployment process while maintaining appropriate access controls.
 
 ## Teardown Process
 
@@ -125,7 +110,7 @@ When deleting the CloudFormation stack, follow this sequence to avoid deletion f
 
 The teardown script performs the following operations in order:
 1. Deletes all collections associated with the endpoint
-2. Removes all storage gateways (S3, POSIX, etc.)
+2. Removes all storage gateways
 3. Removes the endpoint registration from Globus
 4. Stops Globus services on the instance
 
@@ -139,9 +124,8 @@ When troubleshooting CloudFormation deployment failures:
 2. Ensure all referenced resource attributes exist (e.g., PublicDnsName vs. PublicIp)
 3. Verify IAM permissions for all actions performed in UserData scripts
 4. Ensure proper resource signaling with CreationPolicy and cfn-signal
-5. Check for S3 bucket accessibility before attempting connector setup
-6. Verify that the subscription ID is valid when deploying connectors
-7. Review deployment logs on the instance:
+5. Verify that the subscription ID is valid when deploying connectors
+6. Review deployment logs on the instance:
    - Main deployment logs: `/var/log/user-data.log` and `/var/log/cloud-init-output.log`
    - Globus setup log (most detailed): `/var/log/globus-setup.log`
    - Deployment summary: `/home/ubuntu/deployment-summary.txt`
@@ -149,20 +133,20 @@ When troubleshooting CloudFormation deployment failures:
    - Auth configuration issues: Look for ClientId/ClientSecret issues in config files
    - Package installation issues: Check if Globus packages are correctly installed with `dpkg -l | grep globus`
    - Verify the Globus command path with `which globus-connect-server`
-8. For version compatibility issues:
+7. For version compatibility issues:
    - Check the raw version output: `globus-connect-server --version`
    - Verify script correctly extracts the package version number
    - For version "globus-connect-server, package 5.4.83, cli 1.0.58", ensure "5.4.83" is extracted
    - Compare with required minimum version 5.4.61
-9. For ROLLBACK_COMPLETE status, focus on the resource that initiated the rollback
-10. For parameter handling issues:
-    - Multi-word values must be properly quoted in all commands
-    - Parameter values like "Amazon Web Services" should be preserved with spaces intact
-11. **Verify network connectivity:**
+8. For ROLLBACK_COMPLETE status, focus on the resource that initiated the rollback
+9. For parameter handling issues:
+   - Multi-word values must be properly quoted in all commands
+   - Parameter values like "Amazon Web Services" should be preserved with spaces intact
+10. **Verify network connectivity:**
     - Ensure the instance has a public IP address assigned (check Public DNS or IP in the EC2 console)
     - Confirm security groups allow Globus ports (443, 2811, 7512, 50000-51000)
     - Test connectivity from the internet to the public endpoint
-12. **Shell script syntax issues:**
+11. **Shell script syntax issues:**
     - Check for mismatched `if`/`fi` statements in bash scripts
     - Avoid using `EOF` as a heredoc delimiter within complex if/else blocks
     - Prefer multiple `echo` statements over heredocs for creating files in complex control structures
@@ -180,6 +164,9 @@ When troubleshooting CloudFormation deployment failures:
   - `AvailabilityZone`: The Availability Zone to launch the instance in
 
 - **Globus Parameters**:
+  - `GlobusBaseName`: Base name for endpoint and collection naming
+    - Used to consistently name the endpoint and collections
+    - No default value is provided - must be explicitly set
   - `GlobusOwner`: Identity username of the endpoint owner (e.g., user@example.edu)
     - **CRITICAL**: This value must be a valid Globus identity username
     - Required by Globus for endpoint registration
@@ -190,6 +177,9 @@ When troubleshooting CloudFormation deployment failures:
   - For Globus Connect Server < 5.4.67:
     - `GlobusClientId`: Globus Auth client ID
     - `GlobusClientSecret`: Globus Auth client secret
+  - `RemoveServiceAccountRole`: Controls whether to remove the service account from roles
+    - Set to "true" to remove service account from roles or "false" to keep it
+    - Default is "true"
 
 All other parameters are optional with appropriate defaults.
 
@@ -199,25 +189,7 @@ The template passes parameters to the setup script as environment variables:
 1. CloudFormation template parameters (e.g., `GlobusOwner`) are passed to the EC2 instance as environment variables (`GLOBUS_OWNER`)
 2. The main setup script uses these variables directly for configuration
 3. For manual troubleshooting, the values are also stored in files like `/home/ubuntu/globus-owner.txt`
-4. The helper script uses these variables with fallbacks to set proper command parameters
-
-### Endpoint Owner Reset
-
-The template includes functionality to reset the endpoint owner after setup:
-
-- **ResetEndpointOwner**: Controls whether to automatically reset the endpoint owner (default: "true")
-- **DefaultAdminIdentity**: The identity to use as the endpoint owner (should be set to a real user, not service identity)
-
-The endpoint owner reset process:
-1. Automatically runs at the end of the setup process after all gateways are created
-2. First sets owner-string with `globus-connect-server endpoint set-owner-string`
-3. Then sets owner with `globus-connect-server endpoint set-owner`
-4. **CRITICAL**: This order is required to maintain permissions throughout the process
-
-The primary owner is set to the value in DefaultAdminIdentity. If DefaultAdminIdentity is not provided, owner reset is skipped.
-**IMPORTANT**: Owner reset requires DefaultAdminIdentity to be set - no fallbacks are used.
-
-This improves endpoint visibility in the Globus web UI by setting a human-readable owner rather than a service identity.
+4. Consistent naming is maintained through the GlobusBaseName parameter
 
 ## Code Style Guidelines
 
