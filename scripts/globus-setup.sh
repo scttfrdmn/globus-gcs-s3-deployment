@@ -1101,27 +1101,14 @@ chown ubuntu:ubuntu /home/ubuntu/environment-diagnostics.txt
 if [ "$RESET_ENDPOINT_OWNER" = "true" ] && [ -n "$ENDPOINT_UUID" ]; then
   log "Executing endpoint owner reset after completion of gateway setup"
   
-  # IMPORTANT: Explicitly use DefaultAdminIdentity for owner reset
+  # ONLY use DefaultAdminIdentity for owner reset - no fallbacks
   if [ -n "$DEFAULT_ADMIN_IDENTITY" ]; then
     OWNER_TARGET="$DEFAULT_ADMIN_IDENTITY"
     log "Setting owner to DefaultAdminIdentity value: $OWNER_TARGET"
   else
-    log "DefaultAdminIdentity is empty, cannot use as owner"
-    
-    # Fallback to GlobusOwner if DefaultAdminIdentity is empty
-    if [ -n "$GLOBUS_OWNER" ]; then
-      OWNER_TARGET="$GLOBUS_OWNER"
-      log "Falling back to GlobusOwner as owner: $OWNER_TARGET"
-    else
-      # Last resort, try contact email
-      if [ -n "$GLOBUS_CONTACT_EMAIL" ]; then
-        OWNER_TARGET="$GLOBUS_CONTACT_EMAIL"
-        log "Falling back to GlobusContactEmail as owner: $OWNER_TARGET"
-      else
-        log "No valid identities found for owner reset"
-        OWNER_TARGET=""
-      fi
-    fi
+    log "DefaultAdminIdentity is empty, skipping owner reset"
+    log "No fallbacks will be used - owner reset requires DefaultAdminIdentity to be set"
+    OWNER_TARGET=""
   fi
   
   if [ -n "$OWNER_TARGET" ]; then

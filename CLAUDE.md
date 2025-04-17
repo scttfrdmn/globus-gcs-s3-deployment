@@ -214,9 +214,8 @@ The endpoint owner reset process:
 3. Then sets owner with `globus-connect-server endpoint set-owner`
 4. **CRITICAL**: This order is required to maintain permissions throughout the process
 
-The primary owner is set to the value in DefaultAdminIdentity. If DefaultAdminIdentity is not provided, it falls back to:
-1. GlobusOwner (if provided)
-2. GlobusContactEmail (as last resort)
+The primary owner is set to the value in DefaultAdminIdentity. If DefaultAdminIdentity is not provided, owner reset is skipped.
+**IMPORTANT**: Owner reset requires DefaultAdminIdentity to be set - no fallbacks are used.
 
 This improves endpoint visibility in the Globus web UI by setting a human-readable owner rather than a service identity.
 
