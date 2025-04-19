@@ -15,6 +15,15 @@ cp /home/ubuntu/debug.log "$DIAG_DIR/" 2>/dev/null || echo "Could not copy debug
 cp /home/ubuntu/setup-error.log "$DIAG_DIR/" 2>/dev/null || echo "Could not copy setup-error.log"
 cp /home/ubuntu/endpoint-setup-output.txt "$DIAG_DIR/" 2>/dev/null || echo "Could not copy endpoint-setup-output.txt"
 cp /home/ubuntu/*FAILED.txt "$DIAG_DIR/" 2>/dev/null || echo "No failure files found"
+cp /home/ubuntu/*ERROR.txt "$DIAG_DIR/" 2>/dev/null || echo "No error files found"
+
+# Copy permission check results
+echo "Copying permission check data..."
+cp /home/ubuntu/project_details.json "$DIAG_DIR/" 2>/dev/null || echo "No project details found"
+cp /home/ubuntu/subscription_group_members.json "$DIAG_DIR/" 2>/dev/null || echo "No subscription group members found"
+cp /home/ubuntu/PROJECT_ADMIN_CHECK_FAILED.txt "$DIAG_DIR/" 2>/dev/null || echo "No project admin check failure file found"
+cp /home/ubuntu/SUBSCRIPTION_ADMIN_CHECK_FAILED.txt "$DIAG_DIR/" 2>/dev/null || echo "No subscription admin check failure file found"
+cp /home/ubuntu/PERMISSION_CHECK_FAILED.txt "$DIAG_DIR/" 2>/dev/null || echo "No permission check failure file found"
 
 # System information
 echo "Collecting system information..."
