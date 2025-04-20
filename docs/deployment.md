@@ -400,6 +400,10 @@ These variables can be modified in the CloudFormation template's UserData sectio
 
 ## Troubleshooting
 
+### AMI Selection
+
+The template uses AWS Systems Manager Parameter Store to automatically select the latest Ubuntu 22.04 LTS AMI for your region, ensuring you get the most secure and up-to-date base image without manual updates. (Hat tip to Luke Coady for this improvement!)
+
 ### Common Errors
 
 1. **"Can not set the advertised owner when using client credentials"**: 
