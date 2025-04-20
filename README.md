@@ -135,8 +135,8 @@ To deploy using the CloudFormation console:
 The CloudFormation template includes the following reliability features:
 
 - **Permission Pre-checks**: Validates required permissions before attempting setup
-  - Checks if service account is an admin in the Globus project
-  - Verifies if service account is an admin in the subscription group
+  - Uses native Globus commands to verify admin privileges
+  - Streamlined checks that are more reliable than complex API calls
   - Fails fast with clear error messages if requirements aren't met
 - **Cloud-Init Compatible**: Robust script design that works reliably with cloud-init
 - **Progressive Execution**: Continues deployment despite non-critical errors

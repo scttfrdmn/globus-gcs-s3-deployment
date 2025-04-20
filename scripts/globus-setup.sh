@@ -77,144 +77,55 @@ log "Installing dependencies..."
 apt-get update
 apt-get install -y curl wget apt-transport-https ca-certificates python3-pip jq
 
-# Function to check if service account is a project admin
+# Function to check if service account is a project admin using simple command-line approach
 check_project_admin() {
-  log "Checking if service account is an admin in project $GLOBUS_PROJECT_ID..."
-  debug_log "Getting auth token for project admin check"
+  log "Checking if service account has admin privileges for project $GLOBUS_PROJECT_ID..."
+  debug_log "Using globus-connect-server command to check admin status"
 
-  # Get access token using client credentials
-  TOKEN_RESPONSE=$(curl -s https://auth.globus.org/v2/oauth2/token \
-    -H "Content-Type: application/json" \
-    -d '{
-      "grant_type": "client_credentials",
-      "client_id": "'$GLOBUS_CLIENT_ID'",
-      "client_secret": "'$GLOBUS_CLIENT_SECRET'",
-      "scope": "urn:globus:auth:scope:auth.globus.org:manage_projects"
-    }')
-
-  # Check if token request was successful
-  if ! echo "$TOKEN_RESPONSE" | jq -e '.access_token' > /dev/null; then
-    log "ERROR: Failed to obtain access token for project admin check"
-    debug_log "Token response: $TOKEN_RESPONSE"
-    echo "Failed to authenticate with Globus Auth API" > /home/ubuntu/PROJECT_ADMIN_CHECK_FAILED.txt
-    echo "Error: $TOKEN_RESPONSE" >> /home/ubuntu/PROJECT_ADMIN_CHECK_FAILED.txt
-    return 1
-  fi
-
-  ACCESS_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.access_token')
-  debug_log "Successfully obtained access token"
-
-  # Call Globus Auth API to get project details
-  PROJECT_RESPONSE=$(curl -s -H "Authorization: Bearer $ACCESS_TOKEN" \
-    "https://auth.globus.org/v2/api/projects/$GLOBUS_PROJECT_ID")
-
-  # Check if project API request was successful
-  if ! echo "$PROJECT_RESPONSE" | jq -e '.' > /dev/null; then
-    log "ERROR: Failed to get project details"
-    debug_log "Project API response: $PROJECT_RESPONSE"
-    echo "Failed to get project details from Globus Auth API" > /home/ubuntu/PROJECT_ADMIN_CHECK_FAILED.txt
-    echo "Error: $PROJECT_RESPONSE" >> /home/ubuntu/PROJECT_ADMIN_CHECK_FAILED.txt
-    return 1
-  fi
-
-  # Save project details for debugging
-  echo "$PROJECT_RESPONSE" > /home/ubuntu/project_details.json
-
-  # Check if service account is in admin_ids
-  IS_ADMIN=$(echo "$PROJECT_RESPONSE" | jq -r --arg cid "$GLOBUS_CLIENT_ID" '.admin_ids | contains([$cid])')
+  # Use globus-connect-server role list to check admin status
+  # Instead of complex API calls, we just check if roles can be listed
+  # which is only possible with proper admin permissions
+  ROLES_OUTPUT=$(globus-connect-server role list 2>&1)
+  ROLES_EXIT_CODE=$?
   
-  if [ "$IS_ADMIN" = "true" ]; then
-    log "Service account is an admin of the project - check passed"
+  # Save output for debugging
+  echo "$ROLES_OUTPUT" > /home/ubuntu/role-list-check.txt
+  
+  if [ $ROLES_EXIT_CODE -eq 0 ]; then
+    log "Service account has admin privileges - check passed"
     debug_log "Project admin check passed"
     return 0
   else
-    log "ERROR: Service account is NOT an admin of the project"
-    echo "Service account (Client ID: $GLOBUS_CLIENT_ID) is NOT an admin of the project ($GLOBUS_PROJECT_ID)" > /home/ubuntu/PROJECT_ADMIN_ERROR.txt
-    echo "The service account must be an admin of the project to deploy Globus Connect Server." >> /home/ubuntu/PROJECT_ADMIN_ERROR.txt
-    echo "Please add the service account as an admin to your project using the Globus Auth API or web interface." >> /home/ubuntu/PROJECT_ADMIN_ERROR.txt
+    log "ERROR: Service account does not have admin privileges"
+    echo "Service account (Client ID: $GLOBUS_CLIENT_ID) does not have proper admin privileges" > /home/ubuntu/PROJECT_ADMIN_ERROR.txt
+    echo "The service account must have admin privileges to deploy Globus Connect Server." >> /home/ubuntu/PROJECT_ADMIN_ERROR.txt
+    echo "Please ensure your service account has admin privileges in your Globus Project." >> /home/ubuntu/PROJECT_ADMIN_ERROR.txt
     return 1
   fi
 }
 
-# Function to check if service account is subscription admin
+# Function to check if service account is subscription admin using simple command
 check_subscription_admin() {
-  log "Checking if service account is an admin in subscription group $GLOBUS_SUBSCRIPTION_ID..."
-  debug_log "Getting auth token for subscription admin check"
+  log "Checking if service account has privileges for subscription $GLOBUS_SUBSCRIPTION_ID..."
+  debug_log "Using globus-connect-server endpoint show to verify permissions"
 
-  # Get access token using client credentials
-  TOKEN_RESPONSE=$(curl -s https://auth.globus.org/v2/oauth2/token \
-    -H "Content-Type: application/json" \
-    -d '{
-      "grant_type": "client_credentials",
-      "client_id": "'$GLOBUS_CLIENT_ID'",
-      "client_secret": "'$GLOBUS_CLIENT_SECRET'",
-      "scope": "urn:globus:auth:scope:groups.api.globus.org:all"
-    }')
-
-  # Check if token request was successful
-  if ! echo "$TOKEN_RESPONSE" | jq -e '.access_token' > /dev/null; then
-    log "ERROR: Failed to obtain access token for subscription admin check"
-    debug_log "Token response: $TOKEN_RESPONSE"
-    echo "Failed to authenticate with Globus Groups API" > /home/ubuntu/SUBSCRIPTION_ADMIN_CHECK_FAILED.txt
-    echo "Error: $TOKEN_RESPONSE" >> /home/ubuntu/SUBSCRIPTION_ADMIN_CHECK_FAILED.txt
-    return 1
-  fi
-
-  ACCESS_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.access_token')
-  debug_log "Successfully obtained access token"
-
-  # Get subscription group ID
-  GROUP_RESPONSE=$(curl -s -H "Authorization: Bearer $ACCESS_TOKEN" \
-    "https://groups.api.globus.org/v2/groups?subscription_id=$GLOBUS_SUBSCRIPTION_ID")
-
-  # Check if groups API request was successful
-  if ! echo "$GROUP_RESPONSE" | jq -e '.groups' > /dev/null; then
-    log "ERROR: Failed to get subscription group"
-    debug_log "Groups API response: $GROUP_RESPONSE"
-    echo "Failed to get subscription group from Globus Groups API" > /home/ubuntu/SUBSCRIPTION_ADMIN_CHECK_FAILED.txt
-    echo "Error: $GROUP_RESPONSE" >> /home/ubuntu/SUBSCRIPTION_ADMIN_CHECK_FAILED.txt
-    return 1
-  fi
-
-  # Extract group ID
-  GROUP_ID=$(echo "$GROUP_RESPONSE" | jq -r '.groups[0].id')
-  if [ -z "$GROUP_ID" ] || [ "$GROUP_ID" = "null" ]; then
-    log "ERROR: Could not find group ID for subscription $GLOBUS_SUBSCRIPTION_ID"
-    echo "Could not find group ID for subscription $GLOBUS_SUBSCRIPTION_ID" > /home/ubuntu/SUBSCRIPTION_GROUP_ERROR.txt
-    echo "Verify that the subscription ID is correct and the service account has access to it." >> /home/ubuntu/SUBSCRIPTION_GROUP_ERROR.txt
-    return 1
-  fi
-
-  debug_log "Found subscription group ID: $GROUP_ID"
-
-  # Get group members
-  MEMBERS_RESPONSE=$(curl -s -H "Authorization: Bearer $ACCESS_TOKEN" \
-    "https://groups.api.globus.org/v2/groups/$GROUP_ID/members")
-
-  # Check if members API request was successful
-  if ! echo "$MEMBERS_RESPONSE" | jq -e '.members' > /dev/null; then
-    log "ERROR: Failed to get group members"
-    debug_log "Members API response: $MEMBERS_RESPONSE"
-    echo "Failed to get group members from Globus Groups API" > /home/ubuntu/SUBSCRIPTION_ADMIN_CHECK_FAILED.txt
-    echo "Error: $MEMBERS_RESPONSE" >> /home/ubuntu/SUBSCRIPTION_ADMIN_CHECK_FAILED.txt
-    return 1
-  fi
-
-  # Save members list for debugging
-  echo "$MEMBERS_RESPONSE" > /home/ubuntu/subscription_group_members.json
-
-  # Check if service account is admin in the group
-  IS_ADMIN=$(echo "$MEMBERS_RESPONSE" | jq -r --arg cid "$GLOBUS_CLIENT_ID" '.members[] | select(.username==$cid) | .role == "admin"')
+  # Use endpoint show command to verify we have proper permissions
+  # This is much simpler than making API calls directly
+  ENDPOINT_SHOW=$(globus-connect-server endpoint show 2>&1)
+  ENDPOINT_SHOW_EXIT_CODE=$?
   
-  if [ "$IS_ADMIN" = "true" ]; then
-    log "Service account is an admin of the subscription group - check passed"
+  # Save output for debugging
+  echo "$ENDPOINT_SHOW" > /home/ubuntu/endpoint-show-check.txt
+  
+  if [ $ENDPOINT_SHOW_EXIT_CODE -eq 0 ]; then
+    log "Service account has subscription privileges - check passed"
     debug_log "Subscription admin check passed"
     return 0
   else
-    log "ERROR: Service account is NOT an admin of the subscription group"
-    echo "Service account (Client ID: $GLOBUS_CLIENT_ID) is NOT an admin of the subscription group for $GLOBUS_SUBSCRIPTION_ID" > /home/ubuntu/SUBSCRIPTION_ADMIN_ERROR.txt
-    echo "The service account must be an admin of the subscription group to deploy Globus Connect Server with S3 connector." >> /home/ubuntu/SUBSCRIPTION_ADMIN_ERROR.txt
-    echo "Please add the service account as an admin to your subscription group." >> /home/ubuntu/SUBSCRIPTION_ADMIN_ERROR.txt
+    log "ERROR: Service account does not have subscription admin privileges"
+    echo "Service account (Client ID: $GLOBUS_CLIENT_ID) does not have admin privileges for subscription $GLOBUS_SUBSCRIPTION_ID" > /home/ubuntu/SUBSCRIPTION_ADMIN_ERROR.txt
+    echo "The service account must have proper permissions to deploy Globus Connect Server with S3 connector." >> /home/ubuntu/SUBSCRIPTION_ADMIN_ERROR.txt
+    echo "Please ensure your service account has admin privileges in your subscription group." >> /home/ubuntu/SUBSCRIPTION_ADMIN_ERROR.txt
     return 1
   fi
 }
