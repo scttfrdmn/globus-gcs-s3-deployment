@@ -152,27 +152,6 @@ Parameters:
     Description: Globus Auth project ID where this endpoint will be registered (REQUIRED for service identity authentication)
     Type: String
 
-Mappings:
-  RegionMap:
-    us-east-1:
-      AMI: ami-01896de842c443b1b # Ubuntu 22.04 LTS AMI in us-east-1
-    us-east-2:
-      AMI: ami-0e83be366243f524a # Ubuntu 22.04 LTS AMI in us-east-2
-    us-west-1:
-      AMI: ami-0487b1fe60c1fd1a2 # Ubuntu 22.04 LTS AMI in us-west-1
-    us-west-2:
-      AMI: ami-03f65b8614a860c29 # Ubuntu 22.04 LTS AMI in us-west-2
-    eu-west-1:
-      AMI: ami-0ec7f9846a9d38ac7 # Ubuntu 22.04 LTS AMI in eu-west-1
-    eu-central-1:
-      AMI: ami-0caef02b518350c8f # Ubuntu 22.04 LTS AMI in eu-central-1
-    ap-northeast-1:
-      AMI: ami-03a2bb16327aeaa38 # Ubuntu 22.04 LTS AMI in ap-northeast-1
-    ap-southeast-1:
-      AMI: ami-078c2ea6f5c9de06a # Ubuntu 22.04 LTS AMI in ap-southeast-1
-    ap-southeast-2:
-      AMI: ami-0d0af5dfe4b9ecf54 # Ubuntu 22.04 LTS AMI in ap-southeast-2
-
 Resources:
   GlobusServerElasticIP:
     Type: AWS::EC2::EIP
@@ -183,6 +162,10 @@ Resources:
         - Key: Name
           Value: globus-server-eip
           
+  ImageAmi:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id'
+
   GlobusServerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -278,6 +261,7 @@ Resources:
     UpdateReplacePolicy: Retain
     Properties:
       InstanceType: !Ref InstanceType
+      ImageId: !Ref ImageAmi
       KeyName: !Ref KeyName
       AvailabilityZone: !Ref AvailabilityZone
       IamInstanceProfile: !Ref GlobusServerInstanceProfile

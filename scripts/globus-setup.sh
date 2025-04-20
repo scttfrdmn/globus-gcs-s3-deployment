@@ -77,6 +77,74 @@ log "Installing dependencies..."
 apt-get update
 apt-get install -y curl wget apt-transport-https ca-certificates python3-pip jq
 
+# Install Globus Connect Server first (required for the checks to work)
+log "Installing Globus Connect Server packages..."
+apt-get install -y curl wget apt-transport-https ca-certificates python3-pip
+
+# Add Globus repository
+log "Adding Globus repository..."
+cd /tmp
+curl -LOs https://downloads.globus.org/globus-connect-server/stable/installers/repo/deb/globus-repo_latest_all.deb
+if [ ! -f /tmp/globus-repo_latest_all.deb ]; then
+  log "Failed to download Globus repository package."
+  exit 1
+fi
+
+dpkg -i /tmp/globus-repo_latest_all.deb
+apt-get update
+
+# Install Globus Connect Server package
+log "Installing Globus Connect Server package..."
+apt-get install -y globus-connect-server54
+
+# Install Globus CLI for easier management
+log "Installing Globus CLI..."
+pip3 install -q globus-cli
+
+# Configure Globus CLI with credentials for easier command-line usage
+log "Configuring Globus CLI..."
+mkdir -p ~/.globus
+cat > ~/.globus/globus.cfg << EOF
+[cli]
+default_client_id = ${GLOBUS_CLIENT_ID}
+default_client_secret = ${GLOBUS_CLIENT_SECRET}
+EOF
+
+# Also configure for ubuntu user
+mkdir -p /home/ubuntu/.globus
+cat > /home/ubuntu/.globus/globus.cfg << EOF
+[cli]
+default_client_id = ${GLOBUS_CLIENT_ID}
+default_client_secret = ${GLOBUS_CLIENT_SECRET}
+EOF
+chown -R ubuntu:ubuntu /home/ubuntu/.globus
+
+# Verify installation
+log "Verifying installation..."
+which globus-connect-server > /home/ubuntu/globus-command-path.txt 2>&1 || 
+  echo "Command not found" > /home/ubuntu/globus-command-path.txt
+
+if ! command -v globus-connect-server &> /dev/null; then
+  log "Globus Connect Server installation failed."
+  exit 1
+fi
+
+# Get GCS version
+GCS_VERSION_RAW=$(globus-connect-server --version 2>&1)
+log "Raw version output: $GCS_VERSION_RAW"
+
+# Extract package version (format: "package X.Y.Z")
+GCS_VERSION_PACKAGE=$(echo "$GCS_VERSION_RAW" | grep -o "package [0-9]\+\.[0-9]\+\.[0-9]\+" | awk '{print $2}' || echo "")
+
+if [ -n "$GCS_VERSION_PACKAGE" ]; then
+  GCS_VERSION="$GCS_VERSION_PACKAGE"
+  log "Using package version: $GCS_VERSION"
+else
+  # Fallback to any version number pattern
+  GCS_VERSION=$(echo "$GCS_VERSION_RAW" | grep -o -E '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "5.4.61")
+  log "Using fallback version: $GCS_VERSION"
+fi
+
 # Function to check if service account is a project admin using simple command-line approach
 check_project_admin() {
   log "Checking if service account has admin privileges for project $GLOBUS_PROJECT_ID..."
@@ -157,73 +225,7 @@ fi
 
 log "Permission checks completed successfully. Proceeding with installation."
 
-# Install Globus Connect Server
-log "Installing Globus Connect Server packages..."
-apt-get install -y curl wget apt-transport-https ca-certificates python3-pip
-
-# Add Globus repository
-log "Adding Globus repository..."
-cd /tmp
-curl -LOs https://downloads.globus.org/globus-connect-server/stable/installers/repo/deb/globus-repo_latest_all.deb
-if [ ! -f /tmp/globus-repo_latest_all.deb ]; then
-  log "Failed to download Globus repository package."
-  exit 1
-fi
-
-dpkg -i /tmp/globus-repo_latest_all.deb
-apt-get update
-
-# Install Globus Connect Server package
-log "Installing Globus Connect Server package..."
-apt-get install -y globus-connect-server54
-
-# Install Globus CLI for easier management
-log "Installing Globus CLI..."
-pip3 install -q globus-cli
-
-# Configure Globus CLI with credentials for easier command-line usage
-log "Configuring Globus CLI..."
-mkdir -p ~/.globus
-cat > ~/.globus/globus.cfg << EOF
-[cli]
-default_client_id = ${GLOBUS_CLIENT_ID}
-default_client_secret = ${GLOBUS_CLIENT_SECRET}
-EOF
-
-# Also configure for ubuntu user
-mkdir -p /home/ubuntu/.globus
-cat > /home/ubuntu/.globus/globus.cfg << EOF
-[cli]
-default_client_id = ${GLOBUS_CLIENT_ID}
-default_client_secret = ${GLOBUS_CLIENT_SECRET}
-EOF
-chown -R ubuntu:ubuntu /home/ubuntu/.globus
-
-# Verify installation
-log "Verifying installation..."
-which globus-connect-server > /home/ubuntu/globus-command-path.txt 2>&1 || 
-  echo "Command not found" > /home/ubuntu/globus-command-path.txt
-
-if ! command -v globus-connect-server &> /dev/null; then
-  log "Globus Connect Server installation failed."
-  exit 1
-fi
-
-# Get GCS version
-GCS_VERSION_RAW=$(globus-connect-server --version 2>&1)
-log "Raw version output: $GCS_VERSION_RAW"
-
-# Extract package version (format: "package X.Y.Z")
-GCS_VERSION_PACKAGE=$(echo "$GCS_VERSION_RAW" | grep -o "package [0-9]\+\.[0-9]\+\.[0-9]\+" | awk '{print $2}' || echo "")
-
-if [ -n "$GCS_VERSION_PACKAGE" ]; then
-  GCS_VERSION="$GCS_VERSION_PACKAGE"
-  log "Using package version: $GCS_VERSION"
-else
-  # Fallback to any version number pattern
-  GCS_VERSION=$(echo "$GCS_VERSION_RAW" | grep -o -E '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "5.4.61")
-  log "Using fallback version: $GCS_VERSION"
-fi
+# GCS is already installed and version checked above
 
 # Save environment variables to files in Ubuntu home
 mkdir -p /home/ubuntu
