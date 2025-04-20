@@ -6,6 +6,8 @@ This repository contains a CloudFormation template for deploying Globus Connect 
 
 - **AWS CloudFormation Template**: Infrastructure-as-code deployment
 - **S3 Integration**: Connect to S3 storage directly using instance credentials
+  - Configurable domain restrictions for S3 paths
+  - Uses IAM role-based authentication for S3 access
 - **Security**: IAM roles and policies for secure access
 - **Globus Auth Integration**: Identity federation using Globus Auth
 - **Automated Authentication**: Uses environment-based service credentials for non-interactive deployment
@@ -46,6 +48,10 @@ This repository contains a CloudFormation template for deploying Globus Connect 
      - Must be a valid Globus subscription ID (e.g., "DEFAULT" or specific ID)
      - NOTE: Subscription validation checks have been temporarily disabled
      - The template parameter `GlobusSubscriptionId` must be set for S3 connector
+   - **S3 Domain** - REQUIRED FOR S3 CONNECTOR
+     - The template parameter `GlobusS3Domain` must be set to configure domain restrictions
+     - Typically set to a pattern like "s3://*" to allow all S3 paths
+     - Required by Globus Connect Server for S3 gateway configuration
    - **Project ID** - REQUIRED FOR SERVICE ACCOUNT INTEGRATION
      - ⚠️ **CRITICAL PERMISSION REQUIREMENT**:
        1. The service account (client ID) MUST be an administrator in the specified project

@@ -42,6 +42,11 @@ The deployment uses Ubuntu 22.04 LTS and installs Globus packages using the Debi
   - Create permissions: `globus-connect-server endpoint permission create`
   - Create storage gateway: `globus-connect-server storage-gateway create s3 [OPTIONS]`
     - S3 is a subcommand (positional argument)
+    - Required parameters for S3 gateway:
+      - `--domain`: Allowed domain for S3 gateway (required for proper path validation)
+    - Optional parameters:
+      - `--s3-endpoint`: S3 endpoint URL (defaults to https://s3.amazonaws.com)
+      - `--s3-user-credential`: Use instance credentials for authentication
   - Show endpoint: `globus-connect-server endpoint show`
   - Collection management:
     - List collections: `globus-connect-server collection list`
@@ -96,6 +101,9 @@ The deployment now uses an automated collection creation approach:
    - S3 collections use AWS instance credentials for authentication
    - No specific bucket is configured in the template
    - Access is controlled by IAM permissions assigned to the instance role
+   - Domain restrictions apply based on the GlobusS3Domain parameter
+     - This parameter restricts which S3 paths are allowed (e.g., "s3://*")
+     - Required by Globus Connect Server for S3 gateway configuration
 
 This automated approach streamlines the deployment process while maintaining appropriate access controls.
 
@@ -174,6 +182,10 @@ When troubleshooting CloudFormation deployment failures:
   - `GlobusContactEmail`: Email address for the support contact
     - Visible to users of the endpoint for support inquiries
     - Default is "admin@example.com" but should be customized with a valid contact email
+  - `GlobusS3Domain`: Allowed domain for S3 gateway
+    - Required for proper S3 gateway configuration with domain restrictions
+    - Specifies the allowed domain pattern for S3 paths (e.g., "s3://")
+    - No default value is provided - must be explicitly set
   - For Globus Connect Server < 5.4.67:
     - `GlobusClientId`: Globus Auth client ID
     - `GlobusClientSecret`: Globus Auth client secret

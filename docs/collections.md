@@ -49,7 +49,7 @@ In your CloudFormation template, we're creating:
 ```
 AWS Account
    └── S3 Bucket
-       └── Connected via S3 Storage Connector
+       └── Connected via S3 Storage Connector (with domain restrictions)
            └── Exposed through Globus Server Collection
                └── Accessible via Globus Transfer Service
 ```
@@ -62,10 +62,14 @@ AWS Account
 2. Authentication Layers:
    - AWS credentials (IAM role) authenticate to S3
    - Globus credentials authenticate users to the collection
-3. Performance Optimization:
+3. Domain Restrictions:
+   - S3 paths are restricted based on the configured domain pattern
+   - The `GlobusS3Domain` parameter (e.g., "s3://*") defines allowed paths
+   - Provides an additional layer of security and access control
+4. Performance Optimization:
    - The S3 connector is optimized for high-performance transfers
    - Uses data streaming, parallelism, and retry mechanisms
-4. Sharing Capabilities:
+5. Sharing Capabilities:
    - You can create Guest Collections on your Server Collection
    - This allows controlled sharing of S3 data without giving direct AWS access
 

@@ -154,6 +154,10 @@ Parameters:
   GlobusProjectId:
     Description: Globus Auth project ID where this endpoint will be registered
     Type: String
+    
+  GlobusS3Domain:
+    Description: Allowed domain for S3 gateway (required for S3 gateway configuration)
+    Type: String
 
   ImageAmi:
     Description: Ubuntu 22.04 AMI to use (auto-selected by default)
@@ -379,8 +383,9 @@ Resources:
           # Optional subscription ID for managed endpoint
           export GLOBUS_SUBSCRIPTION_ID="${GlobusSubscriptionId}"
 
-          # S3 gateway name - derived from GlobusBaseName
+          # S3 gateway configuration
           export S3_GATEWAY_DISPLAY_NAME="${GlobusBaseName} S3 Gateway"
+          export S3_GATEWAY_DOMAIN="${GlobusS3Domain}"
 
           # Debug configuration
           export PRESERVE_INSTANCE="${DebugPreserveInstance}"

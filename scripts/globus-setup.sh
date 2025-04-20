@@ -61,6 +61,7 @@ debug_log "GLOBUS_CONTACT_EMAIL=$GLOBUS_CONTACT_EMAIL"
 debug_log "GLOBUS_PROJECT_ID=${GLOBUS_PROJECT_ID:0:5}..." # Truncating for security
 debug_log "S3 gateway will be created with subscription ID"
 debug_log "GLOBUS_SUBSCRIPTION_ID=$GLOBUS_SUBSCRIPTION_ID"
+debug_log "S3_GATEWAY_DOMAIN=$S3_GATEWAY_DOMAIN"
 debug_log "PRESERVE_INSTANCE=$PRESERVE_INSTANCE"
 debug_log "REMOVE_SERVICE_ACCOUNT_ROLE=$REMOVE_SERVICE_ACCOUNT_ROLE"
 
@@ -201,6 +202,7 @@ chmod 755 /home/ubuntu
 # Save subscription and S3 gateway information
 [ -n "$GLOBUS_SUBSCRIPTION_ID" ] && echo "$GLOBUS_SUBSCRIPTION_ID" > /home/ubuntu/subscription-id.txt || echo "NONE" > /home/ubuntu/subscription-id.txt
 [ -n "$S3_GATEWAY_DISPLAY_NAME" ] && echo "$S3_GATEWAY_DISPLAY_NAME" > /home/ubuntu/s3-gateway-display-name.txt || echo "$GLOBUS_BASE_NAME S3 Gateway" > /home/ubuntu/s3-gateway-display-name.txt
+[ -n "$S3_GATEWAY_DOMAIN" ] && echo "$S3_GATEWAY_DOMAIN" > /home/ubuntu/s3-gateway-domain.txt || echo "DOMAIN_NOT_PROVIDED" > /home/ubuntu/s3-gateway-domain.txt
 
 # Save owner configuration
 [ -n "$REMOVE_SERVICE_ACCOUNT_ROLE" ] && echo "$REMOVE_SERVICE_ACCOUNT_ROLE" > /home/ubuntu/remove-service-account-role.txt || echo "false" > /home/ubuntu/remove-service-account-role.txt
@@ -505,6 +507,14 @@ EOFSUBSCRIPTION
         
         # Set S3 command parameters - simplified to just use AWS credentials
         S3_CMD="globus-connect-server storage-gateway create s3 --s3-endpoint https://s3.amazonaws.com --s3-user-credential"
+        
+        # Add domain parameter if provided
+        if [ -n "$S3_GATEWAY_DOMAIN" ] && [ "$S3_GATEWAY_DOMAIN" != "DOMAIN_NOT_PROVIDED" ]; then
+          log "Using S3 Gateway domain: $S3_GATEWAY_DOMAIN"
+          S3_CMD="$S3_CMD --domain \"$S3_GATEWAY_DOMAIN\""
+        else
+          log "No S3 Gateway domain provided"
+        fi
         
         # Add display name as the positional argument at the end
         S3_CMD="$S3_CMD \"$S3_GATEWAY_DISPLAY_NAME_VALUE\""
@@ -871,6 +881,7 @@ Subscription Status:
 S3 Gateway and Collection:
 - Gateway: $S3_GATEWAY_STATUS
   $([ -f /home/ubuntu/s3-gateway-id.txt ] && echo "  Gateway ID: $(cat /home/ubuntu/s3-gateway-id.txt)" || echo "")
+  $([ -f /home/ubuntu/s3-gateway-domain.txt ] && echo "  Domain: $(cat /home/ubuntu/s3-gateway-domain.txt)" || echo "  Domain: Not specified")
   $([ -n "$S3_COLLECTION_STATUS" ] && echo "  Collection: $S3_COLLECTION_STATUS" || echo "")
   $([ -n "$S3_COLLECTION_ID" ] && echo "  Collection ID: $S3_COLLECTION_ID" || echo "")
   $([ -n "$S3_PERMISSIONS_STATUS" ] && echo "  Permissions: $S3_PERMISSIONS_STATUS" || echo "")
@@ -936,6 +947,7 @@ Environment Variables (sensitive values partially redacted):
 - GLOBUS_PROJECT_ID: ${GLOBUS_PROJECT_ID:0:8}... (truncated)
 - GLOBUS_SUBSCRIPTION_ID: $GLOBUS_SUBSCRIPTION_ID
 - S3 Gateway: Enabled with subscription
+- S3_GATEWAY_DOMAIN: $S3_GATEWAY_DOMAIN
 # POSIX gateway support removed to focus on S3 connectivity
 - PRESERVE_INSTANCE: $PRESERVE_INSTANCE
 - REMOVE_SERVICE_ACCOUNT_ROLE: $REMOVE_SERVICE_ACCOUNT_ROLE
