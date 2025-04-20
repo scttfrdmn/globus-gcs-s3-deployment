@@ -1,3 +1,4 @@
+---
 # Auto-generated CloudFormation template for Globus Connect Server with S3 Connector
 AWSTemplateFormatVersion: "2010-09-09"
 Description: "CloudFormation template for Globus Connect Server with S3 Connector"
@@ -5,7 +6,9 @@ Description: "CloudFormation template for Globus Connect Server with S3 Connecto
 Conditions:
   HasSubscription: !Not [!Equals [!Ref GlobusSubscriptionId, ""]]
   IsProduction: !Equals [!Ref DeploymentType, "Production"]
-  UseElasticIP: !Or [!Equals [!Ref DeploymentType, "Production"], !Equals [!Ref ForceElasticIP, "true"]]
+  UseElasticIP: !Or
+    - !Equals [!Ref DeploymentType, "Production"]
+    - !Equals [!Ref ForceElasticIP, "true"]
   DeployS3Connector: !Condition HasSubscription
   HasOwner: !Not [!Equals [!Ref GlobusOwner, ""]]
   RemoveRole: !Equals [!Ref RemoveServiceAccountRole, "true"]
@@ -14,29 +17,29 @@ Parameters:
     Description: URL to the Globus installation script (e.g., GitHub raw URL)
     Type: String
     Default: "https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/scripts/globus-setup.sh"
-    
+
   SetupEnvScriptUrl:
     Description: URL to the Globus environment setup script for debugging
     Type: String
     Default: "https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/scripts/setup-env.sh"
-    
+
   DiagnosticsScriptUrl:
     Description: URL to the diagnostics collection script
     Type: String
     Default: "https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/scripts/collect-diagnostics.sh"
-    
+
   DebugScriptUrl:
     Description: URL to the debug helper script
     Type: String
     Default: "https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/scripts/debug-deployment.sh"
-    
-# Collection script removed (integrated into main script)
-    
+
+  # Collection script removed (integrated into main script)
+
   TeardownScriptUrl:
     Description: URL to the teardown script for cleanup before stack deletion
     Type: String
     Default: "https://raw.githubusercontent.com/scttfrdmn/globus-gcs-s3-deployment/main/scripts/teardown-globus.sh"
-    
+
   DeploymentType:
     Description: Type of deployment (affects resource configuration)
     Type: String
@@ -45,7 +48,7 @@ Parameters:
       - Integration
       - Production
     ConstraintDescription: Must be either Integration or Production.
-    
+
   ForceElasticIP:
     Description: Force allocation of Elastic IP even for Integration deployment
     Type: String
@@ -53,9 +56,9 @@ Parameters:
     AllowedValues:
       - "true"
       - "false"
-      
+
   DebugPreserveInstance:
-    Description: "Debug mode - keep instances running even when deployment fails (for troubleshooting)"
+    Description: Debug mode - keep instances running even when deployment fails
     Type: String
     Default: "true"
     AllowedValues:
@@ -63,13 +66,13 @@ Parameters:
       - "false"
 
   GlobusBaseName:
-    Description: "Base name used for all Globus components (endpoint, gateways, collections). A descriptive name that will be used across all components."
+    Description: Base name used for all Globus components (endpoint, gateways, collections)
     Type: String
     AllowedPattern: "[A-Za-z0-9\\-_\\.\\s]+"
-    ConstraintDescription: "Base name can include letters, numbers, spaces, hyphens, underscores, and periods."
-  
+    ConstraintDescription: Base name can include letters, numbers, spaces, hyphens, underscores, and periods.
+
   RemoveServiceAccountRole:
-    Description: "If true, removes the service account role from the endpoint after creating it. Use this if you want the endpoint to only be accessible by the GlobusOwner."
+    Description: If true, removes the service account role from the endpoint
     Type: String
     Default: "false"
     AllowedValues:
@@ -96,7 +99,7 @@ Parameters:
     ConstraintDescription: Must be a valid EC2 instance type.
 
   KeyName:
-    Description: Name of an existing AWS EC2 KeyPair to enable SSH access to the instance
+    Description: Name of an existing AWS EC2 KeyPair to enable SSH access
     Type: AWS::EC2::KeyPair::KeyName
     ConstraintDescription: Must be the name of an existing EC2 KeyPair in your AWS account.
 
@@ -123,34 +126,60 @@ Parameters:
     NoEcho: true
 
   GlobusSubscriptionId:
-    Description: "Globus Subscription ID to join this endpoint to your subscription (REQUIRED for S3 connector). IMPORTANT: The GlobusOwner identity must be configured as an administrator in the subscription membership group by an existing administrator for this to work."
+    Description: Globus Subscription ID to join this endpoint to your subscription
     Type: String
-    
-# S3 connector is always enabled in this implementation
-      
-# POSIX gateway support removed to focus on S3 connectivity
-    
-# S3 bucket parameters removed - not required for this implementation
-    
+
+  # S3 connector is always enabled in this implementation
+
+  # POSIX gateway support removed to focus on S3 connectivity
+
+  # S3 bucket parameters removed - not required for this implementation
+
   GlobusOrganization:
     Description: Organization name for the Globus endpoint (REQUIRED - visible to users)
     Type: String
     AllowedPattern: "[A-Za-z0-9\\-_\\.\\s]+"
-    ConstraintDescription: "Organization name can include letters, numbers, spaces, hyphens, underscores, and periods."
-    
+    ConstraintDescription: Organization name can include letters, numbers, spaces, hyphens, underscores, and periods.
+
   GlobusOwner:
     Description: Identity username of the endpoint owner (e.g. user@example.edu)
     Type: String
     Default: ""
-    
+
   GlobusContactEmail:
     Description: Email address for the support contact for this endpoint (visible to users)
     Type: String
     Default: "admin@example.com"
-    
+
   GlobusProjectId:
-    Description: Globus Auth project ID where this endpoint will be registered (REQUIRED for service identity authentication)
+    Description: Globus Auth project ID where this endpoint will be registered
     Type: String
+
+  ImageAmi:
+    Description: Ubuntu 22.04 AMI to use (auto-selected by default)
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id'
+
+Mappings:
+  RegionMap:
+    us-east-1:
+      AMI: ami-01896de842c443b1b  # Ubuntu 22.04 LTS AMI in us-east-1
+    us-east-2:
+      AMI: ami-0e83be366243f524a  # Ubuntu 22.04 LTS AMI in us-east-2
+    us-west-1:
+      AMI: ami-0487b1fe60c1fd1a2  # Ubuntu 22.04 LTS AMI in us-west-1
+    us-west-2:
+      AMI: ami-03f65b8614a860c29  # Ubuntu 22.04 LTS AMI in us-west-2
+    eu-west-1:
+      AMI: ami-0ec7f9846a9d38ac7  # Ubuntu 22.04 LTS AMI in eu-west-1
+    eu-central-1:
+      AMI: ami-0caef02b518350c8f  # Ubuntu 22.04 LTS AMI in eu-central-1
+    ap-northeast-1:
+      AMI: ami-03a2bb16327aeaa38  # Ubuntu 22.04 LTS AMI in ap-northeast-1
+    ap-southeast-1:
+      AMI: ami-078c2ea6f5c9de06a  # Ubuntu 22.04 LTS AMI in ap-southeast-1
+    ap-southeast-2:
+      AMI: ami-0d0af5dfe4b9ecf54  # Ubuntu 22.04 LTS AMI in ap-southeast-2
 
 Resources:
   GlobusServerElasticIP:
@@ -161,10 +190,6 @@ Resources:
       Tags:
         - Key: Name
           Value: globus-server-eip
-          
-  ImageAmi:
-    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
-    Default: '/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id'
 
   GlobusServerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -265,7 +290,6 @@ Resources:
       KeyName: !Ref KeyName
       AvailabilityZone: !Ref AvailabilityZone
       IamInstanceProfile: !Ref GlobusServerInstanceProfile
-      ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", AMI]
       NetworkInterfaces:
         - AssociatePublicIpAddress: !If [UseElasticIP, false, true]
           DeviceIndex: "0"
@@ -284,57 +308,65 @@ Resources:
           # Simplified bootstrap script for Globus Connect Server deployment
           exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
           set -e
-          
+
           echo "=== BOOTSTRAP START: $(date) ==="
           mkdir -p /home/ubuntu && chmod 755 /home/ubuntu
-          
+
           # CloudFormation signaling function
           signal_cf() {
             local exit_code=$1
             echo "Signaling CloudFormation with status code: $exit_code"
-            
+
             if [ -f /opt/aws/bin/cfn-signal ]; then
-              /opt/aws/bin/cfn-signal -e $exit_code --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}
+              /opt/aws/bin/cfn-signal -e $exit_code --stack ${AWS::StackName} \
+                --resource GlobusServerInstance --region ${AWS::Region}
             elif command -v cfn-signal >/dev/null 2>&1; then
-              cfn-signal -e $exit_code --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}
+              cfn-signal -e $exit_code --stack ${AWS::StackName} \
+                --resource GlobusServerInstance --region ${AWS::Region}
             else
               echo "No cfn-signal found, installing AWS CFN tools..."
               apt-get update -qq && apt-get install -y python3-pip
-              pip3 install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz
+              pip3 install \
+                https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz
               echo "Signaling with installed tools..."
-              /usr/local/bin/cfn-signal -e $exit_code --stack ${AWS::StackName} --resource GlobusServerInstance --region ${AWS::Region}
+              /usr/local/bin/cfn-signal -e $exit_code --stack ${AWS::StackName} \
+                --resource GlobusServerInstance --region ${AWS::Region}
             fi
           }
-          
+
           # Error handler - signal failure to CloudFormation
           handle_error() {
-            echo "=============================================================" | tee /home/ubuntu/BOOTSTRAP_ERROR.txt
-            echo "ERROR: Bootstrap failed at line $1 with exit code $2" | tee -a /home/ubuntu/BOOTSTRAP_ERROR.txt
+            echo "=============================================================" \
+              | tee /home/ubuntu/BOOTSTRAP_ERROR.txt
+            echo "ERROR: Bootstrap failed at line $1 with exit code $2" \
+              | tee -a /home/ubuntu/BOOTSTRAP_ERROR.txt
             echo "Command: $BASH_COMMAND" >> /home/ubuntu/BOOTSTRAP_ERROR.txt
             echo "Time: $(date)" >> /home/ubuntu/BOOTSTRAP_ERROR.txt
-            echo "=============================================================" | tee -a /home/ubuntu/BOOTSTRAP_ERROR.txt
-            
+            echo "=============================================================" \
+              | tee -a /home/ubuntu/BOOTSTRAP_ERROR.txt
+
             # Signal failure to CloudFormation so instance is terminated
             echo "Signaling failure to CloudFormation"
             signal_cf 1
             exit 1
           }
           trap 'handle_error $LINENO $?' ERR
-          
+
           # Install dependencies
           echo "Installing dependencies..."
           apt-get update
           apt-get install -y python3-pip curl wget awscli
-          
+
           # Setup CFN tools
           echo "Setting up CloudFormation tools..."
-          pip3 install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz
+          pip3 install \
+            https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz
           mkdir -p /opt/aws/bin
           ln -sf /usr/local/bin/cfn-* /opt/aws/bin/ 2>/dev/null || true
-          
+
           # Set environment variables
           echo "Setting critical environment variables..."
-          export GLOBUS_CLIENT_ID="${GlobusClientId}" 
+          export GLOBUS_CLIENT_ID="${GlobusClientId}"
           export GLOBUS_CLIENT_SECRET="${GlobusClientSecret}"
           export GLOBUS_BASE_NAME="${GlobusBaseName}"
           export GLOBUS_DISPLAY_NAME="${GlobusBaseName} Endpoint"
@@ -343,117 +375,143 @@ Resources:
           export GLOBUS_CONTACT_EMAIL="${GlobusContactEmail}"
           export GLOBUS_PROJECT_ID="${GlobusProjectId}"
           export REMOVE_SERVICE_ACCOUNT_ROLE="${RemoveServiceAccountRole}"
-          
+
           # Optional subscription ID for managed endpoint
           export GLOBUS_SUBSCRIPTION_ID="${GlobusSubscriptionId}"
-          
+
           # S3 gateway name - derived from GlobusBaseName
           export S3_GATEWAY_DISPLAY_NAME="${GlobusBaseName} S3 Gateway"
-          
+
           # Debug configuration
           export PRESERVE_INSTANCE="${DebugPreserveInstance}"
-          
+
           # Set owner reset to always true
           export RESET_ENDPOINT_OWNER="true"
           export ENDPOINT_RESET_OWNER_TARGET="GlobusOwner"
-          
+
           # Download the installation script
           echo "Downloading Globus setup script from ${ScriptUrl}"
-          curl -s -L -o /tmp/globus-setup.sh "${ScriptUrl}" || wget -q -O /tmp/globus-setup.sh "${ScriptUrl}"
-          
+          curl -s -L -o /tmp/globus-setup.sh "${ScriptUrl}" || \
+            wget -q -O /tmp/globus-setup.sh "${ScriptUrl}"
+
           # Download the environment setup helper script
           echo "Downloading Globus environment setup script from ${SetupEnvScriptUrl}"
-          curl -s -L -o /home/ubuntu/setup-env.sh "${SetupEnvScriptUrl}" || wget -q -O /home/ubuntu/setup-env.sh "${SetupEnvScriptUrl}"
+          curl -s -L -o /home/ubuntu/setup-env.sh "${SetupEnvScriptUrl}" || \
+            wget -q -O /home/ubuntu/setup-env.sh "${SetupEnvScriptUrl}"
           chmod +x /home/ubuntu/setup-env.sh
           chown ubuntu:ubuntu /home/ubuntu/setup-env.sh
-          
+
           if [ ! -s /tmp/globus-setup.sh ]; then
             echo "ERROR: Failed to download script" > /home/ubuntu/DOWNLOAD_FAILED.txt
             signal_cf 1
             exit 1
           fi
-          
+
           # Prepare for execution
           chmod +x /tmp/globus-setup.sh
           cp /tmp/globus-setup.sh /home/ubuntu/globus-setup.sh
           echo "Starting Globus setup: $(date)" > /home/ubuntu/BOOTSTRAP_STARTED.txt
-          
+
           # Run the setup script with better error handling
           echo "Running Globus setup script..."
-          
+
           # Start watching for errors immediately and capture output
           sudo -E bash /tmp/globus-setup.sh > /var/log/globus-setup-output.log 2>&1
           SETUP_EXIT_CODE=$?
-          
+
           # Copy the logs to help with debugging
           cp /var/log/globus-setup-output.log /home/ubuntu/
           cp /var/log/globus-setup.log /home/ubuntu/ 2>/dev/null || true
           cp /var/log/cloud-init-output.log /home/ubuntu/ 2>/dev/null || true
-          
+
           # Fix permissions for all files
           find /home/ubuntu -type f -exec chown ubuntu:ubuntu {} \; 2>/dev/null || true
           find /home/ubuntu -type f -name "*.sh" -exec chmod +x {} \; 2>/dev/null || true
-          
+
           # Check setup result
           if [ $SETUP_EXIT_CODE -ne 0 ]; then
-            echo "Globus setup script failed with exit code: $SETUP_EXIT_CODE" > /home/ubuntu/SETUP_FAILED.txt
-            echo "Running diagnostics collection script..." >> /home/ubuntu/SETUP_FAILED.txt
-            
+            echo "Globus setup script failed with exit code: $SETUP_EXIT_CODE" > \
+              /home/ubuntu/SETUP_FAILED.txt
+            echo "Running diagnostics collection script..." >> \
+              /home/ubuntu/SETUP_FAILED.txt
+
             # Run diagnostics collection script
-            bash /home/ubuntu/collect-diagnostics.sh > /home/ubuntu/diagnostics-output.txt 2>&1
-            
+            bash /home/ubuntu/collect-diagnostics.sh > \
+              /home/ubuntu/diagnostics-output.txt 2>&1
+
             # Log additional diagnostic information
-            echo "Instance ID: $(curl -s http://169.254.169.254/latest/meta-data/instance-id)" >> /home/ubuntu/diagnostics/instance-info.txt
-            echo "Public IP: $(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)" >> /home/ubuntu/diagnostics/instance-info.txt
-            echo "Public hostname: $(curl -s http://169.254.169.254/latest/meta-data/public-hostname)" >> /home/ubuntu/diagnostics/instance-info.txt
-            
+            echo "Instance ID: $(curl -s \
+              http://169.254.169.254/latest/meta-data/instance-id)" \
+              >> /home/ubuntu/diagnostics/instance-info.txt
+            echo "Public IP: $(curl -s \
+              http://169.254.169.254/latest/meta-data/public-ipv4)" \
+              >> /home/ubuntu/diagnostics/instance-info.txt
+            echo "Public hostname: $(curl -s \
+              http://169.254.169.254/latest/meta-data/public-hostname)" \
+              >> /home/ubuntu/diagnostics/instance-info.txt
+
             # Don't signal failure to CloudFormation if in debug mode
             if [[ "$PRESERVE_INSTANCE" == "false" ]]; then
-              echo "Signaling failure to CloudFormation (instance will be deleted)" >> /home/ubuntu/SETUP_FAILED.txt
+              echo "Signaling failure to CloudFormation (instance will be deleted)" >> \
+                /home/ubuntu/SETUP_FAILED.txt
               signal_cf 1
               exit 1
             else
-              echo "Debug mode enabled - preserving instance despite failure" >> /home/ubuntu/SETUP_FAILED.txt
-              echo "You can SSH to this instance to diagnose issues" >> /home/ubuntu/SETUP_FAILED.txt
-              echo "After connecting, run: bash /home/ubuntu/debug-deployment.sh" >> /home/ubuntu/SETUP_FAILED.txt
-              echo "Diagnostics have been collected in: /home/ubuntu/diagnostics/" >> /home/ubuntu/SETUP_FAILED.txt
-              
+              echo "Debug mode enabled - preserving instance despite failure" >> \
+                /home/ubuntu/SETUP_FAILED.txt
+              echo "You can SSH to this instance to diagnose issues" >> \
+                /home/ubuntu/SETUP_FAILED.txt
+              echo "After connecting, run: bash /home/ubuntu/debug-deployment.sh" >> \
+                /home/ubuntu/SETUP_FAILED.txt
+              echo "Diagnostics have been collected in: /home/ubuntu/diagnostics/" >> \
+                /home/ubuntu/SETUP_FAILED.txt
+
               # Set proper ownership so the ubuntu user can access everything
               find /home/ubuntu -type f -exec chown ubuntu:ubuntu {} \; 2>/dev/null || true
               find /home/ubuntu -type d -exec chown ubuntu:ubuntu {} \; 2>/dev/null || true
-              
+
               # Still signal success to CloudFormation to prevent rollback
               signal_cf 0
             fi
           fi
-          
+
           # Mark bootstrap completion
           echo "Bootstrap completed at $(date)" > /home/ubuntu/BOOTSTRAP_COMPLETED.txt
-          
+
           # Download the helper scripts
           echo "Downloading helper scripts..."
-          curl -s -L -o /home/ubuntu/collect-diagnostics.sh "${DiagnosticsScriptUrl}" || wget -q -O /home/ubuntu/collect-diagnostics.sh "${DiagnosticsScriptUrl}"
-          curl -s -L -o /home/ubuntu/debug-deployment.sh "${DebugScriptUrl}" || wget -q -O /home/ubuntu/debug-deployment.sh "${DebugScriptUrl}"
-          curl -s -L -o /home/ubuntu/teardown-globus.sh "${TeardownScriptUrl}" || wget -q -O /home/ubuntu/teardown-globus.sh "${TeardownScriptUrl}"
-          
+          curl -s -L -o /home/ubuntu/collect-diagnostics.sh "${DiagnosticsScriptUrl}" || \
+            wget -q -O /home/ubuntu/collect-diagnostics.sh "${DiagnosticsScriptUrl}"
+          curl -s -L -o /home/ubuntu/debug-deployment.sh "${DebugScriptUrl}" || \
+            wget -q -O /home/ubuntu/debug-deployment.sh "${DebugScriptUrl}"
+          curl -s -L -o /home/ubuntu/teardown-globus.sh "${TeardownScriptUrl}" || \
+            wget -q -O /home/ubuntu/teardown-globus.sh "${TeardownScriptUrl}"
+
           # Make the scripts executable
-          chmod +x /home/ubuntu/collect-diagnostics.sh /home/ubuntu/debug-deployment.sh /home/ubuntu/teardown-globus.sh
-          chown ubuntu:ubuntu /home/ubuntu/collect-diagnostics.sh /home/ubuntu/debug-deployment.sh /home/ubuntu/teardown-globus.sh
-          
+          chmod +x /home/ubuntu/collect-diagnostics.sh /home/ubuntu/debug-deployment.sh \
+            /home/ubuntu/teardown-globus.sh
+          chown ubuntu:ubuntu /home/ubuntu/collect-diagnostics.sh \
+            /home/ubuntu/debug-deployment.sh /home/ubuntu/teardown-globus.sh
+
           # Create a teardown instructions file
           echo "TEARDOWN INSTRUCTIONS" > /home/ubuntu/TEARDOWN_INSTRUCTIONS.txt
           echo "" >> /home/ubuntu/TEARDOWN_INSTRUCTIONS.txt
-          echo "Before deleting this CloudFormation stack, run this command to clean up Globus resources:" >> /home/ubuntu/TEARDOWN_INSTRUCTIONS.txt
+          echo "Before deleting this CloudFormation stack, run this command:" >> \
+            /home/ubuntu/TEARDOWN_INSTRUCTIONS.txt
           echo "bash /home/ubuntu/teardown-globus.sh" >> /home/ubuntu/TEARDOWN_INSTRUCTIONS.txt
           chown ubuntu:ubuntu /home/ubuntu/TEARDOWN_INSTRUCTIONS.txt
-          
+
           # Set directory permissions first
           mkdir -p /home/ubuntu
           chmod 755 /home/ubuntu
           chown ubuntu:ubuntu /home/ubuntu
 
           # Create empty files to ensure they exist
-          for var_file in globus-client-id.txt globus-client-secret.txt globus-display-name.txt globus-organization.txt globus-owner.txt globus-contact-email.txt globus-project-id.txt collection-admin-identity.txt default-admin-identity.txt endpoint-uuid.txt subscription-id.txt s3-bucket-name.txt; do
+          for var_file in globus-client-id.txt globus-client-secret.txt \
+            globus-display-name.txt globus-organization.txt globus-owner.txt \
+            globus-contact-email.txt globus-project-id.txt collection-admin-identity.txt \
+            default-admin-identity.txt endpoint-uuid.txt subscription-id.txt \
+            s3-bucket-name.txt; do
             touch /home/ubuntu/$var_file
             chown ubuntu:ubuntu /home/ubuntu/$var_file
           done
@@ -462,24 +520,24 @@ Resources:
           for f in $(find /home/ubuntu -type f); do
             chown ubuntu:ubuntu "$f"
           done
-          
+
           # Set restrictive permissions on credential files
           chmod 600 /home/ubuntu/globus-client-id.txt
           chmod 600 /home/ubuntu/globus-client-secret.txt
-          
+
           # Make scripts executable
           for f in $(find /home/ubuntu -name "*.sh"); do
             chmod +x "$f"
             chown ubuntu:ubuntu "$f"
           done
-          
+
           # Signal success to CloudFormation
           echo "=== BOOTSTRAP COMPLETE: $(date) ==="
           signal_cf 0
       Tags:
         - Key: Name
           Value: globus-connect-server
-          
+
   GlobusServerIPAssociation:
     Type: AWS::EC2::EIPAssociation
     Condition: UseElasticIP
@@ -500,22 +558,25 @@ Outputs:
     Description: Elastic IP address assigned to the Globus Connect Server
     Condition: UseElasticIP
     Value: !Ref GlobusServerElasticIP
-    
+
   PublicDNS:
     Description: Public DNS name of the Globus Connect Server
     Value: !GetAtt GlobusServerInstance.PublicDnsName
 
   GlobusEndpointURL:
     Description: URL to access the Globus Endpoint
-    Value: "https://app.globus.org/file-manager (Search for endpoint by name or UUID after registration)"
-    
+    Value: "https://app.globus.org/file-manager"
+
   SubscriptionStatus:
     Description: Globus Subscription Status
-    Value: !If [HasSubscription, "Endpoint joined to subscription", "No subscription ID provided"]
-    
+    Value: !If
+      - HasSubscription
+      - "Endpoint joined to subscription"
+      - "No subscription ID provided"
+
   PublicAddress:
     Description: Public address to use for Globus redirect URI configuration
-    Value: !If 
+    Value: !If
       - UseElasticIP
       - !Join ["", ["https://", !GetAtt GlobusServerElasticIP.PublicIp]]
       - !Sub "https://${GlobusServerInstance.PublicDnsName}"
@@ -524,28 +585,34 @@ Outputs:
     Description: S3 Gateway Status
     Condition: DeployS3Connector
     Value: "Enabled - S3 Gateway will be created"
-    
+
   ConnectorsEnabled:
     Description: Connectors that were enabled for this deployment
-    Value: !If 
+    Value: !If
       - DeployS3Connector
       - "S3 Connector"
       - "No connectors enabled (subscription required or S3 not enabled)"
-    
+
   DeploymentConfiguration:
     Description: Deployment configuration information
-    Value: !If 
+    Value: !If
       - UseElasticIP
-      - !If [IsProduction, "Production deployment with Elastic IP", "Integration deployment with Elastic IP (forced)"]
+      - !If
+        - IsProduction
+        - "Production deployment with Elastic IP"
+        - "Integration deployment with Elastic IP (forced)"
       - "Integration deployment with dynamic public IP"
-      
+
   AuthenticationConfiguration:
     Description: Authentication method configured for Globus
     Value: "Globus Auth (identity federation)"
-      
+
   InitialAccessInfo:
     Description: Initial access configuration
-    Value: !If 
+    Value: !If
       - HasOwner
-      - !If [RemoveRole, "Owner identity only - service account removed", "Owner identity with service account"]
+      - !If
+        - RemoveRole
+        - "Owner identity only - service account removed"
+        - "Owner identity with service account"
       - "Service account only - no owner identity specified"
