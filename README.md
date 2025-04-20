@@ -52,6 +52,7 @@ This repository contains a CloudFormation template for deploying Globus Connect 
      - The template parameter `GlobusS3Domain` must be set to configure domain restrictions
      - Typically set to a pattern like "s3://*" to allow all S3 paths
      - Required by Globus Connect Server for S3 gateway configuration
+     - See [Globus S3 Storage Gateway Documentation](https://docs.globus.org/globus-connect-server/v5.4/reference/storage-gateways/#configuring-an-s3-storage-gateway) for details
    - **Project ID** - REQUIRED FOR SERVICE ACCOUNT INTEGRATION
      - ⚠️ **CRITICAL PERMISSION REQUIREMENT**:
        1. The service account (client ID) MUST be an administrator in the specified project

@@ -44,6 +44,8 @@ In your CloudFormation template, we're creating:
 1. A **Server Collection** (the Globus Connect Server instance)
 2. With an **S3 Storage Connector** that provides access to your S3 bucket
 
+For more information on S3 Storage Gateways, see the [official Globus documentation](https://docs.globus.org/globus-connect-server/v5.4/reference/storage-gateways/)
+
 ### The Relationship in Detail:
 
 ```
@@ -66,6 +68,7 @@ AWS Account
    - S3 paths are restricted based on the configured domain pattern
    - The `GlobusS3Domain` parameter (e.g., "s3://*") defines allowed paths
    - Provides an additional layer of security and access control
+   - See [Globus S3 Storage Gateway Documentation](https://docs.globus.org/globus-connect-server/v5.4/reference/storage-gateways/#configuring-an-s3-storage-gateway) for details on domain formatting
 4. Performance Optimization:
    - The S3 connector is optimized for high-performance transfers
    - Uses data streaming, parallelism, and retry mechanisms

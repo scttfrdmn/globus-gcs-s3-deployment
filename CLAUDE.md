@@ -47,6 +47,7 @@ The deployment uses Ubuntu 22.04 LTS and installs Globus packages using the Debi
     - Optional parameters:
       - `--s3-endpoint`: S3 endpoint URL (defaults to https://s3.amazonaws.com)
       - `--s3-user-credential`: Use instance credentials for authentication
+    - Reference: [Globus S3 Storage Gateway Documentation](https://docs.globus.org/globus-connect-server/v5.4/reference/storage-gateways/#configuring-an-s3-storage-gateway)
   - Show endpoint: `globus-connect-server endpoint show`
   - Collection management:
     - List collections: `globus-connect-server collection list`
@@ -60,7 +61,9 @@ The deployment uses Ubuntu 22.04 LTS and installs Globus packages using the Debi
     - Specifically extracts version from "package X.Y.Z" format
     - Performs proper SemVer comparison for compatibility checks
     - Handles parameter changes across different versions
-    - Documentation: https://docs.globus.org/globus-connect-server/v5.4/reference/cli-reference/
+    - Documentation: 
+      - [CLI Reference](https://docs.globus.org/globus-connect-server/v5.4/reference/cli-reference/) 
+      - [Installation Guide](https://docs.globus.org/globus-connect-server/v5.4/installing/)
 - For command path issues:
   - Verify installation: `dpkg -l | grep globus`
   - Check command path: `which globus-connect-server`
@@ -184,8 +187,9 @@ When troubleshooting CloudFormation deployment failures:
     - Default is "admin@example.com" but should be customized with a valid contact email
   - `GlobusS3Domain`: Allowed domain for S3 gateway
     - Required for proper S3 gateway configuration with domain restrictions
-    - Specifies the allowed domain pattern for S3 paths (e.g., "s3://")
+    - Specifies the allowed domain pattern for S3 paths (e.g., "s3://*")
     - No default value is provided - must be explicitly set
+    - See [S3 Storage Gateway Documentation](https://docs.globus.org/globus-connect-server/v5.4/reference/storage-gateways/#configuring-an-s3-storage-gateway) for more details
   - For Globus Connect Server < 5.4.67:
     - `GlobusClientId`: Globus Auth client ID
     - `GlobusClientSecret`: Globus Auth client secret
