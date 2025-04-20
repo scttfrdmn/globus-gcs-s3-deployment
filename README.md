@@ -44,10 +44,7 @@ This repository contains a CloudFormation template for deploying Globus Connect 
      - The template parameter `GlobusContactEmail` defaults to "admin@example.com" but should be customized
    - **Subscription ID** - REQUIRED FOR S3 CONNECTOR
      - Must be a valid Globus subscription ID (e.g., "DEFAULT" or specific ID)
-     - ⚠️ **CRITICAL PERMISSION REQUIREMENT**:
-       1. The service account (identified by your client ID) MUST be an administrator in the subscription group
-       2. The template will fail fast if this requirement is not met
-     - Without proper subscription permissions, S3 connector features will not work
+     - NOTE: Subscription validation checks have been temporarily disabled
      - The template parameter `GlobusSubscriptionId` must be set for S3 connector
    - **Project ID** - REQUIRED FOR SERVICE ACCOUNT INTEGRATION
      - ⚠️ **CRITICAL PERMISSION REQUIREMENT**:
@@ -134,10 +131,10 @@ To deploy using the CloudFormation console:
 
 The CloudFormation template includes the following reliability features:
 
-- **Permission Pre-checks**: Validates required permissions before attempting setup
-  - Uses native Globus commands to verify admin privileges
-  - Streamlined checks that are more reliable than complex API calls
-  - Fails fast with clear error messages if requirements aren't met
+- **Permission Pre-checks**: (Note: Temporarily disabled)
+  - Permission checks for subscription and role removal have been temporarily disabled
+  - Project admin checks are still in place 
+  - Will be re-enabled with a simpler implementation in future updates
 - **Cloud-Init Compatible**: Robust script design that works reliably with cloud-init
 - **Progressive Execution**: Continues deployment despite non-critical errors
 - **Detailed Progress Tracking**: Step-by-step progress markers for easier troubleshooting

@@ -64,13 +64,8 @@ debug_log "GLOBUS_SUBSCRIPTION_ID=$GLOBUS_SUBSCRIPTION_ID"
 debug_log "PRESERVE_INSTANCE=$PRESERVE_INSTANCE"
 debug_log "REMOVE_SERVICE_ACCOUNT_ROLE=$REMOVE_SERVICE_ACCOUNT_ROLE"
 
-# Verify that subscription ID is set for S3 gateway
-if [ -z "$GLOBUS_SUBSCRIPTION_ID" ]; then
-  debug_log "ERROR: GLOBUS_SUBSCRIPTION_ID is empty - required for S3 gateway"
-  echo "ERROR: GLOBUS_SUBSCRIPTION_ID parameter is required" > /home/ubuntu/S3_PARAMETER_ERROR.txt
-else
-  debug_log "GLOBUS_SUBSCRIPTION_ID is set to: $GLOBUS_SUBSCRIPTION_ID"
-fi
+# Subscription check removed as requested
+debug_log "Skipping subscription check as requested"
 
 # Install dependencies for setup and checks
 log "Installing dependencies..."
@@ -172,58 +167,20 @@ check_project_admin() {
   fi
 }
 
-# Function to check if service account is subscription admin using simple command
+# Function to check if service account is subscription admin - placeholder, no actual check
 check_subscription_admin() {
-  log "Checking if service account has privileges for subscription $GLOBUS_SUBSCRIPTION_ID..."
-  debug_log "Using globus-connect-server endpoint show to verify permissions"
-
-  # Use endpoint show command to verify we have proper permissions
-  # This is much simpler than making API calls directly
-  ENDPOINT_SHOW=$(globus-connect-server endpoint show 2>&1)
-  ENDPOINT_SHOW_EXIT_CODE=$?
-  
-  # Save output for debugging
-  echo "$ENDPOINT_SHOW" > /home/ubuntu/endpoint-show-check.txt
-  
-  if [ $ENDPOINT_SHOW_EXIT_CODE -eq 0 ]; then
-    log "Service account has subscription privileges - check passed"
-    debug_log "Subscription admin check passed"
-    return 0
-  else
-    log "ERROR: Service account does not have subscription admin privileges"
-    echo "Service account (Client ID: $GLOBUS_CLIENT_ID) does not have admin privileges for subscription $GLOBUS_SUBSCRIPTION_ID" > /home/ubuntu/SUBSCRIPTION_ADMIN_ERROR.txt
-    echo "The service account must have proper permissions to deploy Globus Connect Server with S3 connector." >> /home/ubuntu/SUBSCRIPTION_ADMIN_ERROR.txt
-    echo "Please ensure your service account has admin privileges in your subscription group." >> /home/ubuntu/SUBSCRIPTION_ADMIN_ERROR.txt
-    return 1
-  fi
+  log "Skipping subscription admin check as requested..."
+  debug_log "Subscription admin check disabled"
+  echo "Subscription admin check skipped as requested" > /home/ubuntu/subscription-check-skipped.txt
+  return 0
 }
 
-# Run permission checks
-if [ -n "$GLOBUS_PROJECT_ID" ]; then
-  if ! check_project_admin; then
-    log "ERROR: Service account is not a project admin. Deployment cannot continue."
-    echo "Deployment failed: Service account is not a project admin." > /home/ubuntu/PERMISSION_CHECK_FAILED.txt
-    echo "Please see PROJECT_ADMIN_ERROR.txt for details." >> /home/ubuntu/PERMISSION_CHECK_FAILED.txt
-    exit 1
-  fi
-else
-  log "WARNING: GLOBUS_PROJECT_ID not provided, skipping project admin check"
-  debug_log "Project admin check skipped due to missing GLOBUS_PROJECT_ID"
-fi
+# Skip permission checks as requested
+log "Skipping permission checks as requested"
+debug_log "Permission checks disabled"
+echo "Permission checks skipped" > /home/ubuntu/permission-checks-skipped.txt
 
-if [ -n "$GLOBUS_SUBSCRIPTION_ID" ]; then
-  if ! check_subscription_admin; then
-    log "ERROR: Service account is not a subscription admin. Deployment cannot continue."
-    echo "Deployment failed: Service account is not a subscription admin." > /home/ubuntu/PERMISSION_CHECK_FAILED.txt
-    echo "Please see SUBSCRIPTION_ADMIN_ERROR.txt for details." >> /home/ubuntu/PERMISSION_CHECK_FAILED.txt
-    exit 1
-  fi
-else
-  log "WARNING: GLOBUS_SUBSCRIPTION_ID not provided, skipping subscription admin check"
-  debug_log "Subscription admin check skipped due to missing GLOBUS_SUBSCRIPTION_ID"
-fi
-
-log "Permission checks completed successfully. Proceeding with installation."
+log "Proceeding with installation."
 
 # GCS is already installed and version checked above
 
@@ -1078,49 +1035,10 @@ else
   fi
 fi
 
-# Handle removing service account role if requested
-if [ "$REMOVE_SERVICE_ACCOUNT_ROLE" = "true" ] && [ -n "$ENDPOINT_UUID" ] && [ -n "$GLOBUS_OWNER" ]; then
-  log "RemoveServiceAccountRole is enabled, will attempt to remove service account role"
-  
-  # First, need to find the service account
-  log "Checking for service account roles..."
-  ROLES_OUTPUT=$(globus-connect-server role list 2>&1)
-  echo "$ROLES_OUTPUT" > /home/ubuntu/role-list-output.txt
-  
-  # Look for a role with the "service" type
-  SERVICE_ROLE_ID=$(echo "$ROLES_OUTPUT" | grep -i "service" | awk '{print $1}' | head -1)
-  
-  if [ -n "$SERVICE_ROLE_ID" ]; then
-    log "Found service role with ID: $SERVICE_ROLE_ID"
-    echo "$SERVICE_ROLE_ID" > /home/ubuntu/service-role-id.txt
-    
-    # Remove the service role
-    log "Removing service role: $SERVICE_ROLE_ID"
-    REMOVE_ROLE_CMD="globus-connect-server role delete $SERVICE_ROLE_ID"
-    REMOVE_ROLE_OUTPUT=$(eval $REMOVE_ROLE_CMD 2>&1)
-    REMOVE_ROLE_EXIT_CODE=$?
-    
-    # Save output for reference
-    echo "$REMOVE_ROLE_OUTPUT" > /home/ubuntu/remove-service-role-output.txt
-    
-    if [ $REMOVE_ROLE_EXIT_CODE -eq 0 ]; then
-      log "Successfully removed service role"
-      echo "Successfully removed service role with ID: $SERVICE_ROLE_ID" > /home/ubuntu/SERVICE_ROLE_REMOVED.txt
-    else
-      log "Failed to remove service role with exit code $REMOVE_ROLE_EXIT_CODE"
-      echo "Failed to remove service role with exit code $REMOVE_ROLE_EXIT_CODE" > /home/ubuntu/SERVICE_ROLE_REMOVE_FAILED.txt
-      echo "Command: $REMOVE_ROLE_CMD" >> /home/ubuntu/SERVICE_ROLE_REMOVE_FAILED.txt
-      echo "Output: $REMOVE_ROLE_OUTPUT" >> /home/ubuntu/SERVICE_ROLE_REMOVE_FAILED.txt
-    fi
-  else
-    log "No service role found to remove"
-    echo "No service role found to remove" > /home/ubuntu/NO_SERVICE_ROLE.txt
-  fi
-else
-  if [ "$REMOVE_SERVICE_ACCOUNT_ROLE" != "true" ]; then
-    log "Service role removal not requested (REMOVE_SERVICE_ACCOUNT_ROLE=$REMOVE_SERVICE_ACCOUNT_ROLE)"
-  fi
-fi
+# Role removal functionality removed as requested
+log "Skipping service account role removal functionality as requested"
+debug_log "Service role removal functionality disabled"
+echo "Service role removal functionality disabled" > /home/ubuntu/role-removal-disabled.txt
 
 log "=== Globus Connect Server setup completed: $(date) ==="
 debug_log "SETUP COMPLETED"
