@@ -538,12 +538,6 @@ EOFSUBSCRIPTION
           # Extract the gateway ID from the output
           # Format: "Storage Gateway ID: UUID"
           S3_GATEWAY_ID=$(echo "$S3_OUTPUT" | grep -i "Storage Gateway ID:" | awk '{print $NF}' | head -1)
-          
-          # Fallback: If not found, try to extract any UUID from the output
-          if [ -z "$S3_GATEWAY_ID" ]; then
-            log "Primary extraction method failed, trying to extract any UUID from output"
-            S3_GATEWAY_ID=$(echo "$S3_OUTPUT" | grep -oE "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
-          fi
           if [ -n "$S3_GATEWAY_ID" ]; then
             log "Extracted S3 gateway ID: $S3_GATEWAY_ID"
             echo "$S3_GATEWAY_ID" > /home/ubuntu/s3-gateway-id.txt
@@ -552,65 +546,87 @@ EOFSUBSCRIPTION
             if [[ "$S3_GATEWAY_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
               log "Gateway ID appears to be a valid UUID format"
             else
-              log "WARNING: Gateway ID ($S3_GATEWAY_ID) does not appear to be a valid UUID format"
-              echo "WARNING: Gateway ID ($S3_GATEWAY_ID) does not appear to be a valid UUID" > /home/ubuntu/gateway-id-warning.txt
+              log "ERROR: Gateway ID ($S3_GATEWAY_ID) does not appear to be a valid UUID format"
+              echo "ERROR: Gateway ID ($S3_GATEWAY_ID) does not appear to be a valid UUID" > /home/ubuntu/S3_GATEWAY_ID_ERROR.txt
+              # Continue with the collection creation attempt anyway
             fi
+          else
+            log "ERROR: Failed to extract S3 gateway ID from command output"
+            echo "ERROR: Failed to extract S3 gateway ID from command output" > /home/ubuntu/S3_GATEWAY_ID_ERROR.txt
+            echo "Expected format: 'Storage Gateway ID: <UUID>'" >> /home/ubuntu/S3_GATEWAY_ID_ERROR.txt
+            echo "Actual output first 200 characters: ${S3_OUTPUT:0:200}" >> /home/ubuntu/S3_GATEWAY_ID_ERROR.txt
+            echo "Please report this issue with the full output from: /home/ubuntu/s3-gateway-output.txt" >> /home/ubuntu/S3_GATEWAY_ID_ERROR.txt
+            return 1
+          fi
+          
+          # Automatically create a collection for this gateway
+          log "S3 gateway created successfully. Automatically creating a collection..."
+          S3_COLLECTION_NAME="${GLOBUS_BASE_NAME} S3 Collection"
+          log "Creating collection: $S3_COLLECTION_NAME for gateway $S3_GATEWAY_ID with base path /"
+          
+          # S3 collections require a base path of '/' for the root of the gateway
+          S3_BASE_PATH="/"
+          COLLECTION_OUTPUT=$(globus-connect-server collection create "$S3_GATEWAY_ID" "$S3_BASE_PATH" "$S3_COLLECTION_NAME" 2>&1)
+          COLLECTION_EXIT_CODE=$?
+          
+          # Save output for reference
+          echo "$COLLECTION_OUTPUT" > /home/ubuntu/s3-collection-output.txt
+          
+          if [ $COLLECTION_EXIT_CODE -eq 0 ]; then
+            log "S3 collection created successfully"
             
-            # Automatically create a collection for this gateway
-            log "S3 gateway created successfully. Automatically creating a collection..."
-            S3_COLLECTION_NAME="${GLOBUS_BASE_NAME} S3 Collection"
-            log "Creating collection: $S3_COLLECTION_NAME for gateway $S3_GATEWAY_ID with base path /"
-            
-            # S3 collections require a base path of '/' for the root of the gateway
-            S3_BASE_PATH="/"
-            COLLECTION_OUTPUT=$(globus-connect-server collection create "$S3_GATEWAY_ID" "$S3_BASE_PATH" "$S3_COLLECTION_NAME" 2>&1)
-            COLLECTION_EXIT_CODE=$?
-            
-            # Save output for reference
-            echo "$COLLECTION_OUTPUT" > /home/ubuntu/s3-collection-output.txt
-            
-            if [ $COLLECTION_EXIT_CODE -eq 0 ]; then
-              log "S3 collection created successfully"
+            # Extract the collection ID from the output
+            # Format: "Collection ID: UUID"
+            S3_COLLECTION_ID=$(echo "$COLLECTION_OUTPUT" | grep -i "Collection ID:" | awk '{print $NF}' | head -1)
+            if [ -n "$S3_COLLECTION_ID" ]; then
+              log "Extracted S3 collection ID: $S3_COLLECTION_ID"
+              echo "$S3_COLLECTION_ID" > /home/ubuntu/s3-collection-id.txt
               
-              # Extract the collection ID from the output
-              S3_COLLECTION_ID=$(echo "$COLLECTION_OUTPUT" | grep -i "id:" | awk '{print $2}' | head -1)
-              if [ -n "$S3_COLLECTION_ID" ]; then
-                log "Extracted S3 collection ID: $S3_COLLECTION_ID"
-                echo "$S3_COLLECTION_ID" > /home/ubuntu/s3-collection-id.txt
-                
-                # Create reference to the collection URL
-                COLLECTION_URL="https://app.globus.org/file-manager?destination_id=${S3_COLLECTION_ID}"
-                echo "$COLLECTION_URL" > /home/ubuntu/s3-collection-url.txt
-                
-                # Add permissions for the owner if specified
-                if [ -n "$GLOBUS_OWNER" ]; then
-                  log "Setting permissions for owner $GLOBUS_OWNER on collection $S3_COLLECTION_ID"
-                  PERMISSION_OUTPUT=$(globus-connect-server endpoint permission create --identity "$GLOBUS_OWNER" --permissions rw --collection "$S3_COLLECTION_ID" 2>&1)
-                  PERMISSION_EXIT_CODE=$?
-                  
-                  # Save output for reference
-                  echo "$PERMISSION_OUTPUT" > /home/ubuntu/s3-permission-output.txt
-                  
-                  if [ $PERMISSION_EXIT_CODE -eq 0 ]; then
-                    log "Successfully set permissions for $GLOBUS_OWNER on S3 collection"
-                    echo "true" > /home/ubuntu/s3-permissions-set.txt
-                  else
-                    log "Failed to set permissions for $GLOBUS_OWNER on S3 collection with exit code $PERMISSION_EXIT_CODE"
-                    echo "false" > /home/ubuntu/s3-permissions-set.txt
-                    echo "Error details: $PERMISSION_OUTPUT" >> /home/ubuntu/S3_PERMISSION_FAILED.txt
-                  fi
-                fi
+              # Verify it looks like a valid UUID
+              if [[ "$S3_COLLECTION_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+                log "Collection ID appears to be a valid UUID format"
               else
-                log "Could not extract collection ID from output"
+                log "ERROR: Collection ID ($S3_COLLECTION_ID) does not appear to be a valid UUID format"
+                echo "ERROR: Collection ID ($S3_COLLECTION_ID) does not appear to be a valid UUID" > /home/ubuntu/S3_COLLECTION_ID_ERROR.txt
+              fi
+              
+              # Create reference to the collection URL
+              COLLECTION_URL="https://app.globus.org/file-manager?destination_id=${S3_COLLECTION_ID}"
+              echo "$COLLECTION_URL" > /home/ubuntu/s3-collection-url.txt
+              
+              # Add permissions for the owner if specified
+              if [ -n "$GLOBUS_OWNER" ]; then
+                log "Setting permissions for owner $GLOBUS_OWNER on collection $S3_COLLECTION_ID"
+                PERMISSION_OUTPUT=$(globus-connect-server endpoint permission create --identity "$GLOBUS_OWNER" --permissions rw --collection "$S3_COLLECTION_ID" 2>&1)
+                PERMISSION_EXIT_CODE=$?
+                
+                # Save output for reference
+                echo "$PERMISSION_OUTPUT" > /home/ubuntu/s3-permission-output.txt
+                
+                if [ $PERMISSION_EXIT_CODE -eq 0 ]; then
+                  log "Successfully set permissions for $GLOBUS_OWNER on S3 collection"
+                  echo "true" > /home/ubuntu/s3-permissions-set.txt
+                else
+                  log "Failed to set permissions for $GLOBUS_OWNER on S3 collection with exit code $PERMISSION_EXIT_CODE"
+                  echo "false" > /home/ubuntu/s3-permissions-set.txt
+                  echo "Error details: $PERMISSION_OUTPUT" >> /home/ubuntu/S3_PERMISSION_FAILED.txt
+                fi
               fi
             else
-              log "Failed to create S3 collection with exit code $COLLECTION_EXIT_CODE"
-              echo "Failed to create S3 collection with exit code $COLLECTION_EXIT_CODE" > /home/ubuntu/S3_COLLECTION_FAILED.txt
-              echo "Command output: $COLLECTION_OUTPUT" >> /home/ubuntu/S3_COLLECTION_FAILED.txt
+              log "ERROR: Failed to extract S3 collection ID from command output"
+              echo "ERROR: Failed to extract S3 collection ID from command output" > /home/ubuntu/S3_COLLECTION_ID_ERROR.txt
+              echo "Expected format: 'Collection ID: <UUID>'" >> /home/ubuntu/S3_COLLECTION_ID_ERROR.txt
+              echo "Actual output first 200 characters: ${COLLECTION_OUTPUT:0:200}" >> /home/ubuntu/S3_COLLECTION_ID_ERROR.txt
+              echo "Please report this issue with the full output from: /home/ubuntu/s3-collection-output.txt" >> /home/ubuntu/S3_COLLECTION_ID_ERROR.txt
             fi
-            
-            # Still create a summary file with access information
-            cat > /home/ubuntu/s3-collection-info.txt << EOF
+          else
+            log "Failed to create S3 collection with exit code $COLLECTION_EXIT_CODE"
+            echo "Failed to create S3 collection with exit code $COLLECTION_EXIT_CODE" > /home/ubuntu/S3_COLLECTION_FAILED.txt
+            echo "Command output: $COLLECTION_OUTPUT" >> /home/ubuntu/S3_COLLECTION_FAILED.txt
+          fi
+          
+          # Still create a summary file with access information
+          cat > /home/ubuntu/s3-collection-info.txt << EOF
 S3 Gateway and Collection Information:
 ======================================
 Gateway ID: $S3_GATEWAY_ID
@@ -622,10 +638,7 @@ Owner Permissions: $([ -f /home/ubuntu/s3-permissions-set.txt ] && cat /home/ubu
 You can access this collection through the Globus web interface at:
 https://app.globus.org/file-manager
 EOF
-            chown ubuntu:ubuntu /home/ubuntu/s3-collection-info.txt
-          else
-            log "Could not extract S3 gateway ID from output"
-          fi
+          chown ubuntu:ubuntu /home/ubuntu/s3-collection-info.txt
         else
           log "Failed to create S3 gateway with exit code $S3_EXIT_CODE"
           debug_log "S3 gateway creation FAILED. Full output: $S3_OUTPUT"
