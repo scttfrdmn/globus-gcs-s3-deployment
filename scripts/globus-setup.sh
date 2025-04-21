@@ -536,10 +536,25 @@ EOFSUBSCRIPTION
           log "S3 gateway created successfully"
           
           # Extract the gateway ID from the output
-          S3_GATEWAY_ID=$(echo "$S3_OUTPUT" | grep -i "id:" | awk '{print $2}' | head -1)
+          # Format: "Storage Gateway ID: UUID"
+          S3_GATEWAY_ID=$(echo "$S3_OUTPUT" | grep -i "Storage Gateway ID:" | awk '{print $NF}' | head -1)
+          
+          # Fallback: If not found, try to extract any UUID from the output
+          if [ -z "$S3_GATEWAY_ID" ]; then
+            log "Primary extraction method failed, trying to extract any UUID from output"
+            S3_GATEWAY_ID=$(echo "$S3_OUTPUT" | grep -oE "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
+          fi
           if [ -n "$S3_GATEWAY_ID" ]; then
             log "Extracted S3 gateway ID: $S3_GATEWAY_ID"
             echo "$S3_GATEWAY_ID" > /home/ubuntu/s3-gateway-id.txt
+            
+            # Verify it looks like a valid UUID
+            if [[ "$S3_GATEWAY_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+              log "Gateway ID appears to be a valid UUID format"
+            else
+              log "WARNING: Gateway ID ($S3_GATEWAY_ID) does not appear to be a valid UUID format"
+              echo "WARNING: Gateway ID ($S3_GATEWAY_ID) does not appear to be a valid UUID" > /home/ubuntu/gateway-id-warning.txt
+            fi
             
             # Automatically create a collection for this gateway
             log "S3 gateway created successfully. Automatically creating a collection..."
