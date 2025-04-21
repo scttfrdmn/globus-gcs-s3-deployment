@@ -51,7 +51,7 @@ The deployment uses Ubuntu 22.04 LTS and installs Globus packages using the Debi
   - Show endpoint: `globus-connect-server endpoint show`
   - Collection management:
     - List collections: `globus-connect-server collection list`
-    - Create collection: `globus-connect-server collection create --storage-gateway <ID> --display-name "Name"`
+    - Create collection: `globus-connect-server collection create <STORAGE_GATEWAY_ID> <BASE_PATH> <DISPLAY_NAME>`
     - Delete collection: `globus-connect-server collection delete <ID>`
     - Set permissions: `globus-connect-server endpoint permission create --identity <EMAIL> --permissions rw --collection <ID>`
   - Endpoint removal: `globus-connect-server endpoint remove`

@@ -544,9 +544,11 @@ EOFSUBSCRIPTION
             # Automatically create a collection for this gateway
             log "S3 gateway created successfully. Automatically creating a collection..."
             S3_COLLECTION_NAME="${GLOBUS_BASE_NAME} S3 Collection"
-            log "Creating collection: $S3_COLLECTION_NAME for gateway $S3_GATEWAY_ID"
+            log "Creating collection: $S3_COLLECTION_NAME for gateway $S3_GATEWAY_ID with base path /"
             
-            COLLECTION_OUTPUT=$(globus-connect-server collection create --storage-gateway "$S3_GATEWAY_ID" --display-name "$S3_COLLECTION_NAME" 2>&1)
+            # S3 collections require a base path of '/' for the root of the gateway
+            S3_BASE_PATH="/"
+            COLLECTION_OUTPUT=$(globus-connect-server collection create "$S3_GATEWAY_ID" "$S3_BASE_PATH" "$S3_COLLECTION_NAME" 2>&1)
             COLLECTION_EXIT_CODE=$?
             
             # Save output for reference
